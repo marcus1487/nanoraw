@@ -14,7 +14,7 @@ from helper import normalize_raw_signal
 # i.e. getting sequnce for region from first read
 PARTIAL_OVERLAP = False
 
-DO_PROFILE = True
+DO_PROFILE = False
 
 readData = namedtuple('readData', (
     'start', 'end', 'segs', 'read_start_rel_to_raw',

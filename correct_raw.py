@@ -27,6 +27,8 @@ except:
 
 
 NANORAW_VERSION = '0.1'
+DO_PROFILE = False
+
 COMP_BASES = {'A':'T', 'C':'G', 'G':'C', 'T':'A', '-':'-'}
 def rev_comp(seq):
     return ''.join(COMP_BASES[b] for b in seq[::-1])
@@ -680,6 +682,14 @@ def main():
 
     files = [os.path.join(filebase, fn) for fn in os.listdir(filebase)]
 
+    if DO_PROFILE:
+        import cProfile
+        cProfile.runctx(
+            """failed_reads = get_all_reads_data(
+                   files, genome_filename, graphmap_path, basecall_group,
+                   corrected_group, num_p, timeout, num_cpts_limit)""",
+            globals(), locals(), 'profile.correct_reads.prof')
+        sys.exit()
     failed_reads = get_all_reads_data(
         files, genome_filename, graphmap_path, basecall_group,
         corrected_group, num_p, timeout, num_cpts_limit)
