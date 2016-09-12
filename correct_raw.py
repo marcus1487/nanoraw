@@ -558,6 +558,24 @@ def correct_raw_data(
 def get_aligned_seq_worker(
         filenames_q, failed_reads_q, genome_filename, graphmap_path,
         basecall_group, corrected_group, timeout, num_cpts_limit):
+    if DO_PROFILE:
+        import cProfile
+        cProfile.runctx(
+            """while not filenames_q.empty():
+        try:
+            fn = filenames_q.get(block=False)
+        except Queue.Empty:
+            break
+
+        try:
+            correct_raw_data(
+                fn, genome_filename, graphmap_path, basecall_group,
+                corrected_group, timeout=timeout,
+                num_cpts_limit=num_cpts_limit)
+        except Exception as e:
+            failed_reads_q.put((str(e), fn))""",
+            globals(), locals(), 'profile.correct_reads.prof')
+        sys.exit()
     while not filenames_q.empty():
         try:
             fn = filenames_q.get(block=False)
@@ -680,16 +698,10 @@ def main():
      timeout, num_cpts_limit, basecall_group, corrected_group,
      write_failed) = parse_arguments()
 
+    if DO_PROFILE: num_p = 1
+
     files = [os.path.join(filebase, fn) for fn in os.listdir(filebase)]
 
-    if DO_PROFILE:
-        import cProfile
-        cProfile.runctx(
-            """failed_reads = get_all_reads_data(
-                   files, genome_filename, graphmap_path, basecall_group,
-                   corrected_group, num_p, timeout, num_cpts_limit)""",
-            globals(), locals(), 'profile.correct_reads.prof')
-        sys.exit()
     failed_reads = get_all_reads_data(
         files, genome_filename, graphmap_path, basecall_group,
         corrected_group, num_p, timeout, num_cpts_limit)
