@@ -8,22 +8,33 @@ import multiprocessing as mp
 
 from time import sleep, time
 from subprocess import call, STDOUT
+from itertools import groupby, izip
 from tempfile import NamedTemporaryFile
 from collections import defaultdict, namedtuple
-from itertools import groupby
 
 from helper import normalize_raw_signal
 
-try:
-    # load changepoint from R since pythons isn't very stable
-    import rpy2.robjects as r
-    from rpy2.robjects.packages import importr
-    # TODO: suppress message when changepoint is not available
-    # currently it is printed out here even if the user won't use it
-    rChpt = importr("changepoint")
-    USE_R_CPTS = True
-except:
-    USE_R_CPTS = False
+fd = sys.stderr.fileno()
+def _redirect_stderr(to):
+    sys.stderr.close()
+    os.dup2(to.fileno(), fd)
+    sys.stderr = os.fdopen(fd, 'w')
+
+with os.fdopen(os.dup(fd), 'w') as old_stderr:
+    with open(os.devnull, 'w') as fp:
+        _redirect_stderr(fp)
+    try:
+        # load changepoint from R since pythons isn't very stable
+        import rpy2.robjects as r
+        from rpy2.robjects.packages import importr
+        # TODO: suppress message when changepoint is not available
+        # currently it is printed out here even if the user won't use it
+        rChpt = importr("changepoint")
+        USE_R_CPTS = True
+    except:
+        USE_R_CPTS = False
+    finally:
+        _redirect_stderr(old_stderr)
 
 
 NANORAW_VERSION = '0.1'
@@ -60,7 +71,7 @@ GRAPHMAP_FIELDS = (
 def write_new_fast5_group(
         filename, genome_location, read_info,
         read_start_rel_to_raw, new_segs, align_seq, alignVals,
-        raw_signal, norm_signal, basecall_group, corrected_group):
+        norm_signal, shift, scale, basecall_group, corrected_group):
     # save new events as new hdf5 Group
     read_data = h5py.File(filename, 'r+')
     analyses_grp = read_data['Analyses']
@@ -97,21 +108,21 @@ def write_new_fast5_group(
 
     # store new aligned segments and sequence
     corr_temp = corr_grp.create_group('template')
+    corr_temp.attrs['shift'] = shift
+    corr_temp.attrs['scale'] = scale
     corr_events = corr_temp.create_dataset('Segments', data=new_segs)
     corr_events.attrs['read_start_rel_to_raw'] = read_start_rel_to_raw
 
     # Add Events to data frame with event means, SDs and lengths
-    raw_mean_sd = [(np.mean(base_sig), np.std(base_sig)) for base_sig in
-                   np.split(raw_signal, new_segs[1:-1])]
-    norm_mean_sd = [(np.mean(base_sig), np.std(base_sig)) for base_sig in
+    """raw_mean_sd = [(base_sig.mean(), base_sig.std()) for base_sig in
+                   np.split(raw_signal, new_segs[1:-1])]"""
+    norm_mean_sd = [(base_sig.mean(), base_sig.std()) for base_sig in
                     np.split(norm_signal, new_segs[1:-1])]
 
     event_data = np.array(
-        zip(zip(*raw_mean_sd)[0], zip(*raw_mean_sd)[1],
-            zip(*norm_mean_sd)[0], zip(*norm_mean_sd)[1],
+        zip(zip(*norm_mean_sd)[0], zip(*norm_mean_sd)[1],
             new_segs[:-1], np.diff(new_segs), list(align_seq)),
-        dtype=[('mean', '<f8'), ('stdev', '<f8'),
-               ('norm_mean', '<f8'), ('norm_stdev', '<f8'),
+        dtype=[('norm_mean', '<f8'), ('norm_stdev', '<f8'),
                ('start', '<f8'), ('length', '<f8'), ('base', 'S1')])
     corr_events = corr_temp.create_dataset('Events', data=event_data)
 
@@ -321,7 +332,8 @@ def align_to_genome(basecalls, genome_filename, graphmap_path):
                         rev_comp(alignment['tAlignedSeq']))
 
     return alignVals, genomeLoc(
-        int(alignment['tStart']), alignment['qStrand'], alignment['tName'])
+        int(alignment['tStart']), alignment['qStrand'],
+        alignment['tName'])
 
 def trim_alignment(alignVals, starts_rel_to_read,
                    read_start_rel_to_raw, abs_event_start,
@@ -504,10 +516,10 @@ def correct_raw_data(
             if rb != '-' and gb != '-'))
 
     # normalize signal
-    raw_signal = normalize_raw_signal(
+    """raw_signal = normalize_raw_signal(
         all_raw_signal, read_start_rel_to_raw, starts_rel_to_read[-1],
-        'none', channel_info, outlier_threshold)
-    norm_signal = normalize_raw_signal(
+        'none', channel_info, outlier_threshold)"""
+    norm_signal, shift, scale = normalize_raw_signal(
         all_raw_signal, read_start_rel_to_raw, starts_rel_to_read[-1],
         'median', channel_info, outlier_threshold)
 
@@ -524,7 +536,7 @@ def correct_raw_data(
 
     # group indels that are adjacent for re-segmentation
     indel_groups = get_indel_groups(
-        align_dat, starts_rel_to_read, raw_signal, min_event_obs,
+        align_dat, starts_rel_to_read, norm_signal, min_event_obs,
         timeout, num_cpts_limit)
 
     new_segs = []
@@ -547,7 +559,7 @@ def correct_raw_data(
         write_new_fast5_group(
             filename, genome_location, read_info,
             read_start_rel_to_raw, new_segs, align_seq, alignVals,
-            raw_signal, norm_signal, basecall_group, corrected_group)
+            norm_signal, shift, scale, basecall_group, corrected_group)
     else:
         # create new hdf5 file to hold new read signal
         raise NotImplementedError, (

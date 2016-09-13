@@ -96,13 +96,14 @@ def parse_files(files, corrected_group, norm_type='median',
                 'Analyses/' + corrected_group +
                 '/template/Events']['norm_mean'])
             read_start_rel_to_raw = read_data[
-                'Analyses/' + corrected_group + '/template/Segments'].attrs[
-                    'read_start_rel_to_raw']
-            raw_read_coverage[align_data['mapped_chrom']].append(readData(
-                align_data['mapped_start'],
-                align_data['mapped_start'] + len(segs) - 1,
-                segs, read_start_rel_to_raw, align_data, base_means,
-                read_fn))
+                'Analyses/' + corrected_group +
+                '/template/Segments'].attrs['read_start_rel_to_raw']
+            raw_read_coverage[align_data['mapped_chrom']].append(
+                readData(
+                    align_data['mapped_start'],
+                    align_data['mapped_start'] + len(segs) - 1,
+                    segs, read_start_rel_to_raw, align_data, base_means,
+                    read_fn))
 
     return raw_read_coverage
 
@@ -141,16 +142,16 @@ def get_base_signal(raw_read_coverage, chrm_sizes):
 
 def get_signal(read_fn, read_start_rel_to_raw, num_obs):
     with h5py.File(read_fn) as read_data:
-        r_sig = normalize_raw_signal(
+        r_sig, shift, scale = normalize_raw_signal(
             read_data['Raw/Reads'].values()[0]['Signal'],
             read_start_rel_to_raw, num_obs, 'median', None, 5)
 
     return r_sig
 
 def get_plot_data(interval_data, raw_read_coverage, num_bases,
-                  group_num='0'):
-    Position, Signal, Read, Strand, Region = [], [], [], [], []
+                  corrected_group, group_num='0'):
     BaseStart, Bases, BaseRegion = [], [], []
+    Position, Signal, Read, Strand, Region = [], [], [], [], []
     for region_i, (stat, interval_start, chrom) in enumerate(
             interval_data):
         # get all reads that overlap this interval
@@ -182,7 +183,8 @@ def get_plot_data(interval_data, raw_read_coverage, num_bases,
         # get seq data from first read FAST5 file
         with h5py.File(reg_data[0].fn) as r0_data:
             seq = ''.join(r0_data[
-                'Analyses/RawGenomeCorrected/template/Events']['base'])
+                'Analyses/' + corrected_group +
+                '/template/Events']['base'])
         r_base_data = seq if reg_data[0].alignment[
             'mapped_strand'] == "+" else rev_comp(seq)
         reg_base_data = r_base_data[
@@ -259,10 +261,12 @@ def plot_max_diff(files1, files2, num_regions, corrected_group,
     sys.stderr.write('Getting plot data.\n')
     (BaseStart1, Bases1, BaseRegion1,
      Position1, Signal1, Read1, Strand1, Region1) = get_plot_data(
-         plot_intervals, raw_read_coverage1, num_bases, '0')
+         plot_intervals, raw_read_coverage1, num_bases,
+         corrected_group, '0')
     (BaseStart2, Bases2, BaseRegion2,
      Position2, Signal2, Read2, Strand2, Region2) = get_plot_data(
-         plot_intervals, raw_read_coverage2, num_bases, '1')
+         plot_intervals, raw_read_coverage2, num_bases,
+         corrected_group, '1')
 
     sys.stderr.write('Plotting.\n')
     rawDat = r.DataFrame({
@@ -309,7 +313,7 @@ def plot_max_coverage(files, num_regions, corrected_group,
     (BaseStart, Bases, BaseRegion,
      Position, Signal, Read, Strand, Region) = get_plot_data(
          sorted(read_coverage, reverse=True)[:num_regions],
-         raw_read_coverage, num_bases)
+         raw_read_coverage, num_bases, corrected_group)
 
     sys.stderr.write('Plotting.\n')
     rawDat = r.DataFrame({
@@ -337,22 +341,25 @@ def parse_arguments():
     parser.add_argument('fast5_basedir',
                         help='Directory containing fast5 files.')
 
-    parser.add_argument('--fast5-basedir2',
-                        help='Second directory containing fast5 files. '+
-                        'If provided regions centered base with largest '+
-                        'difference in mean signal will be plotted. If ' +
-                        'not provide regions with max coverage will be plotted')
-    parser.add_argument('--num-regions', type=int,
+    parser.add_argument(
+        '--fast5-basedir2',
+        help='Second directory containing fast5 files. '+
+        'If provided regions centered base with largest '+
+        'difference in mean signal will be plotted. If ' +
+        'not provide regions with max coverage will be plotted')
+    parser.add_argument('--num-regions', type=int, default=10,
                         help='Number of regions to plot.')
 
-    parser.add_argument('--corrected-group', default='RawGenomeCorrected_000',
-                        help='FAST5 group to plot created by correct_raw ' +
-                        'script. Default: %(default)s')
+    parser.add_argument(
+        '--corrected-group', default='RawGenomeCorrected_000',
+        help='FAST5 group to plot created by correct_raw ' +
+        'script. Default: %(default)s')
 
-    parser.add_argument('--pdf-filebase', default='Nanopore_read_coverage',
-                        help='Base for PDF to store plots (suffix depends ' +
-                        'on plot type to avoid overwriting plots). ' +
-                        'Default: %(default)s')
+    parser.add_argument(
+        '--pdf-filebase', default='Nanopore_read_coverage',
+        help='Base for PDF to store plots (suffix depends ' +
+        'on plot type to avoid overwriting plots). ' +
+        'Default: %(default)s')
 
     parser.add_argument('--verbose', '-v', default=False,
                         action='store_true',
@@ -360,24 +367,28 @@ def parse_arguments():
                         'information.')
     args = parser.parse_args()
 
-    return args.fast5_basedir, args.fast5_basedir2, args.num_regions, \
-        args.corrected_group, args.pdf_filebase
+    return (args.fast5_basedir, args.fast5_basedir2, args.num_regions,
+            args.corrected_group, args.pdf_filebase)
 
 def main():
-    filebase1, filebase2, num_regions, corrected_group, \
-        fn_base = parse_arguments()
+    (filebase1, filebase2, num_regions, corrected_group,
+     fn_base) = parse_arguments()
 
-    files1 = [os.path.join(filebase1, fn) for fn in os.listdir(filebase1)]
+    files1 = [os.path.join(filebase1, fn)
+              for fn in os.listdir(filebase1)]
 
     if filebase2:
-        files2 = [os.path.join(filebase2, fn) for fn in os.listdir(filebase2)]
+        files2 = [os.path.join(filebase2, fn)
+                  for fn in os.listdir(filebase2)]
         if DO_PROFILE:
             import cProfile
             cProfile.runctx(
-                "plot_max_diff(files1, files2, num_regions, corrected_group, fn_base)",
+                "plot_max_diff(files1, files2, num_regions, " +
+                "corrected_group, fn_base)",
                 globals(), locals(), 'profile.plot_compare.prof')
             sys.exit()
-        plot_max_diff(files1, files2, num_regions, corrected_group, fn_base)
+        plot_max_diff(
+            files1, files2, num_regions, corrected_group, fn_base)
     else:
         plot_max_coverage(files1, num_regions, corrected_group, fn_base)
 
