@@ -392,7 +392,7 @@ def fix_stay_states(
     start_trim = 0
     event_change_state = change_states[0]
     while not event_change_state:
-        if start_trim >= len(change_states):
+        if start_trim >= len(change_states) - 2:
             raise RuntimeError, (
                 'Read is composed entirely of stay model ' +
                 'states and cannot be processed')
@@ -679,11 +679,10 @@ def parse_arguments():
                         help='Use R changepoint package to determine ' +
                         'new event delimiters. (requires rpy, R and R ' +
                         'package "changepoint" to be installed)')
-    parser.add_argument('--write-failed-reads', default=False,
-                        action='store_true',
-                        help='Output failed read filenames into a file ' +
-                        'named "failded_reads.txt" with assoicated ' +
-                        'error for each read.')
+    parser.add_argument('--failed-reads-filename',
+                        help='Output failed read filenames into a this file ' +
+                        'with assoicated error for each read. Default: ' +
+                        'Do not store failed reads.')
 
     parser.add_argument('--overwrite', default=False,
                         action='store_true',
@@ -701,12 +700,12 @@ def parse_arguments():
 
     return (args.fast5_basedir, args.graphmap_path, args.genome_fasta,
             args.processes, args.timeout, args.cpts_limit, args.basecall_group,
-            args.corrected_group, args.write_failed_reads)
+            args.corrected_group, args.failed_reads_filename)
 
 def main():
     (filebase, graphmap_path, genome_filename, num_p,
      timeout, num_cpts_limit, basecall_group, corrected_group,
-     write_failed) = parse_arguments()
+     failed_fn) = parse_arguments()
 
     if DO_PROFILE: num_p = 1
 
@@ -718,8 +717,8 @@ def main():
     sys.stderr.write('Failed reads summary:\n' + '\n'.join(
         "\t" + err + " :\t" + str(len(fns))
         for err, fns in failed_reads.items()) + '\n')
-    if write_failed:
-        with open('failed_reads.txt', 'w') as fp:
+    if failed_fn is not None:
+        with open(failed_fn, 'w') as fp:
             fp.write('\n'.join((
                 err + '\t' + ','.join(fns)
                 for err, fns in failed_reads.items())) + '\n')
