@@ -27,8 +27,6 @@ with os.fdopen(os.dup(fd), 'w') as old_stderr:
         # load changepoint from R since pythons isn't very stable
         import rpy2.robjects as r
         from rpy2.robjects.packages import importr
-        # TODO: suppress message when changepoint is not available
-        # currently it is printed out here even if the user won't use it
         rChpt = importr("changepoint")
         USE_R_CPTS = True
     except:

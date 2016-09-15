@@ -129,9 +129,8 @@ def get_base_signal(raw_read_coverage, chrm_sizes):
                 r_data.start:r_data.start +
                 len(read_means)] += 1
 
-    # TODO: setting error output doesn't seem to be working
     # take the mean over all signal overlapping each base
-    old_err_settings = np.seterr(divide='ignore')
+    old_err_settings = np.seterr(all='ignore')
     mean_base_signal = {}
     for chrm_strand, chrm_sum_cov in base_signal.items():
         mean_base_signal[chrm_strand] = np.nan_to_num(
@@ -148,54 +147,10 @@ def get_signal(read_fn, read_start_rel_to_raw, num_obs):
 
     return r_sig
 
-def get_plot_data(interval_data, raw_read_coverage, num_bases,
-                  corrected_group, group_num='0'):
-    BaseStart, Bases, BaseRegion = [], [], []
+def get_signal_data(all_reg_data, num_bases, corrected_group, group_num='0'):
     Position, Signal, Read, Strand, Region = [], [], [], [], []
-    for region_i, (stat, interval_start, chrom) in enumerate(
-            interval_data):
-        # get all reads that overlap this interval
-        if PARTIAL_OVERLAP:
-            reg_data = [
-                r_data for r_data in raw_read_coverage[chrom]
-                if not (r_data.start > interval_start + num_bases or
-                        r_data.end < interval_start)]
-        else:
-            reg_data = [
-                r_data for r_data in raw_read_coverage[chrom]
-                if r_data.start <= interval_start and
-                r_data.end >= interval_start + num_bases]
-
-        # TODO: When there are greater than 100 reads should plot some
-        # type of quantiles instead of all reads b/c of overplotting.
-        # Possibly try to alternate plots when necessary
-
-
-        # TODO: This doesn't actually work. Problem with unequal factor
-        # levels when plotting if this line is encountered
-        if len(reg_data) == 0:
-            sys.stderr.write(
-                '*' * 60 + '\nWarning: No reads in region ' +
-                str(region_i) + ' overlap plotted region. ' +
-                'Probably too few reads or insufficient coverage ' +
-                'supplied to script.\n' + '*' * 60 + '\n')
-            continue
-        # get seq data from first read FAST5 file
-        with h5py.File(reg_data[0].fn) as r0_data:
-            seq = ''.join(r0_data[
-                'Analyses/' + corrected_group +
-                '/template/Events']['base'])
-        r_base_data = seq if reg_data[0].alignment[
-            'mapped_strand'] == "+" else rev_comp(seq)
-        reg_base_data = r_base_data[
-            interval_start - reg_data[0].start:
-            interval_start - reg_data[0].start + num_bases]
-        for i, base in enumerate(reg_base_data):
-            BaseStart.append(str(i + interval_start))
-            Bases.append(base)
-            BaseRegion.append(str(region_i))
-
-        for r_num, r_data in enumerate(reg_data):
+    for region_i, interval_start, chrom, reg_reads in all_reg_data:
+        for r_num, r_data in enumerate(reg_reads):
             r_strand = r_data.alignment['mapped_strand']
 
             segs = np.array(r_data.segs)
@@ -220,8 +175,44 @@ def get_plot_data(interval_data, raw_read_coverage, num_bases,
                 Strand.extend(list(repeat(r_strand, stop - start)))
                 Region.extend(list(repeat(region_i, stop - start)))
 
-    return (BaseStart, Bases, BaseRegion,
-            Position, Signal, Read, Strand, Region)
+    return Position, Signal, Read, Strand, Region
+
+def get_base_data(all_reg_data, corrected_group, num_bases):
+    BaseStart, Bases, BaseRegion = [], [], []
+    for region_i, interval_start, chrom, reg_reads in all_reg_data:
+        # get seq data from first read FAST5 file
+        with h5py.File(reg_reads[0].fn) as r0_data:
+            seq = ''.join(r0_data[
+                'Analyses/' + corrected_group +
+                '/template/Events']['base'])
+        r_base_data = seq if reg_reads[0].alignment[
+            'mapped_strand'] == "+" else rev_comp(seq)
+        reg_base_data = r_base_data[
+            interval_start - reg_reads[0].start:
+            interval_start - reg_reads[0].start + num_bases]
+        for i, base in enumerate(reg_base_data):
+            BaseStart.append(str(i + interval_start))
+            Bases.append(base)
+            BaseRegion.append(str(region_i))
+
+    return BaseStart, Bases, BaseRegion
+
+def get_region_reads(interval_data, raw_read_coverage, num_bases):
+    all_reg_data = []
+    for region_i, (stat, interval_start, chrom) in interval_data:
+        # get all reads that overlap this interval
+        if PARTIAL_OVERLAP:
+            all_reg_data.append((region_i, interval_start, chrom, [
+                r_data for r_data in raw_read_coverage[chrom]
+                if not (r_data.start > interval_start + num_bases or
+                        r_data.end < interval_start)]))
+        else:
+            all_reg_data.append((region_i, interval_start, chrom, [
+                r_data for r_data in raw_read_coverage[chrom]
+                if r_data.start <= interval_start and
+                r_data.end >= interval_start + num_bases]))
+
+    return all_reg_data
 
 def plot_max_diff(files1, files2, num_regions, corrected_group,
                   fn_base, num_bases=100):
@@ -255,18 +246,31 @@ def plot_max_diff(files1, files2, num_regions, corrected_group,
             max(np.mod(pos, chrm_size) - int(num_bases / 2.0), 0),
             chrm) for pos in chrm_max_diff_regs)
 
-    plot_intervals = sorted(
-        largest_diff_indices, reverse=True)[:num_regions]
+    plot_intervals = zip(range(num_regions), sorted(
+        largest_diff_indices, reverse=True)[:num_regions])
+
+    ## get reads overlapping each region
+    all_reg_data1 = get_region_reads(
+        plot_intervals, raw_read_coverage1, num_bases)
+    all_reg_data2 = get_region_reads(
+        plot_intervals, raw_read_coverage2, num_bases)
+    ## show warning for low coverage regions from either group
+    if any(len(reg_data) == 0 for reg_data in
+           all_reg_data1 + all_reg_data2):
+        sys.stderr.write(
+            '*' * 60 + '\nWarning: Some regions include only reads ' +
+            'from one group. This may casue some issues in plotting. ' +
+            'Probably too few reads or insufficient coverage ' +
+            'supplied to script.\n' + '*' * 60 + '\n')
 
     sys.stderr.write('Getting plot data.\n')
-    (BaseStart1, Bases1, BaseRegion1,
-     Position1, Signal1, Read1, Strand1, Region1) = get_plot_data(
-         plot_intervals, raw_read_coverage1, num_bases,
-         corrected_group, '0')
-    (BaseStart2, Bases2, BaseRegion2,
-     Position2, Signal2, Read2, Strand2, Region2) = get_plot_data(
-         plot_intervals, raw_read_coverage2, num_bases,
-         corrected_group, '1')
+    # bases are the same from either group so only get from first
+    BaseStart1, Bases1, BaseRegion1 = get_base_data(
+        all_reg_data1, corrected_group, num_bases)
+    Position1, Signal1, Read1, Strand1, Region1 = get_signal_data(
+        all_reg_data1, num_bases, corrected_group, '0')
+    Position2, Signal2, Read2, Strand2, Region2 = get_signal_data(
+        all_reg_data2, num_bases, corrected_group, '1')
 
     sys.stderr.write('Plotting.\n')
     rawDat = r.DataFrame({
@@ -310,10 +314,14 @@ def plot_max_coverage(files, num_regions, corrected_group,
             repeat(chrom)))
 
     sys.stderr.write('Getting plot data.\n')
-    (BaseStart, Bases, BaseRegion,
-     Position, Signal, Read, Strand, Region) = get_plot_data(
-         sorted(read_coverage, reverse=True)[:num_regions],
-         raw_read_coverage, num_bases, corrected_group)
+    plot_intervals = zip(range(num_regions),
+                         sorted(read_coverage, reverse=True)[:num_regions])
+    reg_data = get_region_reads(
+        plot_intervals, raw_read_coverage, num_bases)
+    BaseStart, Bases, BaseRegion = get_base_data(
+        reg_data, corrected_group, num_bases)
+    Position, Signal, Read, Strand, Region = get_signal_data(
+        reg_data, num_bases, corrected_group)
 
     sys.stderr.write('Plotting.\n')
     rawDat = r.DataFrame({
