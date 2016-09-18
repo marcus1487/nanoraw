@@ -57,7 +57,7 @@ try:
     plotSingleRun = r.globalenv['plotSingleRun']
 
     r.r('''
-    plotGroupComp <- function(dat, quantDat, baseDat, TitleDat){
+    plotGroupComp <- function(dat, quantDat, baseDat, TitleDat, QuantWidth){
     regions <- sort(c(unique(as.character(dat$Region)),
                         as.character(unique(quantDat$Region))))
     for(reg_i in regions){
@@ -71,7 +71,7 @@ try:
     } else {
     reg_quant_dat <- quantDat[quantDat$Region == reg_i,]
     p <- ggplot(reg_quant_dat) +
-        geom_rect(aes(xmin=Position, xmax=Position+1,
+        geom_rect(aes(xmin=Position, xmax=Position + QuantWidth,
                       ymin=Lower, ymax=Upper, fill=Group),
                   alpha=0.1, show.legend=FALSE) +
         ylab('Signal')
@@ -161,9 +161,10 @@ def get_base_signal(raw_read_coverage, chrm_sizes):
 
     return mean_base_signal
 
-def get_quant_data(all_reg_data, plot_signal, num_bases,
-                   corrected_group, group_num='Group1',
-                   pcntls=[1,10,20,30,40,49]):
+def get_quant_data(
+        all_reg_data, plot_signal, num_bases, corrected_group,
+        group_num='Group1', pos_offest=0,
+        pcntls=[1,10,20,30,40,49]):
     upper_pcntls = [100 - pcntl for pcntl in pcntls]
     Position, Lower, Upper, Strand, Region = [], [], [], [], []
     for reg_plot_sig, (
@@ -222,7 +223,7 @@ def get_quant_data(all_reg_data, plot_signal, num_bases,
                 base_read_means = base_read_means[
                     ~np.isnan(base_read_means)]
                 Position.extend(list(repeat(
-                    pos + interval_start, len(pcntls))))
+                    pos + interval_start + pos_offest, len(pcntls))))
                 Lower.extend(np.percentile(
                     base_read_means, pcntls, interpolation='nearest'))
                 Upper.extend(np.percentile(
@@ -331,10 +332,11 @@ def get_base_data(all_reg_data, corrected_group, num_bases):
                     reg_base_data[start_offset:] = seq[
                         :num_bases - start_offset + 1]
                 else:
+                    # get the number of bases from end of read that
+                    # overlap the region
                     end_offset = (interval_start + num_bases -
-                                  read_data.start)
-                    reg_base_data[:end_offset + 1] = seq[end_offset:]
-            reg_base_dat = ''.join(reg_base_dat)
+                                  (read_data.start + len(seq)))
+                    reg_base_data[:end_offset] = seq[-end_offset:]
 
         for i, base in enumerate(reg_base_data):
             BaseStart.append(str(i + interval_start))
@@ -444,16 +446,16 @@ def plot_max_diff(files1, files2, num_regions, corrected_group,
         corrected_group, 'Group2')
     QuantData1 = get_quant_data(
         all_reg_data1, plot_signal, num_bases,
-        corrected_group, 'Group1')
+        corrected_group, 'Group1', 0.1)
     QuantData2 = get_quant_data(
         all_reg_data2, plot_signal, num_bases,
-        corrected_group, 'Group2')
+        corrected_group, 'Group2', 0.5)
 
     if VERBOSE: sys.stderr.write('Plotting.\n')
     r.r('pdf("' + fn_base + '.compare_groups.pdf", height=5, width=11)')
     plotGroupComp(r.DataFrame.rbind(SignalData1, SignalData2),
                   r.DataFrame.rbind(QuantData1, QuantData2),
-                  BasesData, Titles)
+                  BasesData, Titles, 0.4)
     r.r('dev.off()')
 
     return
@@ -527,7 +529,11 @@ def parse_arguments():
         'difference in mean signal will be plotted. If ' +
         'not provide regions with max coverage will be plotted')
     parser.add_argument('--num-regions', type=int, default=10,
-                        help='Number of regions to plot.')
+                        help='Number of regions to plot. ' +
+                        'Default: %(default)d')
+    parser.add_argument('--num-bases', type=int, default=100,
+                        help='Number of bases to plot from region. ' +
+                        'Default: %(default)d')
 
     parser.add_argument(
         '--corrected-group', default='RawGenomeCorrected_000',
@@ -554,11 +560,11 @@ def parse_arguments():
 
     return (args.fast5_basedir, args.fast5_basedir2, args.num_regions,
             args.corrected_group, args.overplot_threshold,
-            args.pdf_filebase)
+            args.pdf_filebase, args.num_bases)
 
 def main():
     (filebase1, filebase2, num_regions, corrected_group,
-     overplot_thresh, fn_base) = parse_arguments()
+     overplot_thresh, fn_base, num_bases) = parse_arguments()
 
     files1 = [os.path.join(filebase1, fn)
               for fn in os.listdir(filebase1)]
@@ -570,22 +576,22 @@ def main():
             import cProfile
             cProfile.runctx(
                 "plot_max_diff(files1, files2, num_regions, " +
-                "corrected_group, overplot_thresh, fn_base)",
+                "corrected_group, overplot_thresh, fn_base, num_bases)",
                 globals(), locals(), 'profile.plot_compare.prof')
             sys.exit()
         plot_max_diff(
             files1, files2, num_regions, corrected_group,
-            overplot_thresh, fn_base)
+            overplot_thresh, fn_base, num_bases)
     else:
         if DO_PROFILE:
             import cProfile
             cProfile.runctx(
                 "plot_max_coverage(files1, num_regions, " +
-                "corrected_group, overplot_thresh, fn_base)",
+                "corrected_group, overplot_thresh, fn_base, num_bases)",
                 globals(), locals(), 'profile.plot_compare.prof')
             sys.exit()
         plot_max_coverage(files1, num_regions, corrected_group,
-                          overplot_thresh, fn_base)
+                          overplot_thresh, fn_base, num_bases)
 
     return
 
