@@ -11,6 +11,7 @@ This package provides tools for the analysis of raw nanopore sequencing data, in
 
 Optionally:
 R
+
 - changepoint (for using R's changepoint package for re-segmentation)
 - ggplot2 (for plotting scripts)
 
