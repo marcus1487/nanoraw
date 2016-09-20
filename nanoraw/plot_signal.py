@@ -11,6 +11,7 @@ from collections import defaultdict, namedtuple
 from helper import normalize_raw_signal
 
 DO_PROFILE = False
+VERBOSE = False
 
 QUANT_MIN = 3
 
@@ -43,9 +44,9 @@ try:
         ylab('Signal')
     }
     print(p + facet_grid(Strand ~ .) +
-        geom_text(aes(x=Position, y=-5, label=Base, color=Base),
+        geom_text(aes(x=Position+0.5, y=-5, label=Base, color=Base),
                   data=reg_base_dat,
-                  hjust=0, vjust=0, size=3, show.legend=FALSE) +
+                  hjust=0.5, vjust=0, size=3, show.legend=FALSE) +
         scale_color_manual(values=c(
             'A'='#00CC00', 'C'='#0000CC', 'G'='#FFB300', 'T'='#CC0000')) +
         geom_vline(xintercept=min(reg_base_dat$Position):(
@@ -77,12 +78,12 @@ try:
         ylab('Signal')
     }
     print(p + facet_grid(Strand ~ .) +
-        geom_text(aes(x=Position, y=-5, label=Base, color=Base),
+        geom_text(aes(x=Position+0.5, y=-5, label=Base, color=Base),
                   data=reg_base_dat,
-                  hjust=0, vjust=0, size=3, show.legend=FALSE) +
+                  hjust=0.5, vjust=0, size=3, show.legend=FALSE) +
         scale_color_manual(values=c(
             'A'='#00CC00', 'C'='#0000CC', 'G'='#FFB300', 'T'='#CC0000',
-            'Group1'='blue', 'Group2'='red')) +
+            'Group1'='blue', 'Group2'='red', '-'='black')) +
         scale_fill_manual(values=c(
             'Group1'='blue', 'Group2'='red')) +
         geom_vline(xintercept=min(reg_base_dat$Position):(
@@ -515,25 +516,67 @@ def plot_max_coverage(files, num_regions, corrected_group,
 
     return
 
-def parse_arguments():
+def main(args):
+    global VERBOSE
+    VERBOSE = not args.quiet
+
+    files1 = [os.path.join(args.fast5_basedir, fn)
+              for fn in os.listdir(args.fast5_basedir)]
+
+    if args.fast5_basedir2:
+        files2 = [os.path.join(args.fast5_basedir2, fn)
+                  for fn in os.listdir(args.fast5_basedir2)]
+        if DO_PROFILE:
+            import cProfile
+            cProfile.runctx(
+                "plot_max_diff("
+                "files1, files2, args.num_regions, " +
+                "args.corrected_group, args.overplot_threshold, " +
+                "args.pdf_filebase, args.num_bases)",
+                globals(), locals(), 'profile.plot_compare.prof')
+            sys.exit()
+        plot_max_diff(
+            files1, files2, args.num_regions, args.corrected_group,
+            args.overplot_threshold, args.pdf_filebase, args.num_bases)
+    else:
+        if DO_PROFILE:
+            import cProfile
+            cProfile.runctx(
+                "plot_max_coverage(" +
+                "files1, args.num_regions, args.corrected_group," +
+                "args.overplot_threshold, args.pdf_filebase, " +
+                "args.num_bases)",
+                globals(), locals(), 'profile.plot_compare.prof')
+            sys.exit()
+        plot_max_coverage(
+            files1, args.num_regions, args.corrected_group,
+            args.overplot_threshold, args.pdf_filebase, args.num_bases)
+
+    return
+
+# define function for getting parser so it can be shared in
+# __main__ package script
+def get_parser(with_help=True):
     import argparse
     parser = argparse.ArgumentParser(
-        description='Plot raw signal corrected with correct_raw.' )
-    parser.add_argument('fast5_basedir',
-                        help='Directory containing fast5 files.')
+        description='Plot raw signal corrected with correct_raw.',
+        add_help=with_help)
+    parser.add_argument(
+        'fast5_basedir',
+        help='Directory containing fast5 files.')
 
     parser.add_argument(
         '--fast5-basedir2',
-        help='Second directory containing fast5 files. '+
-        'If provided regions centered base with largest '+
-        'difference in mean signal will be plotted. If ' +
-        'not provide regions with max coverage will be plotted')
-    parser.add_argument('--num-regions', type=int, default=10,
-                        help='Number of regions to plot. ' +
-                        'Default: %(default)d')
-    parser.add_argument('--num-bases', type=int, default=100,
-                        help='Number of bases to plot from region. ' +
-                        'Default: %(default)d')
+        help='Second directory containing fast5 files. If ' +
+        'provided regions centered base with largest difference ' +
+        'in mean signal will be plotted. If not provide regions ' +
+        'with max coverage will be plotted')
+    parser.add_argument(
+        '--num-regions', type=int, default=10,
+        help='Number of regions to plot. Default: %(default)d')
+    parser.add_argument(
+        '--num-bases', type=int, default=100,
+        help='Number of bases to plot from region. Default: %(default)d')
 
     parser.add_argument(
         '--corrected-group', default='RawGenomeCorrected_000',
@@ -542,58 +585,23 @@ def parse_arguments():
     parser.add_argument(
         '--overplot-threshold', type=int, default=50,
         help='Number of reads to trigger plotting quantiles ' +
-        'instead of raw signal due to overplotting. Default: %(default)d')
+        'instead of raw signal due to overplotting. ' +
+        'Default: %(default)d')
 
     parser.add_argument(
         '--pdf-filebase', default='Nanopore_read_coverage',
-        help='Base for PDF to store plots (suffix depends ' +
-        'on plot type to avoid overwriting plots). ' +
-        'Default: %(default)s')
+        help='Base for PDF to store plots (suffix depends on plot ' +
+        'type to avoid overwriting plots). Default: %(default)s')
 
-    parser.add_argument('--quiet', '-q', default=False,
-                        action='store_true',
-                        help="Don't print status information.")
-    args = parser.parse_args()
+    parser.add_argument(
+        '--quiet', '-q', default=False, action='store_true',
+        help="Don't print status information.")
 
-    global VERBOSE
-    VERBOSE = not args.quiet
+    return parser
 
-    return (args.fast5_basedir, args.fast5_basedir2, args.num_regions,
-            args.corrected_group, args.overplot_threshold,
-            args.pdf_filebase, args.num_bases)
-
-def main():
-    (filebase1, filebase2, num_regions, corrected_group,
-     overplot_thresh, fn_base, num_bases) = parse_arguments()
-
-    files1 = [os.path.join(filebase1, fn)
-              for fn in os.listdir(filebase1)]
-
-    if filebase2:
-        files2 = [os.path.join(filebase2, fn)
-                  for fn in os.listdir(filebase2)]
-        if DO_PROFILE:
-            import cProfile
-            cProfile.runctx(
-                "plot_max_diff(files1, files2, num_regions, " +
-                "corrected_group, overplot_thresh, fn_base, num_bases)",
-                globals(), locals(), 'profile.plot_compare.prof')
-            sys.exit()
-        plot_max_diff(
-            files1, files2, num_regions, corrected_group,
-            overplot_thresh, fn_base, num_bases)
-    else:
-        if DO_PROFILE:
-            import cProfile
-            cProfile.runctx(
-                "plot_max_coverage(files1, num_regions, " +
-                "corrected_group, overplot_thresh, fn_base, num_bases)",
-                globals(), locals(), 'profile.plot_compare.prof')
-            sys.exit()
-        plot_max_coverage(files1, num_regions, corrected_group,
-                          overplot_thresh, fn_base, num_bases)
-
+def args_and_main():
+    main(get_parser().parse_args())
     return
 
 if __name__ == '__main__':
-    main()
+    args_and_main()

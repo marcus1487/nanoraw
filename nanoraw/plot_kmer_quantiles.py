@@ -103,46 +103,55 @@ def plot_kmer_dist(files, corrected_group, read_mean, kmer_len,
 
     return
 
-def parse_arguments():
-    import argparse
-    parser = argparse.ArgumentParser(
-        description='Plot distribution of signal across kmers.' )
-    parser.add_argument('fast5_basedir',
-                        help='Directory containing fast5 files.')
-
-    parser.add_argument('--corrected-group', default='RawGenomeCorrected_000',
-                        help='FAST5 group to plot created by correct_raw ' +
-                        'script. Default: %(default)s')
-
-    parser.add_argument('--kmer-length', default=3, type=int, choices=(2,3,4),
-                        help='Value of K to analyze. Should be one of ' +
-                        '{2,3,4}. Default: %(default)d')
-    parser.add_argument('--num-trimer-threshold', default=4, type=int,
-                        help='Number of each kmer required to include ' +
-                        'a read in read level averages. Default: %(default)d')
-
-    parser.add_argument('--read-mean', default=False, action='store_true',
-                        help='Plot kmer event means across reads as opposed '
-                        'to each event.')
-
-    parser.add_argument('--pdf-filebase', default='Nanopore_kmer_distribution',
-                        help='Base for PDF to store plots (suffix depends ' +
-                        'on plot type to avoid overwriting plots). ' +
-                        'Default: %(default)s')
-    args = parser.parse_args()
-
-    return (args.fast5_basedir, args.corrected_group,
-            args.kmer_length, args.num_trimer_threshold,
-            args.read_mean, args.pdf_filebase)
-
-def main():
-    (filebase, corrected_group, kmer_len,
-     kmer_thresh, read_mean, fn_base) = parse_arguments()
-
-    files = [os.path.join(filebase, fn) for fn in os.listdir(filebase)]
-    plot_kmer_dist(files, corrected_group, read_mean, kmer_len, kmer_thresh, fn_base)
+def main(args):
+    files = [os.path.join(args.fast5_basedir, fn)
+             for fn in os.listdir(args.fast5_basedir)]
+    plot_kmer_dist(
+        files, args.corrected_group, args.read_mean, args.kmer_length,
+        args.num_trimer_threshold, args.pdf_filebase)
 
     return
 
+# define function for getting parser so it can be shared in
+# __main__ package script
+def get_parser(with_help=True):
+    import argparse
+    parser = argparse.ArgumentParser(
+        description='Plot distribution of signal across kmers.',
+        add_help=with_help)
+    parser.add_argument(
+        'fast5_basedir',
+        help='Directory containing fast5 files.')
+
+    parser.add_argument(
+        '--corrected-group', default='RawGenomeCorrected_000',
+        help='FAST5 group to plot created by correct_raw ' +
+        'script. Default: %(default)s')
+
+    parser.add_argument(
+        '--kmer-length', default=3, type=int, choices=(2,3,4),
+        help='Value of K to analyze. Should be one of ' +
+        '{2,3,4}. Default: %(default)d')
+    parser.add_argument(
+        '--num-trimer-threshold', default=4, type=int,
+        help='Number of each kmer required to include ' +
+        'a read in read level averages. Default: %(default)d')
+
+    parser.add_argument(
+        '--read-mean', default=False, action='store_true',
+        help='Plot kmer event means across reads as opposed ' +
+        'to each event.')
+
+    parser.add_argument(
+        '--pdf-filebase', default='Nanopore_kmer_distribution',
+        help='Base for PDF to store plots (suffix depends on ' +
+        'plot type to avoid overwriting plots). Default: %(default)s')
+
+    return parser
+
+def args_and_main():
+    main(get_parser().parse_args())
+    return
+
 if __name__ == '__main__':
-    main()
+    args_and_main()
