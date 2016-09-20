@@ -48,9 +48,11 @@ try:
                   data=reg_base_dat,
                   hjust=0.5, vjust=0, size=3, show.legend=FALSE) +
         scale_color_manual(values=c(
-            'A'='#00CC00', 'C'='#0000CC', 'G'='#FFB300', 'T'='#CC0000')) +
+            'A'='#00CC00', 'C'='#0000CC', 'G'='#FFB300', 'T'='#CC0000',
+            '-'='black')) +
         geom_vline(xintercept=min(reg_base_dat$Position):(
-                              max(reg_base_dat$Position) + 1), size=0.01) +
+                              max(reg_base_dat$Position) + 1),
+                   size=0.01) +
         ggtitle(title) +
         theme_bw() + theme(axis.text.x=element_text(hjust=0)))
 }}
@@ -58,7 +60,8 @@ try:
     plotSingleRun = r.globalenv['plotSingleRun']
 
     r.r('''
-    plotGroupComp <- function(dat, quantDat, baseDat, TitleDat, QuantWidth){
+    plotGroupComp <- function(dat, quantDat, baseDat, TitleDat,
+                              QuantWidth){
     regions <- sort(c(unique(as.character(dat$Region)),
                         as.character(unique(quantDat$Region))))
     for(reg_i in regions){
@@ -87,7 +90,8 @@ try:
         scale_fill_manual(values=c(
             'Group1'='blue', 'Group2'='red')) +
         geom_vline(xintercept=min(reg_base_dat$Position):(
-                              max(reg_base_dat$Position) + 1), size=0.01) +
+                              max(reg_base_dat$Position) + 1),
+                   size=0.01) +
         ggtitle(title) +
         theme_bw() + theme(axis.text.x=element_text(hjust=0)))
 }}
@@ -302,8 +306,8 @@ def get_base_data(all_reg_data, corrected_group, num_bases):
         try:
             full_cov_read = next(
                 read_data for read_data in reg_reads
-                if read_data.start < interval_start and
-                    read_data.end > interval_start + num_bases)
+                if read_data.start <= interval_start and
+                    read_data.end >= interval_start + num_bases)
             # get seq data from first read FAST5 file
             with h5py.File(full_cov_read.fn) as r_data:
                 seq = ''.join(r_data[
@@ -462,17 +466,20 @@ def plot_max_diff(files1, files2, num_regions, corrected_group,
     return
 
 def plot_max_coverage(files, num_regions, corrected_group,
-                      overplot_thresh, fn_base, num_bases=100):
+                      overplot_thresh, fn_base, num_bases=100,
+                      wiggle_fn=None):
     if VERBOSE: sys.stderr.write('Parsing files.\n')
     raw_read_coverage = parse_files(files, corrected_group)
 
     if VERBOSE: sys.stderr.write('Calculating read coverage.\n')
     read_coverage = []
+    wiggle_cov = []
     for chrom, reads_data in raw_read_coverage.items():
         max_end = max(r_data.end for r_data in reads_data)
         chrom_coverage = np.zeros(max_end, dtype=np.int_)
         for r_data in reads_data:
             chrom_coverage[r_data.start:r_data.end] += 1
+        wiggle_cov.append((chrom, chrom_coverage))
 
         coverage_regions = [
             (x, len(list(y))) for x, y in groupby(chrom_coverage)]
@@ -480,6 +487,19 @@ def plot_max_coverage(files, num_regions, corrected_group,
             zip(*coverage_regions)[0],
             np.cumsum(np.insert(zip(*coverage_regions)[1], 0, 0)),
             repeat(chrom), repeat(None)))
+
+    if wiggle_fn is not None:
+        with open(wiggle_fn, 'w') as wig_fp:
+            wig_fp.write(
+                'track type=wiggle_0 name={0} description={0}\n'.format(
+                    wiggle_fn))
+            for chrm, chrm_cov in wiggle_cov:
+                wig_fp.write("variableStep chrom={} span=1\n".format(
+                    chrm))
+                wig_fp.write('\n'.join([
+                    str(int(pos) + 1) + " " + str(int(val))
+                    for pos, val in enumerate(chrm_cov) if val > 0]) +
+                             '\n')
 
     if VERBOSE: sys.stderr.write('Getting plot data.\n')
     plot_intervals = zip(
@@ -545,12 +565,13 @@ def main(args):
                 "plot_max_coverage(" +
                 "files1, args.num_regions, args.corrected_group," +
                 "args.overplot_threshold, args.pdf_filebase, " +
-                "args.num_bases)",
+                "args.num_bases, args.wiggle_filename)",
                 globals(), locals(), 'profile.plot_compare.prof')
             sys.exit()
         plot_max_coverage(
             files1, args.num_regions, args.corrected_group,
-            args.overplot_threshold, args.pdf_filebase, args.num_bases)
+            args.overplot_threshold, args.pdf_filebase, args.num_bases,
+            args.wiggle_filename)
 
     return
 
@@ -592,6 +613,13 @@ def get_parser(with_help=True):
         '--pdf-filebase', default='Nanopore_read_coverage',
         help='Base for PDF to store plots (suffix depends on plot ' +
         'type to avoid overwriting plots). Default: %(default)s')
+
+    parser.add_argument(
+        '--wiggle-filename',
+        help="Output wiggle read coverage file. Note that this will " +
+        "also be the track name in the def line (only available for " +
+        "single FAST5 dir currently). Default: Dont't output " +
+        "coverage wiggle.")
 
     parser.add_argument(
         '--quiet', '-q', default=False, action='store_true',
