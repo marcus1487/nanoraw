@@ -6,6 +6,7 @@ import Queue
 import numpy as np
 import multiprocessing as mp
 
+from glob import glob
 from time import sleep, time
 from subprocess import call, STDOUT
 from itertools import groupby, izip
@@ -37,6 +38,7 @@ with os.fdopen(os.dup(fd), 'w') as old_stderr:
 
 NANORAW_VERSION = '0.1'
 DO_PROFILE = False
+VERBOSE = False
 
 COMP_BASES = {'A':'T', 'C':'G', 'G':'C', 'T':'A', '-':'-'}
 def rev_comp(seq):
@@ -617,6 +619,7 @@ def get_all_reads_data(fast5_fns, genome_filename, graphmap_path,
     for fast5_fn in fast5_fns:
         fast5_q.put(fast5_fn)
 
+    if VERBOSE: sys.stderr.write('Preparing mutlithreaded processing.\n')
     args = (fast5_q, failed_reads_q, genome_filename,
             graphmap_path, basecall_group, corrected_group, timeout,
             num_cpts_limit, overwrite)
@@ -626,6 +629,8 @@ def get_all_reads_data(fast5_fns, genome_filename, graphmap_path,
         p.start()
         processes.append(p)
 
+    if VERBOSE: sys.stderr.write(
+            'Waiting for reads to finish processinig.\n')
     failed_reads = defaultdict(list)
     while any(p.is_alive() for p in processes):
         try:
@@ -643,6 +648,9 @@ def get_all_reads_data(fast5_fns, genome_filename, graphmap_path,
     return dict(failed_reads)
 
 def main(args):
+    global VERBOSE
+    VERBOSE = not args.quiet
+
     global USE_R_CPTS
     if not USE_R_CPTS and args.use_r_cpts:
         sys.stderr.write(
@@ -652,13 +660,18 @@ def main(args):
 
     num_p = 1 if DO_PROFILE else args.processes
 
-    files = [os.path.join(args.fast5_basedir, fn)
-             for fn in os.listdir(args.fast5_basedir)]
+    if VERBOSE: sys.stderr.write('Getting file list.\n')
+    if args.fast5_pattern:
+        files = glob(os.path.join(
+            args.fast5_basedir, args.fast5_pattern))
+    else:
+        files = [os.path.join(args.fast5_basedir, fn)
+                 for fn in os.listdir(args.fast5_basedir)]
 
     failed_reads = get_all_reads_data(
-        files, args.genome_fasta, args.graphmap_path, args.basecall_group,
-        args.corrected_group, num_p, args.timeout, args.cpts_limit,
-        args.overwrite)
+        files, args.genome_fasta, args.graphmap_path,
+        args.basecall_group, args.corrected_group, num_p, args.timeout,
+        args.cpts_limit, args.overwrite)
     sys.stderr.write('Failed reads summary:\n' + '\n'.join(
         "\t" + err + " :\t" + str(len(fns))
         for err, fns in failed_reads.items()) + '\n')
@@ -682,9 +695,6 @@ def get_parser(with_help=True):
     parser.add_argument(
         'fast5_basedir',
         help='Directory containing fast5 files.')
-    # TODO: files pattern for annotation of only those files matching
-    # instead of all files in a dir. Fine for now though.
-    # glob.glob('path/to/fast5s/*.fast5')
     parser.add_argument(
         'graphmap_path',
         help='Full path to built graphmap version.')
@@ -693,16 +703,24 @@ def get_parser(with_help=True):
         help='Path to fasta file for mapping.')
 
     parser.add_argument(
+        '--fast5-pattern',
+        help='A pattern to search for a subset of files within ' +
+        'fast5-basedir. Note that on the unix command line patterns ' +
+        'may be expanded so it is best practice to quote patterns.')
+
+    parser.add_argument(
         '--processes', default=1, type=int,
-        help='Number of processes.')
+        help='Number of processes. Default: %(default)d')
     parser.add_argument(
         '--timeout', default=None, type=int,
-        help='Timeout in seconds for the processing of a single read.')
+        help='Timeout in seconds for the processing of a single ' +
+        'read.  Default: No timeout.')
     parser.add_argument(
         '--cpts-limit', default=None, type=int,
         help='Maximum number of changepoints to find within a single ' +
         'indel group. (Not setting this option can cause a process ' +
-        'to stall and cannot be controlled by the timeout option).')
+        'to stall and cannot be controlled by the timeout option). ' +
+        'Default: No limit.')
 
     parser.add_argument(
         '--basecall-group', default='Basecall_1D_000',

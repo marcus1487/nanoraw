@@ -7,6 +7,8 @@ import numpy as np
 from itertools import repeat
 from collections import defaultdict
 
+VERBOSE = False
+
 try:
     import rpy2.robjects as r
     from rpy2.robjects.packages import importr
