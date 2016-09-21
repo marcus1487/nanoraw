@@ -5,19 +5,15 @@ import h5py
 import numpy as np
 
 from copy import copy
+from collections import defaultdict
 from itertools import repeat, groupby
-from collections import defaultdict, namedtuple
 
-from helper import normalize_raw_signal
+from nanoraw_helper import normalize_raw_signal, parse_files
 
 DO_PROFILE = False
 VERBOSE = False
 
 QUANT_MIN = 3
-
-readData = namedtuple('readData', (
-    'start', 'end', 'segs', 'read_start_rel_to_raw',
-    'strand', 'means', 'fn', 'corr_group'))
 
 try:
     import rpy2.robjects as r
@@ -116,6 +112,35 @@ try:
 }}
 ''')
     plotGroupComp = r.globalenv['plotGroupComp']
+
+    r.r('''
+    plotKmerDist <- function(dat){
+    print(ggplot(dat) +
+        geom_boxplot(aes(x=Trimer, y=Signal, color=Base)) +
+        theme_bw() + theme(
+            axis.text.x=element_text(angle=60, hjust=1, size=8)) +
+        scale_color_manual(
+            values=c('#00CC00', '#0000CC', '#FFB300', '#CC0000')))
+}
+''')
+    plotKmerDist = r.globalenv['plotKmerDist']
+    r.r('''
+    plotKmerDistWReadPath <- function(dat){
+    print(ggplot(dat) +
+        geom_boxplot(aes(x=Trimer, y=Signal, color=Base)) +
+        theme_bw() +
+        theme(axis.text.x=element_text(angle=60, hjust=1, size=8)) +
+        scale_color_manual(
+            values=c('#00CC00', '#0000CC', '#FFB300', '#CC0000')))
+    print(ggplot(dat) +
+        geom_path(aes(x=Trimer, y=Signal, group=Read), alpha=0.1) +
+        theme_bw() +
+        theme(axis.text.x=element_text(angle=60, hjust=1, size=8)) +
+        scale_color_manual(
+        values=c('#00CC00', '#0000CC', '#FFB300', '#CC0000')))
+}
+''')
+    plotKmerDistWReadPath = r.globalenv['plotKmerDistWReadPath']
 except:
     sys.stderr.write(
         '*' * 60 + '\nERROR: Must have rpy2, R and ' +
@@ -127,31 +152,130 @@ COMP_BASES = {'A':'T', 'C':'G', 'G':'C', 'T':'A', '-':'-'}
 def rev_comp(seq):
     return [COMP_BASES[b] for b in seq[::-1]]
 
-def parse_files(files, corrected_group, get_means=False):
-    raw_read_coverage = defaultdict(list)
-    for read_fn in files:
-        with h5py.File(read_fn, 'r') as read_data:
-            if 'Analyses/' + corrected_group not in read_data:
-                continue
-            align_data = read_data['Analyses/' + corrected_group +
-                                '/Alignment/'].attrs
-            seg_grp = read_data[
-                'Analyses/' + corrected_group + '/template/Segments']
-            read_start_rel_to_raw = seg_grp.attrs[
-                'read_start_rel_to_raw']
-            segs = seg_grp.value
-            base_means = read_data[
-                'Analyses/' + corrected_group +
-                '/template/Events']['norm_mean'] if get_means else None
-            raw_read_coverage[align_data['mapped_chrom']].append(
-                readData(
-                    align_data['mapped_start'],
-                    align_data['mapped_start'] + len(segs) - 1,
-                    segs, read_start_rel_to_raw,
-                    align_data['mapped_strand'], base_means, read_fn,
-                    corrected_group))
 
-    return raw_read_coverage
+# TODO merge kmer data intake methods with other plotting methods
+def plot_kmer_dist(files, corrected_group, read_mean, kmer_len,
+                   kmer_thresh, pdf_fn):
+    if VERBOSE: sys.stderr.write('Parsing files.\n')
+    all_raw_data = []
+    for fn in files:
+        read_data = h5py.File(fn)
+        if 'Analyses/' + corrected_group not in read_data:
+            continue
+        seq = ''.join(read_data['Analyses/' + corrected_group +
+                                '/template/Events']['base'])
+        means = np.array(read_data['Analyses/' + corrected_group +
+                                   '/template/Events']['norm_mean'])
+        all_raw_data.append((seq, means))
+
+    if VERBOSE: sys.stderr.write('Tabulating k-mers.\n')
+    all_trimers = defaultdict(list)
+    for read_i, (seq, means) in enumerate(all_raw_data):
+        read_trimers = defaultdict(list)
+        for trimer, event_mean in zip(
+                [''.join(bs) for bs in zip(*[
+                    seq[i:] for i in range(kmer_len)])],
+                means[kmer_len - 1:]):
+            read_trimers[trimer].append(event_mean)
+        if min(len(x) for x in read_trimers.values()) > kmer_thresh:
+            for trimer, trimer_means in read_trimers.items():
+                if read_mean:
+                    all_trimers[trimer].append((
+                        np.mean(trimer_means), read_i))
+                else:
+                    all_trimers[trimer].extend(
+                        zip(trimer_means, repeat(read_i)))
+
+    if VERBOSE: sys.stderr.write('Preparing plot data.\n')
+    kmer_levels = [kmer for means, kmer in sorted([
+        (np.mean(zip(*means)[0]), kmer)
+        for kmer, means in all_trimers.items()])]
+
+    plot_data = [
+        (kmer, kmer[-1], sig_mean, read_i)
+        for kmer in kmer_levels
+        for sig_mean, read_i in all_trimers[kmer]]
+
+    trimerDat = r.DataFrame({
+        'Trimer':r.FactorVector(
+            r.StrVector(zip(*plot_data)[0]),
+            ordered=True, levels=r.StrVector(kmer_levels)),
+        'Base':r.StrVector(zip(*plot_data)[1]),
+        'Signal':r.FloatVector(zip(*plot_data)[2]),
+        'Read':r.StrVector(zip(*plot_data)[3])})
+    # code to plot kmers as tile of colors but adds gridExtra dependency
+    if False:
+        kmer_plot_data = [
+            (kmer_i, pos_i, base)
+            for kmer_i, kmer in enumerate(kmer_leves)
+            for pos_i, base in enumerate(kmer)]
+        kmerDat = r.DataFrame({
+            'Kmer':r.IntVector(zip(*kmer_plot_data)[0]),
+            'Position':r.IntVector(zip(*kmer_plot_data)[1]),
+            'Base':r.StrVector(zip(*kmer_plot_data)[2])})
+
+    if VERBOSE: sys.stderr.write('Plotting.\n')
+    if read_mean:
+        r.r('pdf("' + pdf_fn + '", height=7, width=10)')
+        plotKmerDistWReadPath(trimerDat)
+        r.r('dev.off()')
+    else:
+        r.r('pdf("' + pdf_fn + '", height=7, width=10)')
+        plotKmerDist(trimerDat)
+        r.r('dev.off()')
+
+    return
+
+def kmer_main(args):
+    global VERBOSE
+    VERBOSE = not args.quiet
+
+    files = [os.path.join(args.fast5_basedir, fn)
+             for fn in os.listdir(args.fast5_basedir)]
+    plot_kmer_dist(
+        files, args.corrected_group, args.read_mean, args.kmer_length,
+        args.num_trimer_threshold, args.pdf_filename)
+
+    return
+
+def get_kmer_parser():
+    import argparse
+    parser = argparse.ArgumentParser(
+        description='Plot distribution of signal across kmers.',
+        add_help=False)
+    parser.add_argument(
+        'fast5_basedir',
+        help='Directory containing fast5 files.')
+
+    parser.add_argument(
+        '--corrected-group', default='RawGenomeCorrected_000',
+        help='FAST5 group to plot created by correct_raw ' +
+        'script. Default: %(default)s')
+
+    parser.add_argument(
+        '--kmer-length', default=3, type=int, choices=(2,3,4),
+        help='Value of K to analyze. Should be one of ' +
+        '{2,3,4}. Default: %(default)d')
+    parser.add_argument(
+        '--num-trimer-threshold', default=4, type=int,
+        help='Number of each kmer required to include ' +
+        'a read in read level averages. Default: %(default)d')
+
+    parser.add_argument(
+        '--read-mean', default=False, action='store_true',
+        help='Plot kmer event means across reads as opposed ' +
+        'to each event.')
+
+    parser.add_argument(
+        '--pdf-filename', default='Nanopore_kmer_distribution.pdf',
+        help='PDF filename to store plot(s). Default: %(default)s')
+
+    parser.add_argument(
+        '--quiet', '-q', default=False, action='store_true',
+        help="Don't print status information.")
+
+    return parser
+
 
 def get_base_signal(raw_read_coverage, chrm_sizes):
     # create lists for each base to contain all signal segments
@@ -274,7 +398,7 @@ def get_quant_data(
     for reg_plot_sig, (
             region_i, interval_start, chrom, reg_reads) in zip(
                 plot_types, all_reg_data):
-        if reg_plot_sig != 'Quant': continue
+        if reg_plot_sig != 'Quantile': continue
 
         for strand in ('+', '-'):
             if sum(r_data.strand == strand
@@ -433,8 +557,7 @@ def get_region_reads(interval_data, raw_read_coverage, num_bases):
     return all_reg_data
 
 def plot_max_diff(files1, files2, num_regions, corrected_group,
-                  overplot_thresh, fn_base, num_bases=100,
-                  plot_quantiles=True):
+                  overplot_thresh, pdf_fn, num_bases, overplot_type):
     if VERBOSE: sys.stderr.write('Parsing files.\n')
     raw_read_coverage1 = parse_files(files1, corrected_group, True)
     raw_read_coverage2 = parse_files(files2, corrected_group, True)
@@ -493,8 +616,7 @@ def plot_max_diff(files1, files2, num_regions, corrected_group,
     plot_types = [
         'Signal' if (max(covs) < overplot_thresh or
                      min(covs) < QUANT_MIN)
-        else ('Quant' if plot_quantiles else 'Boxplot')
-        for covs in strand_cov]
+        else overplot_type for covs in strand_cov]
     Titles = r.DataFrame({
         'Title':r.StrVector([
             chrm + " ::: Group1 Coverage (Blue): " +
@@ -531,7 +653,7 @@ def plot_max_diff(files1, files2, num_regions, corrected_group,
         corrected_group, 'Group2')
 
     if VERBOSE: sys.stderr.write('Plotting.\n')
-    r.r('pdf("' + fn_base + '.compare_groups.pdf", height=5, width=11)')
+    r.r('pdf("' + pdf_fn + '", height=5, width=11)')
     plotGroupComp(r.DataFrame.rbind(SignalData1, SignalData2),
                   r.DataFrame.rbind(QuantData1, QuantData2),
                   r.DataFrame.rbind(EventData1, EventData2),
@@ -541,20 +663,18 @@ def plot_max_diff(files1, files2, num_regions, corrected_group,
     return
 
 def plot_max_coverage(files, num_regions, corrected_group,
-                      overplot_thresh, fn_base, num_bases=100,
-                      wiggle_fn=None, plot_quantiles=True):
+                      overplot_thresh, pdf_fn, num_bases,
+                      overplot_type):
     if VERBOSE: sys.stderr.write('Parsing files.\n')
     raw_read_coverage = parse_files(files, corrected_group)
 
     if VERBOSE: sys.stderr.write('Calculating read coverage.\n')
     read_coverage = []
-    wiggle_cov = []
     for chrom, reads_data in raw_read_coverage.items():
         max_end = max(r_data.end for r_data in reads_data)
         chrom_coverage = np.zeros(max_end, dtype=np.int_)
         for r_data in reads_data:
             chrom_coverage[r_data.start:r_data.end] += 1
-        wiggle_cov.append((chrom, chrom_coverage))
 
         coverage_regions = [
             (x, len(list(y))) for x, y in groupby(chrom_coverage)]
@@ -562,19 +682,6 @@ def plot_max_coverage(files, num_regions, corrected_group,
             zip(*coverage_regions)[0],
             np.cumsum(np.insert(zip(*coverage_regions)[1], 0, 0)),
             repeat(chrom), repeat(None)))
-
-    if wiggle_fn is not None:
-        with open(wiggle_fn, 'w') as wig_fp:
-            wig_fp.write(
-                'track type=wiggle_0 name={0} description={0}\n'.format(
-                    wiggle_fn))
-            for chrm, chrm_cov in wiggle_cov:
-                wig_fp.write("variableStep chrom={} span=1\n".format(
-                    chrm))
-                wig_fp.write('\n'.join([
-                    str(int(pos) + 1) + " " + str(int(val))
-                    for pos, val in enumerate(chrm_cov) if val > 0]) +
-                             '\n')
 
     if VERBOSE: sys.stderr.write('Getting plot data.\n')
     plot_intervals = zip(
@@ -590,8 +697,7 @@ def plot_max_coverage(files, num_regions, corrected_group,
     plot_types = [
         'Signal' if (max(covs) < overplot_thresh or
                      min(covs) < QUANT_MIN)
-        else ('Quant' if plot_quantiles else 'Boxplot')
-        for covs in strand_cov]
+        else overplot_type for covs in strand_cov]
     Titles = r.DataFrame({
         'Title':r.StrVector([
             chrm + " ::: Coverage: " +
@@ -610,71 +716,105 @@ def plot_max_coverage(files, num_regions, corrected_group,
         all_reg_data, plot_types, num_bases, corrected_group)
 
     if VERBOSE: sys.stderr.write('Plotting.\n')
-    r.r('pdf("' + fn_base + '.pdf", height=5, width=11)')
+    r.r('pdf("' + pdf_fn + '", height=5, width=11)')
     plotSingleRun(SignalData, QuantData, EventData, BasesData, Titles)
     r.r('dev.off()')
 
     return
 
-def main(args):
+def single_sample_main(args):
     global VERBOSE
     VERBOSE = not args.quiet
 
-    files1 = [os.path.join(args.fast5_basedir, fn)
-              for fn in os.listdir(args.fast5_basedir)]
-
-    if args.fast5_basedir2:
-        files2 = [os.path.join(args.fast5_basedir2, fn)
-                  for fn in os.listdir(args.fast5_basedir2)]
-        if DO_PROFILE:
-            import cProfile
-            cProfile.runctx(
-                "plot_max_diff("
-                "files1, files2, args.num_regions, " +
-                "args.corrected_group, args.overplot_threshold, " +
-                "args.pdf_filebase, args.num_bases, " +
-                "args.overplot_quantiles)",
-                globals(), locals(), 'profile.plot_compare.prof')
-            sys.exit()
-        plot_max_diff(
-            files1, files2, args.num_regions, args.corrected_group,
-            args.overplot_threshold, args.pdf_filebase, args.num_bases,
-            args.overplot_quantiles)
-    else:
-        if DO_PROFILE:
-            import cProfile
-            cProfile.runctx(
-                "plot_max_coverage(" +
-                "files1, args.num_regions, args.corrected_group," +
-                "args.overplot_threshold, args.pdf_filebase, " +
-                "args.num_bases, args.wiggle_filename, " +
-                "args.overplot_quantiles)",
-                globals(), locals(), 'profile.plot_compare.prof')
-            sys.exit()
-        plot_max_coverage(
-            files1, args.num_regions, args.corrected_group,
-            args.overplot_threshold, args.pdf_filebase, args.num_bases,
-            args.wiggle_filename, args.overplot_quantiles)
+    files = [os.path.join(args.fast5_basedir, fn)
+             for fn in os.listdir(args.fast5_basedir)]
+    if DO_PROFILE:
+        import cProfile
+        cProfile.runctx(
+            "plot_max_coverage(" +
+            "files, args.num_regions, args.corrected_group," +
+            "args.overplot_threshold, args.pdf_filename, " +
+            "args.num_bases, args.overplot_type)",
+            globals(), locals(), 'profile.plot_compare.prof')
+        sys.exit()
+    plot_max_coverage(
+        files, args.num_regions, args.corrected_group,
+        args.overplot_threshold, args.pdf_filename, args.num_bases,
+        args.overplot_type)
 
     return
 
-# define function for getting parser so it can be shared in
-# __main__ package script
-def get_parser(with_help=True):
+def get_single_sample_parser():
     import argparse
     parser = argparse.ArgumentParser(
-        description='Plot raw signal corrected with correct_raw.',
-        add_help=with_help)
+        description='Plot raw signal from from two samples where ' +
+        'FAST5 files were corrected with `nanoraw correct`.',
+        add_help=False)
     parser.add_argument(
         'fast5_basedir',
         help='Directory containing fast5 files.')
 
     parser.add_argument(
-        '--fast5-basedir2',
-        help='Second directory containing fast5 files. If ' +
-        'provided regions centered base with largest difference ' +
-        'in mean signal will be plotted. If not provide regions ' +
-        'with max coverage will be plotted')
+        '--pdf-filename',
+        default='Nanopore_read_coverage.pdf',
+        help='PDF filename to store plots. Default: %(default)s')
+
+    ## TODO: add alternative region selection options (t-test)
+
+    return parser
+
+def compare_main(args):
+    global VERBOSE
+    VERBOSE = not args.quiet
+
+    # TODO: allow any number of gourps for comparisons
+    files1 = [os.path.join(args.fast5_basedir, fn)
+              for fn in os.listdir(args.fast5_basedir)]
+    files2 = [os.path.join(args.fast5_basedir2, fn)
+              for fn in os.listdir(args.fast5_basedir2)]
+
+    if DO_PROFILE:
+        import cProfile
+        cProfile.runctx(
+            "plot_max_diff("
+            "files1, files2, args.num_regions, " +
+            "args.corrected_group, args.overplot_threshold, " +
+            "args.pdf_filename, args.num_bases, " +
+            "args.overplot_type)",
+            globals(), locals(), 'profile.plot_compare.prof')
+        sys.exit()
+    plot_max_diff(
+        files1, files2, args.num_regions, args.corrected_group,
+        args.overplot_threshold, args.pdf_filename, args.num_bases,
+        args.overplot_type)
+
+    return
+
+def get_compare_parser():
+    import argparse
+    parser = argparse.ArgumentParser(
+        description='Plot raw signal from from two samples where ' +
+        'FAST5 files were corrected with `nanoraw correct`.',
+        add_help=False)
+    parser.add_argument(
+        'fast5_basedir',
+        help='Directory containing fast5 files.')
+    parser.add_argument(
+        'fast5_basedir2',
+        help='Second directory containing fast5 files.')
+
+    parser.add_argument(
+        '--pdf-filename',
+        default='Nanopore_read_coverage.compare_groups.pdf',
+        help='PDF filename to store plots. Default: %(default)s')
+
+    ## TODO: add alternative region selection options (t-test)
+
+    return parser
+
+def get_plot_parser():
+    import argparse
+    parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument(
         '--num-regions', type=int, default=10,
         help='Number of regions to plot. Default: %(default)d')
@@ -688,25 +828,14 @@ def get_parser(with_help=True):
         'script. Default: %(default)s')
     parser.add_argument(
         '--overplot-threshold', type=int, default=50,
-        help='Number of reads to trigger plotting quantiles ' +
+        help='Number of reads to trigger alternative plot type ' +
         'instead of raw signal due to overplotting. ' +
         'Default: %(default)d')
     parser.add_argument(
-        '--overplot-quantiles', default=False, action='store_true',
-        help='Plot quantiles instead of boxplots for high ' +
-        'coverage regions')
-
-    parser.add_argument(
-        '--pdf-filebase', default='Nanopore_read_coverage',
-        help='Base for PDF to store plots (suffix depends on plot ' +
-        'type to avoid overwriting plots). Default: %(default)s')
-
-    parser.add_argument(
-        '--wiggle-filename',
-        help="Output wiggle read coverage file. Note that this will " +
-        "also be the track name in the def line (only available for " +
-        "single FAST5 dir currently). Default: Dont't output " +
-        "coverage wiggle.")
+        '--overplot-type', default='Boxplot',
+        choices=['Boxplot', 'Quantile'],
+        help='Plot type for regions with higher coverage. ' +
+        'Choices: Boxplot (default), Quantile')
 
     parser.add_argument(
         '--quiet', '-q', default=False, action='store_true',
@@ -714,9 +843,7 @@ def get_parser(with_help=True):
 
     return parser
 
-def args_and_main():
-    main(get_parser().parse_args())
-    return
 
 if __name__ == '__main__':
-    args_and_main()
+    raise NotImplementedError, (
+        'This is a module. Run with `nanoraw plot_signal -h`')

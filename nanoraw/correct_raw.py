@@ -13,7 +13,7 @@ from itertools import groupby, izip
 from tempfile import NamedTemporaryFile
 from collections import defaultdict, namedtuple
 
-from helper import normalize_raw_signal
+from nanoraw_helper import normalize_raw_signal
 
 fd = sys.stderr.fileno()
 def _redirect_stderr(to):
@@ -593,11 +593,17 @@ def get_aligned_seq_worker(
             failed_reads_q.put((str(e), fn))""",
             globals(), locals(), 'profile.correct_reads.prof')
         sys.exit()
+    num_processed = 0
     while not filenames_q.empty():
         try:
             fn = filenames_q.get(block=False)
         except Queue.Empty:
             break
+
+        num_processed += 1
+        if VERBOSE and num_processed % 100 == 0:
+            sys.stderr.write('.')
+            sys.stderr.flush()
 
         try:
             correct_raw_data(
@@ -616,10 +622,11 @@ def get_all_reads_data(fast5_fns, genome_filename, graphmap_path,
     manager = mp.Manager()
     fast5_q = manager.Queue()
     failed_reads_q = manager.Queue()
+    num_reads = 0
     for fast5_fn in fast5_fns:
+        num_reads += 1
         fast5_q.put(fast5_fn)
 
-    if VERBOSE: sys.stderr.write('Preparing mutlithreaded processing.\n')
     args = (fast5_q, failed_reads_q, genome_filename,
             graphmap_path, basecall_group, corrected_group, timeout,
             num_cpts_limit, overwrite)
@@ -630,7 +637,8 @@ def get_all_reads_data(fast5_fns, genome_filename, graphmap_path,
         processes.append(p)
 
     if VERBOSE: sys.stderr.write(
-            'Waiting for reads to finish processinig.\n')
+            'Correcting ' + str(num_reads) + ' reads (Will ' +
+            'print a dot for each 100 reads completed).\n')
     failed_reads = defaultdict(list)
     while any(p.is_alive() for p in processes):
         try:
@@ -644,6 +652,9 @@ def get_all_reads_data(fast5_fns, genome_filename, graphmap_path,
     while not failed_reads_q.empty():
         errorType, fn = failed_reads_q.get(block=False)
         failed_reads[errorType].append(fn)
+
+    # print newline after read progress dots
+    if VERBOSE: sys.stderr.write('\n')
 
     return dict(failed_reads)
 
@@ -685,12 +696,12 @@ def main(args):
 
 # define function for getting parser so it can be shared in
 # __main__ package script
-def get_parser(with_help=True):
+def get_parser():
     import argparse
     parser = argparse.ArgumentParser(
         description='Parse raw data from oxford nanopore R9 FAST5 ' +
         'files and correct segmentation to match genomic regions.',
-        add_help=with_help)
+        add_help=False)
 
     parser.add_argument(
         'fast5_basedir',

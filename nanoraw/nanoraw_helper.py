@@ -1,10 +1,45 @@
+import h5py
+
 import numpy as np
 
 from itertools import izip
+from collections import defaultdict, namedtuple
+
+readData = namedtuple('readData', (
+    'start', 'end', 'segs', 'read_start_rel_to_raw',
+    'strand', 'means', 'fn', 'corr_group'))
 
 NORM_TYPES = ('none', 'ont', 'median', 'robust_median')
 
+# got quantiles from analysis of stability after shift-only normalization
 robust_quantiles = (46.5, 53.5)
+
+
+def parse_files(files, corrected_group, get_means=False):
+    raw_read_coverage = defaultdict(list)
+    for read_fn in files:
+        with h5py.File(read_fn, 'r') as read_data:
+            if 'Analyses/' + corrected_group not in read_data:
+                continue
+            align_data = read_data['Analyses/' + corrected_group +
+                                '/Alignment/'].attrs
+            seg_grp = read_data[
+                'Analyses/' + corrected_group + '/template/Segments']
+            read_start_rel_to_raw = seg_grp.attrs[
+                'read_start_rel_to_raw']
+            segs = seg_grp.value
+            base_means = read_data[
+                'Analyses/' + corrected_group +
+                '/template/Events']['norm_mean'] if get_means else None
+            raw_read_coverage[align_data['mapped_chrom']].append(
+                readData(
+                    align_data['mapped_start'],
+                    align_data['mapped_start'] + len(segs) - 1,
+                    segs, read_start_rel_to_raw,
+                    align_data['mapped_strand'], base_means, read_fn,
+                    corrected_group))
+
+    return raw_read_coverage
 
 def normalize_raw_signal(
         all_raw_signal, read_start_rel_to_raw, read_obs_len,
@@ -54,12 +89,3 @@ def normalize_raw_signal(
                     raw_signal < lower_lim)])
 
     return raw_signal, shift, scale
-
-
-"""
-    parser.add_argument('--normalization-type', default='median',
-                        choices=['raw', 'ont', 'median'],
-                        help='Raw nanopore normalization ' +
-                        'method. Should be one of (raw, ont and ' +
-                        'median). Default: median')
-"""
