@@ -24,9 +24,11 @@ try:
     from rpy2.robjects.packages import importr
     ggplot = importr("ggplot2")
     r.r('''
-    plotSingleRun <- function(dat, quantDat, BaseDat, TitleDat){
+    plotSingleRun <- function(
+        dat, quantDat, eventDat, BaseDat, TitleDat){
     regions <- sort(c(unique(as.character(dat$Region)),
-                 unique(as.character(quantDat$Region))))
+                 unique(as.character(quantDat$Region)),
+                 unique(as.character(eventDat$Region))))
     for(reg_i in regions){
     reg_base_dat <- BaseDat[BaseDat$Region==reg_i,]
     title <- TitleDat[TitleDat$Region==reg_i,'Title']
@@ -35,13 +37,19 @@ try:
     p <- ggplot(reg_sig_dat) +
         geom_path(aes(x=Position, y=Signal, group=Read),
                   alpha=0.3, size=0.05, show.legend=FALSE)
-    } else {
+    } else if(reg_i %in% quantDat$Region) {
     reg_quant_dat <- quantDat[quantDat$Region == reg_i,]
     p <- ggplot(reg_quant_dat) +
         geom_rect(aes(xmin=Position, xmax=Position+1,
                       ymin=Lower, ymax=Upper),
                   alpha=0.1, show.legend=FALSE) +
         ylab('Signal')
+    } else {
+    reg_event_dat <- eventDat[eventDat$Region == reg_i,]
+    p <- ggplot(reg_event_dat) +
+        geom_boxplot(aes(Position, ymin=SigMin, lower=Sig25,
+                         middle=SigMed, upper=Sig75, ymax=SigMax),
+                     stat="identity", show.legend=FALSE)
     }
     print(p + facet_grid(Strand ~ .) +
         geom_text(aes(x=Position+0.5, y=-5, label=Base, color=Base),
@@ -60,10 +68,11 @@ try:
     plotSingleRun = r.globalenv['plotSingleRun']
 
     r.r('''
-    plotGroupComp <- function(dat, quantDat, baseDat, TitleDat,
+    plotGroupComp <- function(dat, quantDat, eventDat, baseDat, TitleDat,
                               QuantWidth){
     regions <- sort(c(unique(as.character(dat$Region)),
-                        as.character(unique(quantDat$Region))))
+                      unique(as.character(quantDat$Region)),
+                      unique(as.character(eventDat$Region))))
     for(reg_i in regions){
     reg_base_dat <- baseDat[baseDat$Region==reg_i,]
     title <- TitleDat[TitleDat$Region==reg_i,'Title']
@@ -72,13 +81,20 @@ try:
     p <- ggplot(reg_sig_dat) +
         geom_path(aes(x=Position, y=Signal, color=Group, group=Read),
                   alpha=0.3, size=0.05, show.legend=FALSE)
-    } else {
+    } else if(reg_i %in% quantDat$Region) {
     reg_quant_dat <- quantDat[quantDat$Region == reg_i,]
     p <- ggplot(reg_quant_dat) +
         geom_rect(aes(xmin=Position, xmax=Position + QuantWidth,
                       ymin=Lower, ymax=Upper, fill=Group),
                   alpha=0.1, show.legend=FALSE) +
         ylab('Signal')
+    } else {
+    reg_event_dat <- eventDat[eventDat$Region == reg_i,]
+    p <- ggplot(reg_event_dat) +
+        geom_boxplot(aes(Position, ymin=SigMin, lower=Sig25,
+                         middle=SigMed, upper=Sig75, ymax=SigMax,
+                         fill=Group),
+                     stat="identity", show.legend=FALSE)
     }
     print(p + facet_grid(Strand ~ .) +
         geom_text(aes(x=Position+0.5, y=-5, label=Base, color=Base),
@@ -86,7 +102,7 @@ try:
                   hjust=0.5, vjust=0, size=3, show.legend=FALSE) +
         scale_color_manual(values=c(
             'A'='#00CC00', 'C'='#0000CC', 'G'='#FFB300', 'T'='#CC0000',
-            'Group1'='blue', 'Group2'='red', '-'='black')) +
+            '-'='black', 'Group1'='blue', 'Group2'='red')) +
         scale_fill_manual(values=c(
             'Group1'='blue', 'Group2'='red')) +
         geom_vline(xintercept=min(reg_base_dat$Position):(
@@ -166,59 +182,104 @@ def get_base_signal(raw_read_coverage, chrm_sizes):
 
     return mean_base_signal
 
+def get_reg_events(r_data, interval_start, num_bases):
+    if r_data.means is None:
+        with h5py.File(r_data.fn) as read_data:
+            r_means = read_data[
+                'Analyses/' + r_data.corr_group +
+                '/template/Events']['norm_mean']
+    else:
+        r_means = r_data.means
+    r_means = r_means if (
+        r_data.strand == "+") else r_means[::-1]
+    if r_data.start > interval_start:
+        # handle reads that start in middle of region
+        start_offset = r_data.start - interval_start
+        # create region with nan values
+        region_means = np.empty(num_bases)
+        region_means[:] = np.NAN
+        region_means[start_offset:] = r_means[
+            :num_bases - start_offset]
+    elif (r_data.start + len(r_means) <
+          interval_start + num_bases):
+        # handle reads that end inside region
+        end_offset = interval_start + num_bases - (
+            r_data.start + len(r_means))
+        # create region with nan values
+        region_means = np.empty(num_bases)
+        region_means[:] = np.NAN
+        region_means[num_bases - end_offset:] = r_means[
+            -end_offset:]
+    else:
+        skipped_bases = interval_start - r_data.start
+        region_means = r_means[
+            skipped_bases:skipped_bases + num_bases]
+
+    return region_means
+
+def get_boxplot_data(
+        all_reg_data, plot_types, num_bases, corrected_group,
+        group_num='Group1'):
+    (Position, SigMin, Sig25, SigMed, Sig75, SigMax, Strand, Region) = (
+        [], [], [], [], [], [], [], [])
+    for reg_plot_sig, (
+            region_i, interval_start, chrom, reg_reads) in zip(
+                plot_types, all_reg_data):
+        if reg_plot_sig != 'Boxplot': continue
+
+        for strand in ('+', '-'):
+            if sum(r_data.strand == strand
+                   for r_data in reg_reads) == 0:
+                continue
+            reg_events = [
+                get_reg_events(r_data, interval_start, num_bases)
+                for r_data in reg_reads if r_data.strand == strand]
+            for pos, base_read_means in enumerate(
+                    np.column_stack(reg_events)):
+                # skip regions with no coverage
+                if sum(~np.isnan(base_read_means)) == 0:
+                    continue
+                # remove nan  regions of reads from partial overlaps
+                base_read_means = base_read_means[
+                    ~np.isnan(base_read_means)]
+                Position.append(pos + interval_start)
+                SigMin.append(np.percentile(base_read_means, 0))
+                Sig25.append(np.percentile(base_read_means, 25))
+                SigMed.append(np.percentile(base_read_means, 50))
+                Sig75.append(np.percentile(base_read_means, 75))
+                SigMax.append(np.percentile(base_read_means, 100))
+                Strand.append(strand)
+                Region.append(region_i)
+
+    return r.DataFrame({
+        'Position':r.IntVector(Position),
+        'SigMin':r.FloatVector(SigMin),
+        'Sig25':r.FloatVector(Sig25),
+        'SigMed':r.FloatVector(SigMed),
+        'Sig75':r.FloatVector(Sig75),
+        'SigMax':r.FloatVector(SigMax),
+        'Strand':r.StrVector(Strand),
+        'Region':r.StrVector(Region),
+        'Group':r.StrVector(list(repeat(group_num, len(Position))))})
+
 def get_quant_data(
-        all_reg_data, plot_signal, num_bases, corrected_group,
+        all_reg_data, plot_types, num_bases, corrected_group,
         group_num='Group1', pos_offest=0,
         pcntls=[1,10,20,30,40,49]):
     upper_pcntls = [100 - pcntl for pcntl in pcntls]
     Position, Lower, Upper, Strand, Region = [], [], [], [], []
     for reg_plot_sig, (
             region_i, interval_start, chrom, reg_reads) in zip(
-                plot_signal, all_reg_data):
-        if reg_plot_sig: continue
-        def get_reg_events(r_data):
-            if r_data.means is None:
-                with h5py.File(r_data.fn) as read_data:
-                    r_means = read_data[
-                        'Analyses/' + r_data.corr_group +
-                        '/template/Events']['norm_mean']
-            else:
-                r_means = r_data.means
-            r_means = r_means if (
-                r_data.strand == "+") else r_means[::-1]
-            # TODO: This section of code also needs to be tested
-            # likely at least one or two OBO errors
-            if r_data.start > interval_start:
-                # handle reads that start in middle of region
-                start_offset = r_data.start - interval_start
-                # create region with nan values
-                region_means = np.empty(num_bases)
-                region_means[:] = np.NAN
-                region_means[start_offset:] = r_means[
-                    :num_bases - start_offset]
-            elif (r_data.start + len(r_means) <
-                  interval_start + num_bases):
-                # handle reads that end inside region
-                end_offset = interval_start + num_bases - (
-                    r_data.start + len(r_means))
-                # create region with nan values
-                region_means = np.empty(num_bases)
-                region_means[:] = np.NAN
-                region_means[num_bases - end_offset:] = r_means[
-                    -end_offset:]
-            else:
-                skipped_bases = interval_start - r_data.start
-                region_means = r_means[
-                    skipped_bases:skipped_bases + num_bases]
-
-            return region_means
+                plot_types, all_reg_data):
+        if reg_plot_sig != 'Quant': continue
 
         for strand in ('+', '-'):
             if sum(r_data.strand == strand
                    for r_data in reg_reads) == 0:
                 continue
-            reg_events = [get_reg_events(r_data) for r_data in reg_reads
-                          if r_data.strand == strand]
+            reg_events = [
+                get_reg_events(r_data, interval_start, num_bases)
+                for r_data in reg_reads if r_data.strand == strand]
             for pos, base_read_means in enumerate(
                     np.column_stack(reg_events)):
                 # skip regions with no coverage
@@ -253,13 +314,13 @@ def get_signal(read_fn, read_start_rel_to_raw, num_obs):
 
     return r_sig
 
-def get_signal_data(all_reg_data, plot_signal, num_bases,
+def get_signal_data(all_reg_data, plot_types, num_bases,
                     corrected_group, group_num='Group1'):
     Position, Signal, Read, Strand, Region = [], [], [], [], []
     for reg_plot_sig, (
             region_i, interval_start, chrom, reg_reads) in zip(
-                plot_signal, all_reg_data):
-        if not reg_plot_sig: continue
+                plot_types, all_reg_data):
+        if reg_plot_sig != 'Signal': continue
         for r_num, r_data in enumerate(reg_reads):
             r_strand = r_data.strand
 
@@ -369,7 +430,8 @@ def get_region_reads(interval_data, raw_read_coverage, num_bases):
     return all_reg_data
 
 def plot_max_diff(files1, files2, num_regions, corrected_group,
-                  overplot_thresh, fn_base, num_bases=100):
+                  overplot_thresh, fn_base, num_bases=100,
+                  plot_quantiles=True):
     if VERBOSE: sys.stderr.write('Parsing files.\n')
     raw_read_coverage1 = parse_files(files1, corrected_group, True)
     raw_read_coverage2 = parse_files(files2, corrected_group, True)
@@ -425,8 +487,11 @@ def plot_max_diff(files1, files2, num_regions, corrected_group,
          sum(r_data.strand == '+' for r_data in reg_data2[3]),
          sum(r_data.strand == '-' for r_data in reg_data2[3]))
         for reg_data1, reg_data2 in zip(all_reg_data1, all_reg_data2)]
-    plot_signal = [max(covs) < overplot_thresh or
-                   min(covs) < QUANT_MIN for covs in strand_cov]
+    plot_types = [
+        'Signal' if (max(covs) < overplot_thresh or
+                     min(covs) < QUANT_MIN)
+        else ('Quant' if plot_quantiles else 'Boxplot')
+        for covs in strand_cov]
     Titles = r.DataFrame({
         'Title':r.StrVector([
             chrm + " ::: Group1 Coverage (Blue): " +
@@ -444,22 +509,29 @@ def plot_max_diff(files1, files2, num_regions, corrected_group,
 
     # get plotting data for either quantiles of raw signal
     SignalData1 = get_signal_data(
-        all_reg_data1, plot_signal, num_bases,
+        all_reg_data1, plot_types, num_bases,
         corrected_group, 'Group1')
     SignalData2 = get_signal_data(
-        all_reg_data2, plot_signal, num_bases,
+        all_reg_data2, plot_types, num_bases,
         corrected_group, 'Group2')
     QuantData1 = get_quant_data(
-        all_reg_data1, plot_signal, num_bases,
+        all_reg_data1, plot_types, num_bases,
         corrected_group, 'Group1', 0.1)
     QuantData2 = get_quant_data(
-        all_reg_data2, plot_signal, num_bases,
+        all_reg_data2, plot_types, num_bases,
         corrected_group, 'Group2', 0.5)
+    EventData1 = get_boxplot_data(
+        all_reg_data1, plot_types, num_bases,
+        corrected_group, 'Group1')
+    EventData2 = get_boxplot_data(
+        all_reg_data2, plot_types, num_bases,
+        corrected_group, 'Group2')
 
     if VERBOSE: sys.stderr.write('Plotting.\n')
     r.r('pdf("' + fn_base + '.compare_groups.pdf", height=5, width=11)')
     plotGroupComp(r.DataFrame.rbind(SignalData1, SignalData2),
                   r.DataFrame.rbind(QuantData1, QuantData2),
+                  r.DataFrame.rbind(EventData1, EventData2),
                   BasesData, Titles, 0.4)
     r.r('dev.off()')
 
@@ -467,7 +539,7 @@ def plot_max_diff(files1, files2, num_regions, corrected_group,
 
 def plot_max_coverage(files, num_regions, corrected_group,
                       overplot_thresh, fn_base, num_bases=100,
-                      wiggle_fn=None):
+                      wiggle_fn=None, plot_quantiles=True):
     if VERBOSE: sys.stderr.write('Parsing files.\n')
     raw_read_coverage = parse_files(files, corrected_group)
 
@@ -512,8 +584,11 @@ def plot_max_coverage(files, num_regions, corrected_group,
         (sum(r_data.strand == '+' for r_data in reg_data[3]),
          sum(r_data.strand == '-' for r_data in reg_data[3]))
         for reg_data in all_reg_data]
-    plot_signal = [max(covs) < overplot_thresh or
-                   min(covs) < QUANT_MIN for covs in strand_cov]
+    plot_types = [
+        'Signal' if (max(covs) < overplot_thresh or
+                     min(covs) < QUANT_MIN)
+        else ('Quant' if plot_quantiles else 'Boxplot')
+        for covs in strand_cov]
     Titles = r.DataFrame({
         'Title':r.StrVector([
             chrm + " ::: Coverage: " +
@@ -525,13 +600,15 @@ def plot_max_coverage(files, num_regions, corrected_group,
     BasesData = get_base_data(
         all_reg_data, corrected_group, num_bases)
     SignalData = get_signal_data(
-        all_reg_data, plot_signal, num_bases, corrected_group)
+        all_reg_data, plot_types, num_bases, corrected_group)
     QuantData = get_quant_data(
-        all_reg_data, plot_signal, num_bases, corrected_group)
+        all_reg_data, plot_types, num_bases, corrected_group)
+    EventData = get_boxplot_data(
+        all_reg_data, plot_types, num_bases, corrected_group)
 
     if VERBOSE: sys.stderr.write('Plotting.\n')
     r.r('pdf("' + fn_base + '.pdf", height=5, width=11)')
-    plotSingleRun(SignalData, QuantData, BasesData, Titles)
+    plotSingleRun(SignalData, QuantData, EventData, BasesData, Titles)
     r.r('dev.off()')
 
     return
@@ -552,12 +629,14 @@ def main(args):
                 "plot_max_diff("
                 "files1, files2, args.num_regions, " +
                 "args.corrected_group, args.overplot_threshold, " +
-                "args.pdf_filebase, args.num_bases)",
+                "args.pdf_filebase, args.num_bases, " +
+                "args.overplot_quantiles)",
                 globals(), locals(), 'profile.plot_compare.prof')
             sys.exit()
         plot_max_diff(
             files1, files2, args.num_regions, args.corrected_group,
-            args.overplot_threshold, args.pdf_filebase, args.num_bases)
+            args.overplot_threshold, args.pdf_filebase, args.num_bases,
+            args.overplot_quantiles)
     else:
         if DO_PROFILE:
             import cProfile
@@ -565,13 +644,14 @@ def main(args):
                 "plot_max_coverage(" +
                 "files1, args.num_regions, args.corrected_group," +
                 "args.overplot_threshold, args.pdf_filebase, " +
-                "args.num_bases, args.wiggle_filename)",
+                "args.num_bases, args.wiggle_filename, " +
+                "args.overplot_quantiles)",
                 globals(), locals(), 'profile.plot_compare.prof')
             sys.exit()
         plot_max_coverage(
             files1, args.num_regions, args.corrected_group,
             args.overplot_threshold, args.pdf_filebase, args.num_bases,
-            args.wiggle_filename)
+            args.wiggle_filename, args.overplot_quantiles)
 
     return
 
@@ -608,6 +688,10 @@ def get_parser(with_help=True):
         help='Number of reads to trigger plotting quantiles ' +
         'instead of raw signal due to overplotting. ' +
         'Default: %(default)d')
+    parser.add_argument(
+        '--overplot-quantiles', default=False, action='store_true',
+        help='Plot quantiles instead of boxplots for high ' +
+        'coverage regions')
 
     parser.add_argument(
         '--pdf-filebase', default='Nanopore_read_coverage',
