@@ -47,9 +47,11 @@ try:
     } else {
     reg_event_dat <- eventDat[eventDat$Region == reg_i,]
     p <- ggplot(reg_event_dat) +
-        geom_boxplot(aes(Position, ymin=SigMin, lower=Sig25,
+        geom_boxplot(aes(Position + 0.5, ymin=SigMin, lower=Sig25,
                          middle=SigMed, upper=Sig75, ymax=SigMax),
-                     stat="identity", show.legend=FALSE)
+                     size=0.2, alpha=0.5,
+                     stat="identity", show.legend=FALSE) +
+        ylab('Signal')
     }
     print(p + facet_grid(Strand ~ .) +
         geom_text(aes(x=Position+0.5, y=-5, label=Base, color=Base),
@@ -91,10 +93,11 @@ try:
     } else {
     reg_event_dat <- eventDat[eventDat$Region == reg_i,]
     p <- ggplot(reg_event_dat) +
-        geom_boxplot(aes(Position, ymin=SigMin, lower=Sig25,
+        geom_boxplot(aes(Position + 0.5, ymin=SigMin, lower=Sig25,
                          middle=SigMed, upper=Sig75, ymax=SigMax,
-                         fill=Group),
-                     stat="identity", show.legend=FALSE)
+                         fill=Group), size=0.2, alpha=0.3,
+                     stat="identity", show.legend=FALSE) +
+        ylab('Signal')
     }
     print(p + facet_grid(Strand ~ .) +
         geom_text(aes(x=Position+0.5, y=-5, label=Base, color=Base),
