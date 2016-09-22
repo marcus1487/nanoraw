@@ -1,14 +1,15 @@
 ## Summary
----
 This package provides tools for the analysis of raw nanopore sequencing data, including correction of basecalls and visualization.
 
 ## Requirements
----
+
+- HDF5 (<http://micro.stanford.edu/wiki/Install_HDF5#Install>)
+- graphmap (<https://github.com/isovic/graphmap>)
+
 #### python Requirements:
-- HDF5
 - python
-- h5py
 - numpy
+- h5py
 - rpy2
 
 #### R Requirements:
@@ -19,7 +20,6 @@ This package provides tools for the analysis of raw nanopore sequencing data, in
 - changepoint (for using R's changepoint package for re-segmentation)
 
 ## Usage
----
 Currently, not loaded into pip (to be done soon). To use nanoraw install locally and run with:
 ```
 git clone https://github.com/marcus1487/nanoraw.git
@@ -30,7 +30,6 @@ nanoraw [command] [options]
 ```
 
 ## Currently supported commands
----
 #### Main comands:
 - correct: Correct annotation of raw signal with genomic aignement of existing basecalls
 - write_wiggle: Write wiggle file of genome coverage.

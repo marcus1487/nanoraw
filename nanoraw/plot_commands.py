@@ -13,6 +13,8 @@ from nanoraw_helper import normalize_raw_signal, parse_files
 DO_PROFILE = False
 VERBOSE = False
 
+# quantiles and especially violin plots at leat 3 values
+# to be meaningful
 QUANT_MIN = 3
 
 try:
@@ -21,9 +23,10 @@ try:
     ggplot = importr("ggplot2")
     r.r('''
     plotSingleRun <- function(
-        dat, quantDat, eventDat, BaseDat, TitleDat){
+        dat, quantDat, boxDat, eventDat, BaseDat, TitleDat){
     regions <- sort(c(unique(as.character(dat$Region)),
                  unique(as.character(quantDat$Region)),
+                 unique(as.character(boxDat$Region)),
                  unique(as.character(eventDat$Region))))
     for(reg_i in regions){
     reg_base_dat <- BaseDat[BaseDat$Region==reg_i,]
@@ -40,14 +43,20 @@ try:
                       ymin=Lower, ymax=Upper),
                   alpha=0.1, show.legend=FALSE) +
         ylab('Signal')
-    } else {
-    reg_event_dat <- eventDat[eventDat$Region == reg_i,]
-    p <- ggplot(reg_event_dat) +
+    } else if(reg_i %in% boxDat$Region) {
+    reg_box_dat <- boxDat[boxDat$Region == reg_i,]
+    p <- ggplot(reg_box_dat) +
         geom_boxplot(aes(Position + 0.5, ymin=SigMin, lower=Sig25,
                          middle=SigMed, upper=Sig75, ymax=SigMax),
                      size=0.2, alpha=0.5,
                      stat="identity", show.legend=FALSE) +
-        ylab('Signal')
+        ylab('Signal') + xlab('Position')
+    } else {
+    reg_event_dat <- eventDat[eventDat$Region == reg_i,]
+    p <- ggplot(reg_event_dat) +
+        geom_violin(aes(x=Position + 0.5, y=Signal, group=Position),
+                    size=0, show.legend=FALSE) +
+        ylab('Signal') + xlab('Position')
     }
     print(p + facet_grid(Strand ~ .) +
         geom_text(aes(x=Position+0.5, y=-5, label=Base, color=Base),
@@ -66,10 +75,11 @@ try:
     plotSingleRun = r.globalenv['plotSingleRun']
 
     r.r('''
-    plotGroupComp <- function(dat, quantDat, eventDat, baseDat, TitleDat,
-                              QuantWidth){
+    plotGroupComp <- function(dat, quantDat, boxDat, eventDat,
+                              baseDat, TitleDat, QuantWidth){
     regions <- sort(c(unique(as.character(dat$Region)),
                       unique(as.character(quantDat$Region)),
+                      unique(as.character(boxDat$Region)),
                       unique(as.character(eventDat$Region))))
     for(reg_i in regions){
     reg_base_dat <- baseDat[baseDat$Region==reg_i,]
@@ -86,14 +96,21 @@ try:
                       ymin=Lower, ymax=Upper, fill=Group),
                   alpha=0.1, show.legend=FALSE) +
         ylab('Signal')
-    } else {
-    reg_event_dat <- eventDat[eventDat$Region == reg_i,]
-    p <- ggplot(reg_event_dat) +
+    } else if (reg_i %in% boxDat$Region) {
+    reg_box_dat <- boxDat[boxDat$Region == reg_i,]
+    p <- ggplot(reg_box_dat) +
         geom_boxplot(aes(Position + 0.5, ymin=SigMin, lower=Sig25,
                          middle=SigMed, upper=Sig75, ymax=SigMax,
                          fill=Group), size=0.2, alpha=0.3,
                      stat="identity", show.legend=FALSE) +
-        ylab('Signal')
+        ylab('Signal') + xlab('Position')
+    } else {
+    reg_event_dat <- eventDat[eventDat$Region == reg_i,]
+    p <- ggplot(reg_event_dat) +
+        geom_violin(aes(x=Position + 0.5, y=Signal, fill=Group,
+                       group=paste0(Group, Position)),
+                     size=0, show.legend=FALSE) +
+        ylab('Signal') + xlab('Position')
     }
     print(p + facet_grid(Strand ~ .) +
         geom_text(aes(x=Position+0.5, y=-5, label=Base, color=Base),
@@ -344,6 +361,45 @@ def get_reg_events(r_data, interval_start, num_bases):
 
     return region_means
 
+def get_event_data(
+        all_reg_data, plot_types, num_bases, corrected_group,
+        group_num='Group1'):
+    Position, Signal, Strand, Region = [], [], [], []
+    for reg_plot_sig, (
+            region_i, interval_start, chrom, reg_reads) in zip(
+                plot_types, all_reg_data):
+        if reg_plot_sig != 'Violin': continue
+
+        for strand in ('+', '-'):
+            if sum(r_data.strand == strand
+                   for r_data in reg_reads) == 0:
+                continue
+            reg_events = [
+                get_reg_events(r_data, interval_start, num_bases)
+                for r_data in reg_reads if r_data.strand == strand]
+            for pos, base_read_means in enumerate(
+                    np.column_stack(reg_events)):
+                # skip bases with no coverage
+                if sum(~np.isnan(base_read_means)) == 0:
+                    continue
+                # remove nan  regions of reads from partial overlaps
+                base_read_means = base_read_means[
+                    ~np.isnan(base_read_means)]
+                Position.extend(repeat(
+                    pos + interval_start, base_read_means.shape[0]))
+                Signal.extend(base_read_means)
+                Strand.extend(repeat(
+                    strand, base_read_means.shape[0]))
+                Region.extend(repeat(
+                    region_i, base_read_means.shape[0]))
+
+    return r.DataFrame({
+        'Position':r.IntVector(Position),
+        'Signal':r.FloatVector(Signal),
+        'Strand':r.StrVector(Strand),
+        'Region':r.StrVector(Region),
+        'Group':r.StrVector(list(repeat(group_num, len(Position))))})
+
 def get_boxplot_data(
         all_reg_data, plot_types, num_bases, corrected_group,
         group_num='Group1'):
@@ -486,6 +542,14 @@ def get_signal_data(all_reg_data, plot_types, num_bases,
         'Strand':r.StrVector(Strand),
         'Region':r.StrVector(Region),
         'Group':r.StrVector(list(repeat(group_num, len(Position))))})
+
+def get_plot_types_data(plot_args, quant_offset=0):
+    SignalData = get_signal_data(*plot_args)
+    QuantData = get_quant_data(*plot_args, pos_offest=quant_offset)
+    BoxData = get_boxplot_data(*plot_args)
+    EventData = get_event_data(*plot_args)
+
+    return SignalData, QuantData, BoxData, EventData
 
 def get_base_data(all_reg_data, corrected_group, num_bases):
     BaseStart, Bases, BaseRegion = [], [], []
@@ -633,29 +697,18 @@ def plot_max_diff(files1, files2, num_regions, corrected_group,
         all_reg_data1, corrected_group, num_bases)
 
     # get plotting data for either quantiles of raw signal
-    SignalData1 = get_signal_data(
-        all_reg_data1, plot_types, num_bases,
-        corrected_group, 'Group1')
-    SignalData2 = get_signal_data(
-        all_reg_data2, plot_types, num_bases,
-        corrected_group, 'Group2')
-    QuantData1 = get_quant_data(
-        all_reg_data1, plot_types, num_bases,
-        corrected_group, 'Group1', 0.1)
-    QuantData2 = get_quant_data(
-        all_reg_data2, plot_types, num_bases,
-        corrected_group, 'Group2', 0.5)
-    EventData1 = get_boxplot_data(
-        all_reg_data1, plot_types, num_bases,
-        corrected_group, 'Group1')
-    EventData2 = get_boxplot_data(
-        all_reg_data2, plot_types, num_bases,
-        corrected_group, 'Group2')
+    SignalData1, QuantData1, BoxData1, EventData1 = get_plot_types_data(
+        (all_reg_data1, plot_types, num_bases, corrected_group,
+         'Group1'), 0.1)
+    SignalData2, QuantData2, BoxData2, EventData2 = get_plot_types_data(
+        (all_reg_data2, plot_types, num_bases, corrected_group,
+         'Group2'), 0.5)
 
     if VERBOSE: sys.stderr.write('Plotting.\n')
     r.r('pdf("' + pdf_fn + '", height=5, width=11)')
     plotGroupComp(r.DataFrame.rbind(SignalData1, SignalData2),
                   r.DataFrame.rbind(QuantData1, QuantData2),
+                  r.DataFrame.rbind(BoxData1, BoxData2),
                   r.DataFrame.rbind(EventData1, EventData2),
                   BasesData, Titles, 0.4)
     r.r('dev.off()')
@@ -708,16 +761,14 @@ def plot_max_coverage(files, num_regions, corrected_group,
 
     BasesData = get_base_data(
         all_reg_data, corrected_group, num_bases)
-    SignalData = get_signal_data(
-        all_reg_data, plot_types, num_bases, corrected_group)
-    QuantData = get_quant_data(
-        all_reg_data, plot_types, num_bases, corrected_group)
-    EventData = get_boxplot_data(
-        all_reg_data, plot_types, num_bases, corrected_group)
+    SignalData, QuantData, BoxData, EventData = get_plot_types_data(
+        (all_reg_data, plot_types, num_bases, corrected_group,
+         'Group1'))
 
     if VERBOSE: sys.stderr.write('Plotting.\n')
     r.r('pdf("' + pdf_fn + '", height=5, width=11)')
-    plotSingleRun(SignalData, QuantData, EventData, BasesData, Titles)
+    plotSingleRun(SignalData, QuantData, BoxData, EventData,
+                  BasesData, Titles)
     r.r('dev.off()')
 
     return
@@ -819,7 +870,7 @@ def get_plot_parser():
         '--num-regions', type=int, default=10,
         help='Number of regions to plot. Default: %(default)d')
     parser.add_argument(
-        '--num-bases', type=int, default=100,
+        '--num-bases', type=int, default=51,
         help='Number of bases to plot from region. Default: %(default)d')
 
     parser.add_argument(
@@ -833,9 +884,9 @@ def get_plot_parser():
         'Default: %(default)d')
     parser.add_argument(
         '--overplot-type', default='Boxplot',
-        choices=['Boxplot', 'Quantile'],
+        choices=['Boxplot', 'Quantile', 'Violin'],
         help='Plot type for regions with higher coverage. ' +
-        'Choices: Boxplot (default), Quantile')
+        'Choices: Boxplot (default), Quantile, Violin')
 
     parser.add_argument(
         '--quiet', '-q', default=False, action='store_true',
