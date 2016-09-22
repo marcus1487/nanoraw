@@ -15,7 +15,7 @@ NORM_TYPES = ('none', 'ont', 'median', 'robust_median')
 robust_quantiles = (46.5, 53.5)
 
 
-def parse_files(files, corrected_group, get_means=False):
+def parse_fast5s(files, corrected_group, get_means=False):
     raw_read_coverage = defaultdict(list)
     for read_fn in files:
         with h5py.File(read_fn, 'r') as read_data:
@@ -89,3 +89,36 @@ def normalize_raw_signal(
                     raw_signal < lower_lim)])
 
     return raw_signal, shift, scale
+
+def parse_fasta(fasta_fp):
+    fasta_records = {}
+    try:
+        from Bio import SeqIO
+        seqio_fasta_recs = SeqIO.parse(fasta_fp,'fasta')
+        for fasta in seqio_fasta_recs:
+            fasta_records[fasta.id] = fasta.seq.tostring()
+
+        return fasta_records
+    except ImportError:
+        sys.stderr.write(
+            'WARNING: Could not load "Bio" python module so ' +
+            'using less robust parser.\n')
+        pass
+
+    curr_id = None
+    curr_seq = None
+    for line in fasta_fp:
+        if line.startwith('>'):
+            if (curr_id is not None and
+                curr_seq is not None):
+                fasta_records[curr_id] = curr_seq
+                curr_id = line.replace(">","").split()[0]
+                curr_seq = ''
+        else:
+            curr_seq += line.strip()
+
+    if (curr_id is not None and
+        curr_seq is not None):
+        fasta_records[curr_id] = curr_seq
+
+    return fasta_records

@@ -2,13 +2,13 @@ import sys, os
 
 import numpy as np
 
-from nanoraw_helper import parse_files
+from nanoraw_helper import parse_fast5s
 
 VERBOSE = False
 
 def write_wiggle(files, corrected_group, wiggle_fn):
     if VERBOSE: sys.stderr.write('Parsing files.\n')
-    raw_read_coverage = parse_files(files, corrected_group)
+    raw_read_coverage = parse_fast5s(files, corrected_group)
 
     if VERBOSE: sys.stderr.write('Calculating read coverage.\n')
     wiggle_cov = []
