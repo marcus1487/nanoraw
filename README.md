@@ -18,6 +18,7 @@ This package provides tools for the analysis of raw nanopore sequencing data, in
 
 #### Optionally:
 - changepoint (for using R's changepoint package for re-segmentation)
+- Biopython (for robust FASTA parsing, but a simple parser is provided)
 
 ## Usage
 Currently, not loaded into pip (to be done soon). To use nanoraw install locally and run with:

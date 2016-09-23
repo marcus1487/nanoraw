@@ -1,5 +1,6 @@
 import os, sys
 
+import re
 import h5py
 
 import numpy as np
@@ -8,7 +9,8 @@ from copy import copy
 from collections import defaultdict
 from itertools import repeat, groupby
 
-from nanoraw_helper import normalize_raw_signal, parse_fast5s, parse_fasta
+from nanoraw_helper import (
+    normalize_raw_signal, parse_fast5s, parse_fasta)
 
 DO_PROFILE = False
 VERBOSE = False
@@ -16,6 +18,17 @@ VERBOSE = False
 # quantiles and especially violin plots at leat 3 values
 # to be meaningful
 QUANT_MIN = 3
+
+
+COMP_BASES = {'A':'T', 'C':'G', 'G':'C', 'T':'A', '-':'-'}
+def rev_comp(seq):
+    return [COMP_BASES[b] for b in seq[::-1]]
+
+
+
+###################################
+#### ggplot via rpy2 functions ####
+###################################
 
 try:
     import rpy2.robjects as r
@@ -165,12 +178,12 @@ except:
         '*' * 60 + '\n\n')
     raise
 
-COMP_BASES = {'A':'T', 'C':'G', 'G':'C', 'T':'A', '-':'-'}
-def rev_comp(seq):
-    return [COMP_BASES[b] for b in seq[::-1]]
 
 
-# TODO merge kmer data intake methods with other plotting methods
+############################################
+#### Kmer signal distribution functions ####
+############################################
+
 def plot_kmer_dist(files, corrected_group, read_mean, kmer_len,
                    kmer_thresh, pdf_fn):
     if VERBOSE: sys.stderr.write('Parsing files.\n')
@@ -294,37 +307,10 @@ def get_kmer_parser():
     return parser
 
 
-def get_base_signal(raw_read_coverage, chrm_sizes):
-    # create lists for each base to contain all signal segments
-    # which overlap that base
-    base_signal = dict(
-        ((chrm, strand), {'base_sums':np.zeros(chrm_len),
-                          'base_cov':np.zeros(chrm_len, dtype=np.int_)})
-        for chrm, chrm_len in chrm_sizes.items()
-        for strand in ('+', '-'))
 
-    # calculate signal on each strand separately
-    for chrm in chrm_sizes.keys():
-        for r_data in raw_read_coverage[chrm]:
-            strand = r_data.strand
-            read_means = (r_data.means if strand == '+'
-                          else r_data.means[::-1])
-            base_signal[(chrm, strand)]['base_sums'][
-                r_data.start:r_data.start +
-                len(read_means)] += read_means
-            base_signal[(chrm, strand)]['base_cov'][
-                r_data.start:r_data.start +
-                len(read_means)] += 1
-
-    # take the mean over all signal overlapping each base
-    old_err_settings = np.seterr(all='ignore')
-    mean_base_signal = {}
-    for chrm_strand, chrm_sum_cov in base_signal.items():
-        mean_base_signal[chrm_strand] = np.nan_to_num(
-            chrm_sum_cov['base_sums'] / chrm_sum_cov['base_cov'])
-    foo = np.seterr(**old_err_settings)
-
-    return mean_base_signal
+########################################
+#### General data parsing functions ####
+########################################
 
 def get_reg_events(r_data, interval_start, num_bases):
     if r_data.means is None:
@@ -619,6 +605,79 @@ def get_region_reads(plot_intervals, raw_read_coverage, num_bases):
 
     return all_reg_data
 
+def get_base_signal(raw_read_coverage, chrm_sizes):
+    # create lists for each base to contain all signal segments
+    # which overlap that base
+    base_signal = dict(
+        ((chrm, strand), {'base_sums':np.zeros(chrm_len),
+                          'base_cov':np.zeros(chrm_len, dtype=np.int_)})
+        for chrm, chrm_len in chrm_sizes.items()
+        for strand in ('+', '-'))
+
+    # calculate signal on each strand separately
+    for chrm in chrm_sizes.keys():
+        for r_data in raw_read_coverage[chrm]:
+            strand = r_data.strand
+            read_means = (r_data.means if strand == '+'
+                          else r_data.means[::-1])
+            base_signal[(chrm, strand)]['base_sums'][
+                r_data.start:r_data.start +
+                len(read_means)] += read_means
+            base_signal[(chrm, strand)]['base_cov'][
+                r_data.start:r_data.start +
+                len(read_means)] += 1
+
+    # take the mean over all signal overlapping each base
+    old_err_settings = np.seterr(all='ignore')
+    mean_base_signal = {}
+    for chrm_strand, chrm_sum_cov in base_signal.items():
+        mean_base_signal[chrm_strand] = np.nan_to_num(
+            chrm_sum_cov['base_sums'] / chrm_sum_cov['base_cov'])
+    foo = np.seterr(**old_err_settings)
+
+    return mean_base_signal
+
+
+
+########################################
+#### Base plotting linker functions ####
+########################################
+
+def plot_single_sample(
+        plot_intervals, raw_read_coverage, num_bases, overplot_thresh,
+        overplot_type, corrected_group, pdf_fn):
+    if VERBOSE: sys.stderr.write('Preparing plot data.\n')
+    all_reg_data = get_region_reads(
+        plot_intervals, raw_read_coverage, num_bases)
+    strand_cov = [
+        (sum(r_data.strand == '+' for r_data in reg_data[3]),
+         sum(r_data.strand == '-' for r_data in reg_data[3]))
+        for reg_data in all_reg_data]
+    plot_types = [
+        'Signal' if (max(covs) < overplot_thresh or
+                     min(covs) < QUANT_MIN)
+        else overplot_type for covs in strand_cov]
+    Titles = r.DataFrame({
+        'Title':r.StrVector([
+            chrm + " ::: Coverage: " +
+            str(r_cov[0]) + " + " +
+            str(r_cov[1]) + " -" for chrm, r_cov in zip(
+                zip(*zip(*plot_intervals)[1])[0], strand_cov)]),
+        'Region':r.StrVector(zip(*plot_intervals)[0])})
+
+    BasesData = get_base_data(
+        all_reg_data, corrected_group, num_bases)
+    SignalData, QuantData, BoxData, EventData = get_plot_types_data(
+        (all_reg_data, plot_types, num_bases, corrected_group, 'Group1'))
+
+    if VERBOSE: sys.stderr.write('Plotting.\n')
+    r.r('pdf("' + pdf_fn + '", height=5, width=11)')
+    plotSingleRun(SignalData, QuantData, BoxData, EventData,
+                  BasesData, Titles)
+    r.r('dev.off()')
+
+    return
+
 def plot_two_samples(
         plot_intervals, raw_read_coverage1, raw_read_coverage2,
         num_bases, overplot_thresh, overplot_type, corrected_group,
@@ -683,83 +742,11 @@ def plot_two_samples(
 
     return
 
-def plot_max_diff(files1, files2, num_regions, corrected_group,
-                  overplot_thresh, pdf_fn, num_bases, overplot_type):
-    if VERBOSE: sys.stderr.write('Parsing files.\n')
-    raw_read_coverage1 = parse_fast5s(files1, corrected_group, True)
-    raw_read_coverage2 = parse_fast5s(files2, corrected_group, True)
 
-    chrm_sizes = dict((chrm, max(
-        [r_data.end for r_data in raw_read_coverage1[chrm]] +
-        [r_data.end for r_data in raw_read_coverage2[chrm]]))
-                       for chrm in raw_read_coverage1)
 
-    if VERBOSE: sys.stderr.write('Getting base signal.\n')
-    base_signal1 = get_base_signal(raw_read_coverage1, chrm_sizes)
-    base_signal2 = get_base_signal(raw_read_coverage2, chrm_sizes)
-
-    if VERBOSE: sys.stderr.write(
-            'Get differences between base signal.\n')
-    # get num_region max diff regions from each chrm then find
-    # global largest after
-    largest_diff_indices = []
-    for chrm, chrm_size in chrm_sizes.items():
-        for strand in ('+', '-'):
-            chrm_diffs = np.concatenate([
-                np.abs(base_signal1[(chrm, strand)] -
-                       base_signal2[(chrm, strand)])])
-            chrm_max_diff_regs = np.argsort(
-                chrm_diffs)[::-1][:num_regions]
-            largest_diff_indices.extend((
-                chrm_diffs[pos], max(pos - int(num_bases / 2.0), 0),
-                chrm, strand) for pos in chrm_max_diff_regs)
-
-    plot_intervals = zip(
-        ['{:03d}'.format(rn) for rn in range(num_regions)],
-        [(chrm, start, strand) for stat, start, chrm, strand in
-         sorted(largest_diff_indices, reverse=True)[:num_regions]])
-
-    plot_two_samples(
-        plot_intervals, raw_read_coverage1, raw_read_coverage2,
-        num_bases, overplot_thresh, overplot_type, corrected_group,
-        pdf_fn)
-
-    return
-
-def plot_single_sample(
-        plot_intervals, raw_read_coverage, num_bases, overplot_thresh,
-        overplot_type, corrected_group, pdf_fn):
-    if VERBOSE: sys.stderr.write('Preparing plot data.\n')
-    all_reg_data = get_region_reads(
-        plot_intervals, raw_read_coverage, num_bases)
-    strand_cov = [
-        (sum(r_data.strand == '+' for r_data in reg_data[3]),
-         sum(r_data.strand == '-' for r_data in reg_data[3]))
-        for reg_data in all_reg_data]
-    plot_types = [
-        'Signal' if (max(covs) < overplot_thresh or
-                     min(covs) < QUANT_MIN)
-        else overplot_type for covs in strand_cov]
-    Titles = r.DataFrame({
-        'Title':r.StrVector([
-            chrm + " ::: Coverage: " +
-            str(r_cov[0]) + " + " +
-            str(r_cov[1]) + " -" for chrm, r_cov in zip(
-                zip(*zip(*plot_intervals)[1])[0], strand_cov)]),
-        'Region':r.StrVector(zip(*plot_intervals)[0])})
-
-    BasesData = get_base_data(
-        all_reg_data, corrected_group, num_bases)
-    SignalData, QuantData, BoxData, EventData = get_plot_types_data(
-        (all_reg_data, plot_types, num_bases, corrected_group, 'Group1'))
-
-    if VERBOSE: sys.stderr.write('Plotting.\n')
-    r.r('pdf("' + pdf_fn + '", height=5, width=11)')
-    plotSingleRun(SignalData, QuantData, BoxData, EventData,
-                  BasesData, Titles)
-    r.r('dev.off()')
-
-    return
+############################################
+#### One or two sample plotting methods ####
+###########################################
 
 def plot_genome_locations(
         files, files2, corrected_group, overplot_thresh, pdf_fn,
@@ -784,6 +771,57 @@ def plot_genome_locations(
             plot_intervals, raw_read_coverage, num_bases,
             overplot_thresh, overplot_type, corrected_group, pdf_fn)
     return
+
+def plot_kmer_centered(
+        files, files2, num_regions, corrected_group, overplot_thresh,
+        pdf_fn, num_bases, overplot_type, kmer, fasta_fn,
+        deepest_coverage):
+    raw_read_coverage = parse_fast5s(files, corrected_group)
+
+    with open(fasta_fn) as fasta_fp:
+        fasta_records = parse_fasta(fasta_fp)
+
+    kmer_locs = []
+    for chrm, seq in fasta_records.items():
+        for kmer_loc in re.finditer(kmer, seq):
+            kmer_locs.append((chrm, kmer_loc.start()))
+
+    if len(kmer_locs) == 0:
+        sys.stderr.write('Kmer (' + kmer + ') not found in genome.\n')
+        sys.exit()
+    elif len(kmer_locs) < num_regions:
+        sys.stderr.write(
+            'WARNING: Kmer (' + kmer + ') only found ' +
+            str(len(kmer_locs)) + 'times in genome.\n')
+        num_region = len(kmer_locs)
+
+    if deepest_coverage:
+        ## TODO need to calculate coverage to filter genes with
+        # no coverage anyways
+        raise NotImplementedError, 'Not currenly a working option.'
+    else:
+        np.random.shuffle(kmer_locs)
+        # zip over iterator of regions that have at least a
+        # read overlapping so we don't have to check all reads
+        plot_intervals = zip(
+            ['{:03d}'.format(rn) for rn in range(num_regions)],
+            ((chrm, max(pos - int(
+                (num_bases - len(kmer) + 1) / 2.0), 0), None)
+             for chrm, pos in kmer_locs
+             if any(r_data.start < pos < r_data.end
+                    for r_data in raw_read_coverage[chrm])))
+
+    plot_single_sample(
+        plot_intervals, raw_read_coverage, num_bases,
+        overplot_thresh, overplot_type, corrected_group, pdf_fn)
+
+    return
+
+
+
+########################################
+#### Single sample plotting methods ####
+########################################
 
 def plot_max_coverage(files, num_regions, corrected_group,
                       overplot_thresh, pdf_fn, num_bases,
@@ -837,6 +875,12 @@ def single_sample_main(args):
             files, None, args.corrected_group, args.overplot_threshold,
             args.pdf_filename, args.num_bases, args.overplot_type,
             args.genome_locations)
+    elif args.kmer:
+        plot_kmer_centered(
+            files, None, args.num_regions, args.corrected_group,
+            args.overplot_threshold, args.pdf_filename,
+            args.num_bases, args.overplot_type, args.kmer,
+            args.fasta_filename, args.deepest_coverage)
     else:
         plot_max_coverage(
             files, args.num_regions, args.corrected_group,
@@ -862,6 +906,55 @@ def get_single_sample_parser():
 
     return parser
 
+
+
+#####################################
+#### Two sample plotting methods ####
+#####################################
+
+def plot_max_diff(files1, files2, num_regions, corrected_group,
+                  overplot_thresh, pdf_fn, num_bases, overplot_type):
+    if VERBOSE: sys.stderr.write('Parsing files.\n')
+    raw_read_coverage1 = parse_fast5s(files1, corrected_group, True)
+    raw_read_coverage2 = parse_fast5s(files2, corrected_group, True)
+
+    chrm_sizes = dict((chrm, max(
+        [r_data.end for r_data in raw_read_coverage1[chrm]] +
+        [r_data.end for r_data in raw_read_coverage2[chrm]]))
+                       for chrm in raw_read_coverage1)
+
+    if VERBOSE: sys.stderr.write('Getting base signal.\n')
+    base_signal1 = get_base_signal(raw_read_coverage1, chrm_sizes)
+    base_signal2 = get_base_signal(raw_read_coverage2, chrm_sizes)
+
+    if VERBOSE: sys.stderr.write(
+            'Get differences between base signal.\n')
+    # get num_region max diff regions from each chrm then find
+    # global largest after
+    largest_diff_indices = []
+    for chrm, chrm_size in chrm_sizes.items():
+        for strand in ('+', '-'):
+            chrm_diffs = np.concatenate([
+                np.abs(base_signal1[(chrm, strand)] -
+                       base_signal2[(chrm, strand)])])
+            chrm_max_diff_regs = np.argsort(
+                chrm_diffs)[::-1][:num_regions]
+            largest_diff_indices.extend((
+                chrm_diffs[pos], max(pos - int(num_bases / 2.0), 0),
+                chrm, strand) for pos in chrm_max_diff_regs)
+
+    plot_intervals = zip(
+        ['{:03d}'.format(rn) for rn in range(num_regions)],
+        [(chrm, start, strand) for stat, start, chrm, strand in
+         sorted(largest_diff_indices, reverse=True)[:num_regions]])
+
+    plot_two_samples(
+        plot_intervals, raw_read_coverage1, raw_read_coverage2,
+        num_bases, overplot_thresh, overplot_type, corrected_group,
+        pdf_fn)
+
+    return
+
 def compare_main(args):
     global VERBOSE
     VERBOSE = not args.quiet
@@ -884,9 +977,9 @@ def compare_main(args):
         sys.exit()
     if args.genome_locations is not None:
         plot_genome_locations(
-            files1, files2, args.corrected_group, args.overplot_threshold,
-            args.pdf_filename, args.num_bases, args.overplot_type,
-            args.genome_locations)
+            files1, files2, args.corrected_group,
+            args.overplot_threshold, args.pdf_filename,
+            args.num_bases, args.overplot_type, args.genome_locations)
     else:
         plot_max_diff(
             files1, files2, args.num_regions, args.corrected_group,
@@ -919,6 +1012,12 @@ def get_compare_parser():
 
     return parser
 
+
+
+########################################
+#### General plotting option parser ####
+########################################
+
 def get_plot_parser():
     import argparse
     parser = argparse.ArgumentParser(add_help=False)
@@ -930,6 +1029,19 @@ def get_plot_parser():
         help='Plot genomic locations instead of regions selected ' +
         'by criterion (default is max coverage regions). Format ' +
         'locations as "chrm:position [chrm2:position2 ...]"')
+    parser.add_argument(
+        '--kmer',
+        help='Plot regions centered on a particular kmer of ' +
+        'interest. This option requires a FASTA also be provided. ' +
+        'Default is to randomly select [--num_regions] of regions ' +
+        'with this kmer. Set --deepest-coverage flag to select ' +
+        'applicable regions for plotting')
+    parser.add_argument(
+        '--fasta-filename',
+        help='FASTA file used to map reads with "correct" ' +
+        'command (required for --kmer option).')
+    parser.add_argument(
+        '--deepest-coverage')
 
     parser.add_argument(
         '--num-bases', type=int, default=51,
