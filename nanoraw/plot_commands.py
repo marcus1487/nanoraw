@@ -324,22 +324,18 @@ def get_reg_events(r_data, interval_start, num_bases):
         r_data.strand == "+") else r_means[::-1]
     if r_data.start > interval_start:
         # handle reads that start in middle of region
-        start_offset = r_data.start - interval_start
+        start_overlap = interval_start + num_bases - r_data.start
         # create region with nan values
         region_means = np.empty(num_bases)
         region_means[:] = np.NAN
-        region_means[start_offset:] = r_means[
-            :num_bases - start_offset]
-    elif (r_data.start + len(r_means) <
-          interval_start + num_bases):
+        region_means[-start_overlap:] = r_means[:start_overlap]
+    elif r_data.end < interval_start + num_bases:
         # handle reads that end inside region
-        end_offset = interval_start + num_bases - (
-            r_data.start + len(r_means))
+        end_overlap = r_data.end - interval_start
         # create region with nan values
         region_means = np.empty(num_bases)
         region_means[:] = np.NAN
-        region_means[num_bases - end_offset:] = r_means[
-            -end_offset:]
+        region_means[:end_overlap] = r_means[-end_overlap:]
     else:
         skipped_bases = interval_start - r_data.start
         region_means = r_means[
@@ -503,7 +499,7 @@ def get_signal_data(all_reg_data, plot_types, num_bases,
             if interval_start < r_data.start:
                 # handle reads that start in the middle of the interval
                 start_offset = r_data.start - interval_start
-                overlap_seg_data = segs[:num_bases - start_offset]
+                overlap_seg_data = segs[:num_bases - start_offset + 1]
             else:
                 start_offset = 0
                 skipped_bases = interval_start - r_data.start
@@ -560,8 +556,6 @@ def get_base_data(all_reg_data, corrected_group, num_bases):
             # handle case where no read overlaps whole region
             # let each read contibute its sequence and fill the rest
             # with dashes
-            # TODO: This section has not really been tested should
-            # be a very rare edge case, but should be checked anyways
             reg_base_data = ['-',] * num_bases
             for read_data in reg_reads:
                 with h5py.File(read_data.fn) as r_data:
@@ -571,15 +565,15 @@ def get_base_data(all_reg_data, corrected_group, num_bases):
                 if read_data.strand == "-":
                     seq = rev_comp(seq)
                 if read_data.start > interval_start:
-                    start_offset = read_data.start - interval_start
-                    reg_base_data[start_offset:] = seq[
-                        :num_bases - start_offset + 1]
+                    # handle reads that start in the middle of a region
+                    start_overlap = (interval_start + num_bases -
+                                    read_data.start)
+                    reg_base_data[-start_overlap:] = seq[:start_overlap]
                 else:
                     # get the number of bases from end of read that
                     # overlap the region
-                    end_offset = (interval_start + num_bases -
-                                  (read_data.start + len(seq)))
-                    reg_base_data[:end_offset] = seq[-end_offset:]
+                    end_overlap = read_data.end - interval_start
+                    reg_base_data[:end_overlap] = seq[-end_overlap:]
 
         for i, base in enumerate(reg_base_data):
             BaseStart.append(str(i + interval_start))
@@ -591,7 +585,9 @@ def get_base_data(all_reg_data, corrected_group, num_bases):
         'Base':r.StrVector(Bases),
         'Region':r.StrVector(BaseRegion)})
 
-def get_region_reads(plot_intervals, raw_read_coverage, num_bases):
+def get_region_reads(
+        plot_intervals, raw_read_coverage, num_bases,
+        filter_no_cov=True):
     all_reg_data = []
     for region_i, (chrm, interval_start, strand) in plot_intervals:
         # get all reads that overlap this interval
@@ -603,7 +599,26 @@ def get_region_reads(plot_intervals, raw_read_coverage, num_bases):
             if not (r_data.start > interval_start + num_bases or
                     r_data.end < interval_start)]))
 
-    return all_reg_data
+    no_cov_regions = [
+        (len(r_data) == 0, chrm + ':' + str(start))
+        for reg_i, start, chrm, r_data in all_reg_data]
+    if not filter_no_cov:
+        return all_reg_data, no_cov_regions
+
+    # filter out no coverage regions
+    plot_intervals = [
+        p_int for p_int, no_cov in zip(plot_intervals, no_cov_regions)
+        if not no_cov[0]]
+    all_reg_data = [
+        reg_data for reg_data in all_reg_data if len(reg_data[3]) > 0]
+
+    if any(no_cov[0] for no_cov in no_cov_regions):
+        sys.stderr.write(
+            '**** WARNING **** No coverage in regions: ' +
+            '; '.join([reg for no_cov, reg in no_cov_regions
+                       if no_cov]) + '\n')
+
+    return all_reg_data, plot_intervals
 
 def get_base_signal(raw_read_coverage, chrm_sizes):
     # create lists for each base to contain all signal segments
@@ -624,8 +639,7 @@ def get_base_signal(raw_read_coverage, chrm_sizes):
                 r_data.start:r_data.start +
                 len(read_means)] += read_means
             base_signal[(chrm, strand)]['base_cov'][
-                r_data.start:r_data.start +
-                len(read_means)] += 1
+                r_data.start:r_data.start + len(read_means)] += 1
 
     # take the mean over all signal overlapping each base
     old_err_settings = np.seterr(all='ignore')
@@ -647,8 +661,14 @@ def plot_single_sample(
         plot_intervals, raw_read_coverage, num_bases, overplot_thresh,
         overplot_type, corrected_group, pdf_fn):
     if VERBOSE: sys.stderr.write('Preparing plot data.\n')
-    all_reg_data = get_region_reads(
+    all_reg_data, plot_intervals = get_region_reads(
         plot_intervals, raw_read_coverage, num_bases)
+    if len(plot_intervals) == 0:
+        sys.stderr.write(
+            '*' * 60 + '\nERROR: No reads in any selected regions.\n'
+            + '*' * 60 + '\n')
+        sys.exit()
+
     strand_cov = [
         (sum(r_data.strand == '+' for r_data in reg_data[3]),
          sum(r_data.strand == '-' for r_data in reg_data[3]))
@@ -678,23 +698,49 @@ def plot_single_sample(
 
     return
 
+def filter_group_regs(plot_intervals, grps_reg_data, grps_no_cov):
+    both_no_cov = [
+        all(zip(*reg_no_covs)[0])
+        for reg_no_covs in zip(*grps_no_cov)]
+    both_no_cov_regs = [
+        reg for reg_both_no_cov, reg in zip(
+            both_no_cov, zip(*grps_no_cov[0])[1]) if reg_both_no_cov]
+    if any(both_no_cov) and VERBOSE:
+        sys.stderr.write(
+            '*' * 60 + '\nWarning: Some regions include no reads: ' +
+            '\t'.join(both_no_cov_regs) + '\n' + '*' * 60 + '\n')
+
+    # filter plot intervals and region read data
+    plot_intervals = [plot_data for plot_data, no_cov in
+                      zip(plot_intervals, both_no_cov) if not no_cov]
+    if len(plot_intervals) == 0:
+        sys.stderr.write(
+            '*' * 60 + '\nERROR: No reads in any selected regions.\n'
+            + '*' * 60 + '\n')
+        sys.exit()
+
+    grps_reg_data = zip(*[reg_data for reg_data, no_cov in
+                          zip(zip(*grps_reg_data), both_no_cov)
+                          if not no_cov])
+
+    return plot_intervals, grps_reg_data
+
 def plot_two_samples(
         plot_intervals, raw_read_coverage1, raw_read_coverage2,
         num_bases, overplot_thresh, overplot_type, corrected_group,
         pdf_fn):
-    ## get reads overlapping each region
-    all_reg_data1 = get_region_reads(
-        plot_intervals, raw_read_coverage1, num_bases)
-    all_reg_data2 = get_region_reads(
-        plot_intervals, raw_read_coverage2, num_bases)
-    ## show warning for low coverage regions from either group
-    if any(len(reg_data) == 0 for reg_data in
-           all_reg_data1 + all_reg_data2):
-        if VERBOSE: sys.stderr.write(
-            '*' * 60 + '\nWarning: Some regions include only reads ' +
-            'from one group. This may casue some issues in plotting. ' +
-            'Probably too few reads or insufficient coverage ' +
-            'supplied to script.\n' + '*' * 60 + '\n')
+    # get reads overlapping each region
+    all_reg_data1, no_cov_regs1 = get_region_reads(
+        plot_intervals, raw_read_coverage1, num_bases,
+        filter_no_cov=False)
+    all_reg_data2, no_cov_regs2 = get_region_reads(
+        plot_intervals, raw_read_coverage2, num_bases,
+        filter_no_cov=False)
+
+    # filter regions with no coverage in either read group
+    plot_intervals, (all_reg_data1, all_reg_data2) = filter_group_regs(
+        plot_intervals, (all_reg_data1, all_reg_data2),
+        (no_cov_regs1, no_cov_regs2))
 
     ## determine whether signal or quantiles
     ## (due to overplotting) should be plotted
@@ -720,8 +766,12 @@ def plot_two_samples(
 
     if VERBOSE: sys.stderr.write('Getting plot data.\n')
     # bases are the same from either group so only get from first
+    merged_reg_data = [
+        (reg_id, start, chrm, reg_data1 + reg_data2)
+        for (reg_id, start, chrm, reg_data1),
+        (_, _, _, reg_data2) in  zip(all_reg_data1, all_reg_data2)]
     BasesData = get_base_data(
-        all_reg_data1, corrected_group, num_bases)
+        merged_reg_data, corrected_group, num_bases)
 
     # get plotting data for either quantiles of raw signal
     SignalData1, QuantData1, BoxData1, EventData1 = get_plot_types_data(
@@ -796,8 +846,6 @@ def plot_kmer_centered(
         num_region = len(kmer_locs)
 
     if deepest_coverage:
-        ## TODO need to calculate coverage to filter genes with
-        # no coverage anyways
         raise NotImplementedError, 'Not currenly a working option.'
     else:
         np.random.shuffle(kmer_locs)
@@ -959,7 +1007,6 @@ def compare_main(args):
     global VERBOSE
     VERBOSE = not args.quiet
 
-    # TODO: allow any number of gourps for comparisons
     files1 = [os.path.join(args.fast5_basedir, fn)
               for fn in os.listdir(args.fast5_basedir)]
     files2 = [os.path.join(args.fast5_basedir2, fn)
@@ -985,8 +1032,6 @@ def compare_main(args):
             files1, files2, args.num_regions, args.corrected_group,
             args.overplot_threshold, args.pdf_filename, args.num_bases,
             args.overplot_type)
-
-    ## TODO: add alternative region selection options (t-test)
 
     return
 
