@@ -12,6 +12,16 @@ from itertools import repeat, groupby
 from nanoraw_helper import (
     normalize_raw_signal, parse_fast5s, parse_fasta)
 
+try:
+    from scipy.stats import ttest_ind
+except ImportError:
+    # TODO should only caclulcate t-stat with numpy as don't really
+    # need p-value to get plotting regions
+    # and this would remove a dependency
+    sys.stderr.write(
+        'WARNING: scipy not installed. Not able to compute most ' +
+        'significantly different regions without scipy.')
+
 DO_PROFILE = False
 VERBOSE = False
 
@@ -19,6 +29,7 @@ VERBOSE = False
 # to be meaningful
 QUANT_MIN = 3
 
+MIN_TEST_VALS = 2
 
 COMP_BASES = {'A':'T', 'C':'G', 'G':'C', 'T':'A', '-':'-'}
 def rev_comp(seq):
@@ -534,7 +545,7 @@ def get_plot_types_data(plot_args, quant_offset=0):
 
     return SignalData, QuantData, BoxData, EventData
 
-def get_base_data(all_reg_data, corrected_group, num_bases):
+def get_reg_seq(all_reg_data, corrected_group, num_bases):
     BaseStart, Bases, BaseRegion = [], [], []
     for region_i, interval_start, chrom, reg_reads in all_reg_data:
         # try to find first read to overlap whole region
@@ -597,8 +608,8 @@ def get_region_reads(
         # full coverage as previous versions of code did
         all_reg_data.append((region_i, interval_start, chrm, [
             r_data for r_data in raw_read_coverage[chrm]
-            if not (r_data.start > interval_start + num_bases or
-                    r_data.end < interval_start)]))
+            if not (r_data.start >= interval_start + num_bases or
+                    r_data.end < interval_start + 1)]))
 
     no_cov_regions = [
         (len(r_data) == 0, chrm + ':' + str(start))
@@ -621,7 +632,7 @@ def get_region_reads(
 
     return all_reg_data, plot_intervals
 
-def get_base_signal(raw_read_coverage, chrm_sizes):
+def get_base_means(raw_read_coverage, chrm_sizes):
     # create lists for each base to contain all signal segments
     # which overlap that base
     base_signal = dict(
@@ -651,6 +662,30 @@ def get_base_signal(raw_read_coverage, chrm_sizes):
     foo = np.seterr(**old_err_settings)
 
     return mean_base_signal
+
+def get_base_events(raw_read_coverage, chrm_sizes):
+    base_events = {}
+    for chrm in chrm_sizes.keys():
+        for strand in ('+', '-'):
+            reads = [
+                (r_data.means if strand == '+' else r_data.means[::-1],
+                 r_data.start, r_data.end)
+                for r_data in raw_read_coverage[chrm]
+                if r_data.strand == strand]
+            chrm_signal = np.concatenate(zip(*reads)[0])
+            chrm_pos = np.concatenate(
+                [np.arange(r_data[1], r_data[2]) for r_data in reads])
+            # get order of all bases from position array
+            as_chrm_pos = np.argsort(chrm_pos)
+            # then sort the signal array by genomic position and
+            # split into event means by base
+            base_events[(chrm, strand)] = dict(zip(
+                chrm_pos[as_chrm_pos],
+                np.split(chrm_signal[as_chrm_pos], np.where(
+                    np.concatenate([[0,], np.diff(
+                        chrm_pos[as_chrm_pos])]) > 0)[0])))
+
+    return base_events
 
 
 
@@ -686,7 +721,7 @@ def plot_single_sample(
                 zip(*zip(*plot_intervals)[1])[0], strand_cov)]),
         'Region':r.StrVector(zip(*plot_intervals)[0])})
 
-    BasesData = get_base_data(
+    BasesData = get_reg_seq(
         all_reg_data, corrected_group, num_bases)
     SignalData, QuantData, BoxData, EventData = get_plot_types_data(
         (all_reg_data, plot_types, num_bases, corrected_group, 'Group1'))
@@ -771,7 +806,7 @@ def plot_two_samples(
         (reg_id, start, chrm, reg_data1 + reg_data2)
         for (reg_id, start, chrm, reg_data1),
         (_, _, _, reg_data2) in  zip(all_reg_data1, all_reg_data2)]
-    BasesData = get_base_data(
+    BasesData = get_reg_seq(
         merged_reg_data, corrected_group, num_bases)
 
     # get plotting data for either quantiles of raw signal
@@ -827,6 +862,8 @@ def plot_kmer_centered(
         files, files2, num_regions, corrected_group, overplot_thresh,
         pdf_fn, num_bases, overplot_type, kmer, fasta_fn,
         deepest_coverage):
+    if VERBOSE: sys.stderr.write(
+            'Identifying genomic k-mer locations.\n')
     with open(fasta_fn) as fasta_fp:
         fasta_records = parse_fasta(fasta_fp)
 
@@ -996,8 +1033,8 @@ def plot_max_diff(files1, files2, num_regions, corrected_group,
                        for chrm in raw_read_coverage1)
 
     if VERBOSE: sys.stderr.write('Getting base signal.\n')
-    base_signal1 = get_base_signal(raw_read_coverage1, chrm_sizes)
-    base_signal2 = get_base_signal(raw_read_coverage2, chrm_sizes)
+    base_means1 = get_base_means(raw_read_coverage1, chrm_sizes)
+    base_means2 = get_base_means(raw_read_coverage2, chrm_sizes)
 
     if VERBOSE: sys.stderr.write(
             'Get differences between base signal.\n')
@@ -1007,8 +1044,8 @@ def plot_max_diff(files1, files2, num_regions, corrected_group,
     for chrm, chrm_size in chrm_sizes.items():
         for strand in ('+', '-'):
             chrm_diffs = np.concatenate([
-                np.abs(base_signal1[(chrm, strand)] -
-                       base_signal2[(chrm, strand)])])
+                np.abs(base_means1[(chrm, strand)] -
+                       base_means2[(chrm, strand)])])
             chrm_max_diff_regs = np.argsort(
                 chrm_diffs)[::-1][:num_regions]
             largest_diff_indices.extend((
@@ -1019,6 +1056,61 @@ def plot_max_diff(files1, files2, num_regions, corrected_group,
         ['{:03d}'.format(rn) for rn in range(num_regions)],
         [(chrm, start, strand) for stat, start, chrm, strand in
          sorted(largest_diff_indices, reverse=True)[:num_regions]])
+
+    plot_two_samples(
+        plot_intervals, raw_read_coverage1, raw_read_coverage2,
+        num_bases, overplot_thresh, overplot_type, corrected_group,
+        pdf_fn)
+
+    return
+
+def plot_most_signif(files1, files2, num_regions, corrected_group,
+                  overplot_thresh, pdf_fn, num_bases, overplot_type):
+    if VERBOSE: sys.stderr.write('Parsing files.\n')
+    raw_read_coverage1 = parse_fast5s(files1, corrected_group, True)
+    raw_read_coverage2 = parse_fast5s(files2, corrected_group, True)
+
+    chrm_sizes = dict((chrm, max(
+        [r_data.end for r_data in raw_read_coverage1[chrm]] +
+        [r_data.end for r_data in raw_read_coverage2[chrm]]))
+                       for chrm in raw_read_coverage1)
+
+    if VERBOSE: sys.stderr.write('Getting base signal.\n')
+    base_events1 = get_base_events(raw_read_coverage1, chrm_sizes)
+    base_events2 = get_base_events(raw_read_coverage2, chrm_sizes)
+
+    if VERBOSE: sys.stderr.write(
+            'Test significance of difference in base signal.\n')
+    # get num_region most significantly different regions from
+    # each chrm then find global most signif after
+    most_signif_indices = []
+    for chrm, chrm_size in chrm_sizes.items():
+        for strand in ('+', '-'):
+            chrm_pvals = [
+                ttest_ind(base_events1[(chrm, strand)][pos],
+                          base_events2[(chrm, strand)][pos])[1]
+                for pos in set(base_events1[(chrm, strand)]).intersection(
+                        base_events2[(chrm, strand)])
+                if base_events1[(chrm, strand)][pos].shape[0] >=
+                MIN_TEST_VALS and
+                base_events2[(chrm, strand)][pos].shape[0] >=
+                MIN_TEST_VALS]
+            if len(chrm_pvals) == 0: continue
+            chrm_most_signif_regs = np.argsort(chrm_pvals)[:num_regions]
+            most_signif_indices.extend((
+                chrm_pvals[pos], max(pos - int(num_bases / 2.0), 0),
+                chrm, strand) for pos in chrm_most_signif_regs)
+
+    if len(most_signif_indices) == 0:
+        sys.stderr.write(
+            '*' * 60 + '\nERROR: No reads contain minimum ' +
+            'number of reads.\n' + '*' * 60 + '\n')
+        sys.exit()
+
+    plot_intervals = zip(
+        ['{:03d}'.format(rn) for rn in range(num_regions)],
+        [(chrm, start, strand) for stat, start, chrm, strand in
+         sorted(most_signif_indices)[:num_regions]])
 
     plot_two_samples(
         plot_intervals, raw_read_coverage1, raw_read_coverage2,
@@ -1060,8 +1152,10 @@ def compare_main(args):
             args.num_bases, args.overplot_type, args.kmer,
             args.fasta_filename, args.deepest_coverage)
     elif args.t_test_locations:
-        # TODO test locations instead of difference in means
-        pass
+        plot_most_signif(
+            files1, files2, args.num_regions, args.corrected_group,
+            args.overplot_threshold, args.pdf_filename, args.num_bases,
+            args.overplot_type)
     else:
         plot_max_diff(
             files1, files2, args.num_regions, args.corrected_group,
