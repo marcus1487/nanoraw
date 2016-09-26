@@ -496,8 +496,8 @@ def correct_raw_data(
         filename, genome_filename, graphmap_path, basecall_group,
         corrected_group, rmStayStates=True, outlier_threshold=5,
         timeout=None, min_event_obs=4, num_cpts_limit=None,
-        overwrite=True):
-    if not overwrite:
+        overwrite=True, in_place=True):
+    if not overwrite and in_place:
         try:
             read_data = h5py.File(read_fn, 'r')
             if 'Analyses/' + corrected_group in read_data:
@@ -575,7 +575,7 @@ def correct_raw_data(
         raise ValueError, ('Aligned sequence does not match number ' +
                            'of segments produced.')
 
-    if overwrite:
+    if in_place:
         write_new_fast5_group(
             filename, genome_location, read_info,
             read_start_rel_to_raw, new_segs, align_seq, alignVals,

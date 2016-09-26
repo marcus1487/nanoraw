@@ -826,8 +826,6 @@ def plot_kmer_centered(
         files, files2, num_regions, corrected_group, overplot_thresh,
         pdf_fn, num_bases, overplot_type, kmer, fasta_fn,
         deepest_coverage):
-    raw_read_coverage = parse_fast5s(files, corrected_group)
-
     with open(fasta_fn) as fasta_fp:
         fasta_records = parse_fasta(fasta_fp)
 
@@ -844,24 +842,47 @@ def plot_kmer_centered(
             'WARNING: Kmer (' + kmer + ') only found ' +
             str(len(kmer_locs)) + 'times in genome.\n')
         num_region = len(kmer_locs)
+    np.random.shuffle(kmer_locs)
 
-    if deepest_coverage:
-        raise NotImplementedError, 'Not currenly a working option.'
+    raw_read_coverage = parse_fast5s(files, corrected_group)
+    if files2 is not None:
+        raw_read_coverage2 = parse_fast5s(files2, corrected_group)
+        if deepest_coverage:
+            raise NotImplementedError, 'Not currenly a working option.'
+        else:
+            # zip over iterator of regions that have at least a
+            # read overlapping so we don't have to check all reads
+            plot_intervals = zip(
+                ['{:03d}'.format(rn) for rn in range(num_regions)],
+                ((chrm, max(pos - int(
+                    (num_bases - len(kmer) + 1) / 2.0), 0), None)
+                 for chrm, pos in kmer_locs
+                 if (any(r_data.start < pos < r_data.end
+                         for r_data in raw_read_coverage[chrm]) and
+                     any(r_data2.start < pos < r_data2.end
+                         for r_data2 in raw_read_coverage2[chrm]))))
+
+        plot_two_samples(
+            plot_intervals, raw_read_coverage, raw_read_coverage2,
+            num_bases, overplot_thresh, overplot_type, corrected_group,
+            pdf_fn)
     else:
-        np.random.shuffle(kmer_locs)
-        # zip over iterator of regions that have at least a
-        # read overlapping so we don't have to check all reads
-        plot_intervals = zip(
-            ['{:03d}'.format(rn) for rn in range(num_regions)],
-            ((chrm, max(pos - int(
-                (num_bases - len(kmer) + 1) / 2.0), 0), None)
-             for chrm, pos in kmer_locs
-             if any(r_data.start < pos < r_data.end
-                    for r_data in raw_read_coverage[chrm])))
+        if deepest_coverage:
+            raise NotImplementedError, 'Not currenly a working option.'
+        else:
+            # zip over iterator of regions that have at least a
+            # read overlapping so we don't have to check all reads
+            plot_intervals = zip(
+                ['{:03d}'.format(rn) for rn in range(num_regions)],
+                ((chrm, max(pos - int(
+                    (num_bases - len(kmer) + 1) / 2.0), 0), None)
+                 for chrm, pos in kmer_locs
+                 if any(r_data.start < pos < r_data.end
+                        for r_data in raw_read_coverage[chrm])))
 
-    plot_single_sample(
-        plot_intervals, raw_read_coverage, num_bases,
-        overplot_thresh, overplot_type, corrected_group, pdf_fn)
+        plot_single_sample(
+            plot_intervals, raw_read_coverage, num_bases,
+            overplot_thresh, overplot_type, corrected_group, pdf_fn)
 
     return
 
@@ -1027,6 +1048,15 @@ def compare_main(args):
             files1, files2, args.corrected_group,
             args.overplot_threshold, args.pdf_filename,
             args.num_bases, args.overplot_type, args.genome_locations)
+    elif args.kmer:
+        plot_kmer_centered(
+            files1, files2, args.num_regions, args.corrected_group,
+            args.overplot_threshold, args.pdf_filename,
+            args.num_bases, args.overplot_type, args.kmer,
+            args.fasta_filename, args.deepest_coverage)
+    elif args.t_test_locations:
+        # TODO test locations instead of difference in means
+        pass
     else:
         plot_max_diff(
             files1, files2, args.num_regions, args.corrected_group,
@@ -1053,7 +1083,10 @@ def get_compare_parser():
         default='Nanopore_read_coverage.compare_groups.pdf',
         help='PDF filename to store plots. Default: %(default)s')
 
-    ## TODO: add alternative region selection options (t-test)
+    parser.add_argument(
+        '--t-test-locations', default=False, action='store_true',
+        help="Select locations to plot based on t-test of " +
+        "event means instead of difference in means.")
 
     return parser
 
