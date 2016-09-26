@@ -260,8 +260,9 @@ def kmer_main(args):
     global VERBOSE
     VERBOSE = not args.quiet
 
-    files = [os.path.join(args.fast5_basedir, fn)
-             for fn in os.listdir(args.fast5_basedir)]
+    files = [os.path.join(base_dir, fn)
+             for base_dir in args.fast5_basedirs
+             for fn in os.listdir(base_dir)]
     plot_kmer_dist(
         files, args.corrected_group, args.read_mean, args.kmer_length,
         args.num_trimer_threshold, args.pdf_filename)
@@ -274,8 +275,8 @@ def get_kmer_parser():
         description='Plot distribution of signal across kmers.',
         add_help=False)
     parser.add_argument(
-        'fast5_basedir',
-        help='Directory containing fast5 files.')
+        '--fast5-basedirs', nargs='+', required=True,
+        help='Directories containing fast5 files.')
 
     parser.add_argument(
         '--corrected-group', default='RawGenomeCorrected_000',
@@ -729,6 +730,7 @@ def plot_two_samples(
         plot_intervals, raw_read_coverage1, raw_read_coverage2,
         num_bases, overplot_thresh, overplot_type, corrected_group,
         pdf_fn):
+    if VERBOSE: sys.stderr.write('Preparing plot data.\n')
     # get reads overlapping each region
     all_reg_data1, no_cov_regs1 = get_region_reads(
         plot_intervals, raw_read_coverage1, num_bases,
@@ -764,7 +766,6 @@ def plot_two_samples(
                 zip(*zip(*plot_intervals)[1])[0], strand_cov)]),
         'Region':r.StrVector(zip(*plot_intervals)[0])})
 
-    if VERBOSE: sys.stderr.write('Getting plot data.\n')
     # bases are the same from either group so only get from first
     merged_reg_data = [
         (reg_id, start, chrm, reg_data1 + reg_data2)
@@ -844,6 +845,7 @@ def plot_kmer_centered(
         num_region = len(kmer_locs)
     np.random.shuffle(kmer_locs)
 
+    if VERBOSE: sys.stderr.write('Parsing files.\n')
     raw_read_coverage = parse_fast5s(files, corrected_group)
     if files2 is not None:
         raw_read_coverage2 = parse_fast5s(files2, corrected_group)
@@ -928,8 +930,9 @@ def single_sample_main(args):
     global VERBOSE
     VERBOSE = not args.quiet
 
-    files = [os.path.join(args.fast5_basedir, fn)
-             for fn in os.listdir(args.fast5_basedir)]
+    files = [os.path.join(base_dir, fn)
+             for base_dir in args.fast5_basedirs
+             for fn in os.listdir(base_dir)]
     if DO_PROFILE:
         import cProfile
         cProfile.runctx(
@@ -965,8 +968,8 @@ def get_single_sample_parser():
         'FAST5 files were corrected with `nanoraw correct`.',
         add_help=False)
     parser.add_argument(
-        'fast5_basedir',
-        help='Directory containing fast5 files.')
+        '--fast5-basedirs', nargs='+', required=True,
+        help='Directories containing fast5 files.')
 
     parser.add_argument(
         '--pdf-filename',
@@ -1028,10 +1031,12 @@ def compare_main(args):
     global VERBOSE
     VERBOSE = not args.quiet
 
-    files1 = [os.path.join(args.fast5_basedir, fn)
-              for fn in os.listdir(args.fast5_basedir)]
-    files2 = [os.path.join(args.fast5_basedir2, fn)
-              for fn in os.listdir(args.fast5_basedir2)]
+    files1 = [os.path.join(base_dir, fn)
+              for base_dir in args.fast5_basedirs
+              for fn in os.listdir(base_dir)]
+    files2 = [os.path.join(base_dir, fn)
+              for base_dir in args.fast5_basedirs2
+              for fn in os.listdir(base_dir)]
 
     if DO_PROFILE:
         import cProfile
@@ -1072,11 +1077,12 @@ def get_compare_parser():
         'FAST5 files were corrected with `nanoraw correct`.',
         add_help=False)
     parser.add_argument(
-        'fast5_basedir',
-        help='Directory containing fast5 files.')
+        '--fast5-basedirs', nargs='+', required=True,
+        help='Directories containing fast5 files.')
     parser.add_argument(
-        'fast5_basedir2',
-        help='Second directory containing fast5 files.')
+        '--fast5-basedirs2', nargs='+', required=True,
+        help='Second set of directories containing fast5 ' +
+        'files to compare.')
 
     parser.add_argument(
         '--pdf-filename',

@@ -103,7 +103,7 @@ def parse_fasta(fasta_fp):
         from Bio import SeqIO
         seqio_fasta_recs = SeqIO.parse(fasta_fp,'fasta')
         for fasta in seqio_fasta_recs:
-            fasta_records[fasta.id] = fasta.seq.tostring()
+            fasta_records[fasta.id] = str(fasta.seq)
 
         return fasta_records
     except ImportError:
