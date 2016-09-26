@@ -127,6 +127,7 @@ def write_new_fast5_group(
     corr_events = corr_temp.create_dataset('Events', data=event_data)
 
     read_data.flush()
+    read_data.close()
 
     return
 
@@ -430,7 +431,11 @@ def fix_stay_states(
             abs_event_start, start_trim, end_trim)
 
 def get_read_data(filename, rmStayStates, basecall_group):
-    fast5_data = h5py.File(filename, 'r')
+    try:
+        fast5_data = h5py.File(filename, 'r')
+    except IOError:
+        raise IOError, 'Error opening file. Likely a corrupted file.'
+
     try:
         channel_info = fast5_data['UniqueGlobalKey/channel_id'].attrs
     except:
@@ -468,6 +473,12 @@ def get_read_data(filename, rmStayStates, basecall_group):
         for eventBasePs in np.column_stack(
             called_dat[basePVal] for basePVal in baseP)])
 
+    if any(len(vals) <= 1 for vals in (
+        all_raw_signal, starts_rel_to_read, basecalls,
+        called_dat['model_state'])):
+        raise NotImplementedError, (
+            'One or no segments or signal present in read.')
+
     start_trim, end_trim = 0, 0
     if rmStayStates:
         (starts_rel_to_read, basecalls, read_start_rel_to_raw,
@@ -487,11 +498,16 @@ def correct_raw_data(
         timeout=None, min_event_obs=4, num_cpts_limit=None,
         overwrite=True):
     if not overwrite:
-        with h5py.File(filename, 'r') as read_data:
+        try:
+            read_data = h5py.File(read_fn, 'r')
             if 'Analyses/' + corrected_group in read_data:
                 raise RuntimeError, (
                     "Raw genome corrected data exists for " +
                     "this read and --overwrite is not set.")
+            read_data.close()
+        except IOError:
+            raise IOError, 'Error opening file. Likely a corrupted file.'
+
         raise NotImplementedError, (
             'Not currently implimenting new hdf5 file writing.')
     else:
