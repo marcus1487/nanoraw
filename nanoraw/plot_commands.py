@@ -680,7 +680,7 @@ def get_base_events(raw_read_coverage, chrm_sizes):
             # then sort the signal array by genomic position and
             # split into event means by base
             base_events[(chrm, strand)] = dict(zip(
-                chrm_pos[as_chrm_pos],
+                np.unique(chrm_pos[as_chrm_pos]),
                 np.split(chrm_signal[as_chrm_pos], np.where(
                     np.concatenate([[0,], np.diff(
                         chrm_pos[as_chrm_pos])]) > 0)[0])))
@@ -1084,22 +1084,21 @@ def plot_most_signif(files1, files2, num_regions, corrected_group,
     # get num_region most significantly different regions from
     # each chrm then find global most signif after
     most_signif_indices = []
-    for chrm, chrm_size in chrm_sizes.items():
-        for strand in ('+', '-'):
-            chrm_pvals = [
-                ttest_ind(base_events1[(chrm, strand)][pos],
-                          base_events2[(chrm, strand)][pos])[1]
-                for pos in set(base_events1[(chrm, strand)]).intersection(
-                        base_events2[(chrm, strand)])
-                if base_events1[(chrm, strand)][pos].shape[0] >=
-                MIN_TEST_VALS and
-                base_events2[(chrm, strand)][pos].shape[0] >=
-                MIN_TEST_VALS]
-            if len(chrm_pvals) == 0: continue
-            chrm_most_signif_regs = np.argsort(chrm_pvals)[:num_regions]
-            most_signif_indices.extend((
-                chrm_pvals[pos], max(pos - int(num_bases / 2.0), 0),
-                chrm, strand) for pos in chrm_most_signif_regs)
+    for chrm_strand in set(base_events1).intersection(base_events2):
+        chrm, strand = chrm_strand
+        chrm_pvals = [
+            (ttest_ind(base_events1[chrm_strand][pos],
+                       base_events2[chrm_strand][pos])[1], pos)
+            for pos in set(base_events1[chrm_strand]).intersection(
+                base_events2[chrm_strand])
+            if base_events1[chrm_strand][pos].shape[0] >=
+            MIN_TEST_VALS and
+            base_events2[chrm_strand][pos].shape[0] >=
+            MIN_TEST_VALS]
+        if len(chrm_pvals) == 0: continue
+        most_signif_indices.extend((
+            stat, max(pos - int(num_bases / 2.0), 0),
+            chrm, strand) for stat, pos in sorted(chrm_pvals)[:num_regions])
 
     if len(most_signif_indices) == 0:
         sys.stderr.write(
