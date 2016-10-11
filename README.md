@@ -20,17 +20,25 @@ This package provides tools for the analysis of raw nanopore sequencing data, in
 - changepoint (for using R's changepoint package for re-segmentation)
 - Biopython (for robust FASTA parsing, but a simple parser is provided)
 
-## Usage
-Currently, not loaded into pip (to be done soon). To use nanoraw install locally and run with:
+## Installation
+Install nanoraw via pip
 ```
-git clone https://github.com/marcus1487/nanoraw.git
-cd nanoraw
-pip install .
+pip install nanoraw
+```
+
+Install bleeding edge via github
+```
+pip install git+https://github.com/marcus1487/nanoraw.git
+```
+
+## Usage
+
+```
 nanoraw -h
 nanoraw [command] [options]
 ```
 
-## Currently supported commands
+### Commands:
 #### Main comands:
 - correct: Correct annotation of raw signal with genomic aignement of existing basecalls
 - write_wiggle: Write wiggle file of genome coverage.
@@ -42,7 +50,7 @@ nanoraw [command] [options]
 
 > Get additional help for subcommands with `nanoraw [command] -h`
 
-#### Legal
+## Legal
 nanoraw v.1 Copyright (c) 2016, The Regents of the University of California, through Lawrence Berkeley National Laboratory (subject to receipt of any required approvals from the U.S. Dept. of Energy).  All rights reserved.
 
 If you have questions about your rights to use or distribute this software, please contact Berkeley Lab's Innovation and Partnerships department at IPO@lbl.gov referring to " nanoraw v.1 (2016-199)."
