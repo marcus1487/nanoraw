@@ -14,8 +14,8 @@ setup(
     author_email = "mhstoiber@lbl.gov",
     description='Analysis of nanopore sequencing data.',
     long_description = readme(),
-    license = "",
-    keywords = "nanopore high-throughput sequencing correction",
+    license = "BSD",
+    keywords = "nanopore high-throughput sequencing correction genome",
     url = "https://github.com/marcus1487/nanoraw",
 
     entry_points={
