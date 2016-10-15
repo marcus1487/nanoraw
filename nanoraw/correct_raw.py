@@ -502,7 +502,7 @@ def correct_raw_data(
         overwrite=True, in_place=True):
     if not overwrite and in_place:
         try:
-            read_data = h5py.File(read_fn, 'r')
+            read_data = h5py.File(filename, 'r')
             if 'Analyses/' + corrected_group in read_data:
                 raise RuntimeError, (
                     "Raw genome corrected data exists for " +
@@ -587,7 +587,7 @@ def correct_raw_data(
     else:
         # create new hdf5 file to hold new read signal
         raise NotImplementedError, (
-            'Not currently implimenting new hdf5 file writing.')
+            'Not currently implementing new hdf5 file writing.')
 
     return
 
