@@ -728,6 +728,18 @@ def get_reg_seq(all_reg_data, corrected_group, num_bases):
         'Base':r.StrVector(Bases),
         'Region':r.StrVector(BaseRegion)})
 
+def get_coverage(raw_read_coverage):
+    if VERBOSE: sys.stderr.write('Calculating read coverage.\n')
+    read_coverage = {}
+    for chrom, reads_data in raw_read_coverage.items():
+        max_end = max(r_data.end for r_data in reads_data)
+        chrom_coverage = np.zeros(max_end, dtype=np.int_)
+        for r_data in reads_data:
+            chrom_coverage[r_data.start:r_data.end] += 1
+        read_coverage[chrom] = chrom_coverage
+
+    return read_coverage
+
 def get_region_reads(
         plot_intervals, raw_read_coverage, num_bases,
         filter_no_cov=True):
@@ -1049,10 +1061,31 @@ def plot_kmer_centered(
 
     if VERBOSE: sys.stderr.write('Parsing files.\n')
     raw_read_coverage = parse_fast5s(files, corrected_group)
+    if deepest_coverage:
+        read_coverage = get_coverage(raw_read_coverage)
     if files2 is not None:
         raw_read_coverage2 = parse_fast5s(files2, corrected_group)
         if deepest_coverage:
-            raise NotImplementedError, 'Not currenly a working option.'
+            read_coverage2 = get_coverage(raw_read_coverage2)
+        if deepest_coverage:
+            if VERBOSE: sys.stderr.write(
+                    'Finding deepest coverage regions.\n')
+            def get_cov(chrm, pos):
+                try:
+                    return min(read_coverage[chrm][pos],
+                               read_coverage2[chrm][pos])
+                except IndexError:
+                    return 0
+            kmer_locs_cov = [
+                (get_cov(chrm, pos), chrm, pos)
+                for chrm, pos in kmer_locs]
+
+            plot_intervals = zip(
+                ['{:03d}'.format(rn) for rn in range(num_regions)],
+                ((chrm, max(pos - int(
+                    (num_bases - len(kmer) + 1) / 2.0), 0), None)
+                 for cov, chrm, pos in sorted(
+                         kmer_locs_cov, reverse=True)))
         else:
             # zip over iterator of regions that have at least a
             # read overlapping so we don't have to check all reads
@@ -1072,7 +1105,23 @@ def plot_kmer_centered(
             pdf_fn)
     else:
         if deepest_coverage:
-            raise NotImplementedError, 'Not currenly a working option.'
+            if VERBOSE: sys.stderr.write(
+                    'Finding deepest coverage regions.\n')
+            def get_cov(chrm, pos):
+                try:
+                    return read_coverage[chrm][pos]
+                except IndexError:
+                    return 0
+            kmer_locs_cov = [
+                (get_cov(chrm, pos), chrm, pos)
+                for chrm, pos in kmer_locs]
+
+            plot_intervals = zip(
+                ['{:03d}'.format(rn) for rn in range(num_regions)],
+                ((chrm, max(pos - int(
+                    (num_bases - len(kmer) + 1) / 2.0), 0), None)
+                 for cov, chrm, pos in sorted(
+                         kmer_locs_cov, reverse=True)))
         else:
             # zip over iterator of regions that have at least a
             # read overlapping so we don't have to check all reads
@@ -1164,26 +1213,20 @@ def plot_max_coverage(files, num_regions, corrected_group,
                       overplot_type):
     if VERBOSE: sys.stderr.write('Parsing files.\n')
     raw_read_coverage = parse_fast5s(files, corrected_group)
-
-    if VERBOSE: sys.stderr.write('Calculating read coverage.\n')
-    read_coverage = []
-    for chrom, reads_data in raw_read_coverage.items():
-        max_end = max(r_data.end for r_data in reads_data)
-        chrom_coverage = np.zeros(max_end, dtype=np.int_)
-        for r_data in reads_data:
-            chrom_coverage[r_data.start:r_data.end] += 1
-
-        coverage_regions = [
+    read_coverage = get_coverage(raw_read_coverage)
+    coverage_regions = []
+    for chrom, chrom_coverage in read_coverage.items():
+        chrm_coverage_regions = [
             (x, len(list(y))) for x, y in groupby(chrom_coverage)]
-        read_coverage.extend(zip(
-            zip(*coverage_regions)[0],
-            np.cumsum(np.insert(zip(*coverage_regions)[1], 0, 0)),
+        coverage_regions.extend(zip(
+            zip(*chrm_coverage_regions)[0],
+            np.cumsum(np.insert(zip(*chrm_coverage_regions)[1], 0, 0)),
             repeat(chrom), repeat(None)))
 
     plot_intervals = zip(
         ['{:03d}'.format(rn) for rn in range(num_regions)],
         [(chrm, start, strand) for stat, start, chrm, strand in
-         sorted(read_coverage, reverse=True)[:num_regions]])
+         sorted(coverage_regions, reverse=True)[:num_regions]])
 
     plot_single_sample(
         plot_intervals, raw_read_coverage, num_bases,
@@ -1458,7 +1501,7 @@ def get_plot_parser():
         help='FASTA file used to map reads with "correct" ' +
         'command (required for --kmer option).')
     parser.add_argument(
-        '--deepest-coverage',
+        '--deepest-coverage', default=False, action='store_true',
         help='Plot the deepest coverage regions when plotting ' +
         'kmer-centered regions')
 
