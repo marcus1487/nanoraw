@@ -71,7 +71,8 @@ GRAPHMAP_FIELDS = (
 def write_new_fast5_group(
         filename, genome_location, read_info,
         read_start_rel_to_raw, new_segs, align_seq, alignVals,
-        norm_signal, shift, scale, basecall_group, corrected_group):
+        old_segs, norm_signal, shift, scale, basecall_group,
+        corrected_group):
     # save new events as new hdf5 Group
     read_data = h5py.File(filename, 'r+')
     analyses_grp = read_data['Analyses']
@@ -105,6 +106,8 @@ def write_new_fast5_group(
     np_genome_align[:] = zip(*alignVals)[1]
     corr_alignment.create_dataset(
         'genome_alignment', data=np_genome_align)
+    # store old segmentation in order to plot "correction process"
+    corr_alignment.create_dataset('read_segments', data=old_segs)
 
     # store new aligned segments and sequence
     corr_temp = corr_grp.create_group('template')
@@ -579,7 +582,8 @@ def correct_raw_data(
         write_new_fast5_group(
             filename, genome_location, read_info,
             read_start_rel_to_raw, new_segs, align_seq, alignVals,
-            norm_signal, shift, scale, basecall_group, corrected_group)
+            starts_rel_to_read, norm_signal, shift, scale,
+            basecall_group, corrected_group)
     else:
         # create new hdf5 file to hold new read signal
         raise NotImplementedError, (

@@ -21,6 +21,7 @@ def main(args=None):
             ('plot_signal','Plot signal across selected ' +
              'genomic regions.'),
             ('plot_comparison','Plot comparison of two read groups.'),
+            ('plot_correction','Plot segmentation before and after correction.'),
             ('plot_kmer','Plot signal quantiles acorss kmers.'),
         ]))])
     raw_cmds = [cmd.strip() for grp_cmds in commands.values()
@@ -68,10 +69,16 @@ def main(args=None):
         raw_cmds[3], parents=[plot_parser, compare_parser])
     subparser_compare.set_defaults(func=plot_commands.compare_main)
 
+    plot_correct_parser = plot_commands.get_correction_parser()
+    subparser_plot_correct = subparsers.add_parser(
+        raw_cmds[4], parents=[plot_correct_parser,])
+    subparser_plot_correct.set_defaults(
+        func=plot_commands.plot_correction_main)
+
     # create the parser for the "plot_kmer" command
     kmer_parser = plot_commands.get_kmer_parser()
     subparser_kmer = subparsers.add_parser(
-        raw_cmds[4], parents=[kmer_parser,])
+        raw_cmds[5], parents=[kmer_parser,])
     subparser_kmer.set_defaults(func=plot_commands.kmer_main)
 
     args = parser.parse_args(args)
