@@ -71,8 +71,8 @@ GRAPHMAP_FIELDS = (
 def write_new_fast5_group(
         filename, genome_location, read_info,
         read_start_rel_to_raw, new_segs, align_seq, alignVals,
-        old_segs, norm_signal, shift, scale, basecall_group,
-        basecall_subgroup, corrected_group):
+        old_segs, norm_signal, shift, scale, corrected_group,
+        basecall_subgroup):
     # save new events as new hdf5 Group
     read_data = h5py.File(filename, 'r+')
     corr_grp = read_data['Analyses/' + corrected_group]
@@ -425,8 +425,8 @@ def fix_stay_states(
     return (starts_rel_to_read, basecalls, read_start_rel_to_raw,
             abs_event_start, start_trim, end_trim)
 
-def get_read_data(filename, rmStayStates, basecall_group,
-                  basecall_subgroup):
+def get_read_data(
+        filename, rmStayStates, basecall_group, basecall_subgroup):
     try:
         fast5_data = h5py.File(filename, 'r')
     except IOError:
@@ -565,7 +565,7 @@ def correct_raw_data_read(
             filename, genome_location, read_info,
             read_start_rel_to_raw, new_segs, align_seq, alignVals,
             starts_rel_to_read, norm_signal, shift, scale,
-            basecall_group, basecall_subgroup, corrected_group)
+            corrected_group, basecall_subgroup)
     else:
         # create new hdf5 file to hold corrected read events
         pass

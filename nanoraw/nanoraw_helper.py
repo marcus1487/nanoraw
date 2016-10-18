@@ -15,34 +15,37 @@ NORM_TYPES = ('none', 'ont', 'median', 'robust_median')
 robust_quantiles = (46.5, 53.5)
 
 
-def parse_fast5s(files, corrected_group, get_means=False):
+def parse_fast5s(files, corrected_group, basecall_subgroups,
+                 get_means=False):
     raw_read_coverage = defaultdict(list)
-    for read_fn in files:
+    for read_fn, basecall_subgroup in [
+            (fn, bc_grp)for fn in files
+            for bc_grp in basecall_subgroups]:
         try:
             read_data = h5py.File(read_fn, 'r')
         except IOError:
             # probably truncated file
             continue
 
-        if 'Analyses/' + corrected_group not in read_data:
+        if 'Analyses/' + corrected_group + '/' + basecall_subgroup \
+           not in read_data:
             continue
-        align_data = read_data['Analyses/' + corrected_group +
-                               '/Alignment/'].attrs
-        seg_grp = read_data[
-            'Analyses/' + corrected_group + '/template/Segments']
-        read_start_rel_to_raw = seg_grp.attrs[
-            'read_start_rel_to_raw']
+        corr_data = read_data[
+            'Analyses/' + corrected_group + '/' + basecall_subgroup]
+
+        align_data = corr_data['Alignment'].attrs
+        seg_grp = corr_data['Segments']
+        read_start_rel_to_raw = seg_grp.attrs['read_start_rel_to_raw']
         segs = seg_grp.value
-        base_means = read_data[
-            'Analyses/' + corrected_group +
-            '/template/Events']['norm_mean'] if get_means else None
+        base_means = (corr_data['Events']['norm_mean']
+                      if get_means else None)
         raw_read_coverage[align_data['mapped_chrom']].append(
             readData(
                 align_data['mapped_start'],
                 align_data['mapped_start'] + len(segs) - 1,
                 segs, read_start_rel_to_raw,
                 align_data['mapped_strand'], base_means, read_fn,
-                corrected_group))
+                corrected_group + '/' + basecall_subgroup))
 
         read_data.close()
 
