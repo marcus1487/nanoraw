@@ -1,8 +1,10 @@
 import sys
 
+import option_parsers
+
 import correct_raw
-import analyze_coverage
 import plot_commands
+import analyze_coverage
 
 from collections import OrderedDict
 
@@ -11,75 +13,72 @@ def main(args=None):
     if args is None:
         args = sys.argv[1:]
 
-    commands = OrderedDict(
-        [('Main comands:',OrderedDict([
-            ('correct  ','Correct annotation of raw signal with ' +
-            'genomic aignement of existing basecalls'),
-            ('write_wiggle','Write wiggle file of genome coverage.')
-        ])),
-        ('Plotting comands:',OrderedDict([
-            ('plot_signal','Plot signal across selected ' +
-             'genomic regions.'),
-            ('plot_comparison','Plot comparison of two read groups.'),
-            ('plot_correction','Plot segmentation before and after correction.'),
-            ('plot_kmer','Plot signal quantiles acorss kmers.'),
-        ]))])
-    raw_cmds = [cmd.strip() for grp_cmds in commands.values()
-                for cmd in grp_cmds]
+    commands = [
+        ('Main Comand (Must be run before any other commands):',[
+            ('genome_resquiggle','Re-annotate raw signal with ' +
+             'genomic aignement of existing basecalls.',
+             option_parsers.get_resquiggle_parser(),
+             correct_raw.resquiggle_main)]),
+        ('Genome Anchored Plotting Commands:', [
+            ('plot_max_coverage',
+             'Plot signal in regions with the maximum coverage.',
+             option_parsers.get_max_cov_parser(),
+             plot_commands.max_cov_main),
+            ('plot_genome_location',
+             'Plot signal at defined genomic locations.',
+             option_parsers.get_genome_loc_parser(),
+             plot_commands.genome_loc_main),
+            ('plot_kmer_centered',
+             'Plot signal at regions centered on a specific kmer.',
+             option_parsers.get_kmer_loc_parser(),
+             plot_commands.kmer_loc_main),
+            ('plot_max_difference',
+             'Plot signal where signal differs the most ' +
+             'between two groups.',
+             option_parsers.get_max_diff_parser(),
+             plot_commands.max_diff_main),
+            ('plot_most_significant',
+             'Plot signal where signal differs the most ' +
+             'significantly between two groups.',
+             option_parsers.get_signif_diff_parser(),
+             plot_commands.signif_diff_main)]),
+        ('Sequencing Time Anchored Plotting Command:', [
+            ('plot_correction',
+             'Plot segmentation before and after correction.',
+             option_parsers.get_correction_parser(),
+             plot_commands.plot_correction_main)]),
+        ('Other Plotting Command:', [
+            ('plot_kmer','Plot signal quantiles acorss kmers.',
+             option_parsers.get_kmer_dist_parser(),
+             plot_commands.kmer_dist_main),]),
+        ('Auxiliary Command:',[
+            ('write_wiggle','Write wiggle file of genome coverage ' +
+             'from genome_resquiggle mappings.',
+             option_parsers.get_wiggle_parser(),
+             analyze_coverage.wiggle_main)]),
+    ]
     desc = '\n\n'.join([
         grp + '\n' + '\n'.join([
-            '\t' + cmd + "\t" + cmd_help
-            for cmd, cmd_help in cmds.items()])
-        for grp, cmds in commands.items()])
+            '\t{0: <30}{1}'.format(cmd, cmd_help)
+            for cmd, cmd_help, cmd_parser, cmd_main in cmds])
+        for grp, cmds in commands])
 
     import argparse
     parser = argparse.ArgumentParser(
         prog='nanoraw',
-        description='nanoraw is a python toolset to analyze and ' +
-        'visualize raw nanopore sequencing data.',
+        description='nanoraw is a command line and python toolset ' +
+        'to analyze and visualize raw nanopore sequencing data.',
         formatter_class=argparse.RawDescriptionHelpFormatter)
     subparsers = parser.add_subparsers(
         title='commands', description=desc,
         help='Additional help available for subcommands.')
 
-    # create the parser for the "correct" command
-    correct_parser = correct_raw.get_parser()
-    subparser_correct = subparsers.add_parser(
-        raw_cmds[0], parents=[correct_parser,])
-    subparser_correct.set_defaults(func=correct_raw.main)
-
-    # create the parser for the "write_wiggle" command
-    wiggle_parser = analyze_coverage.get_wiggle_parser()
-    subparser_wiggle = subparsers.add_parser(
-        raw_cmds[1], parents=[wiggle_parser,])
-    subparser_wiggle.set_defaults(func=analyze_coverage.wiggle_main)
-
-
-    # plotting functions
-    plot_parser = plot_commands.get_plot_parser()
-
-    # create the parser for the "plot_signal" command
-    signal_parser = plot_commands.get_single_sample_parser()
-    subparser_signal = subparsers.add_parser(
-        raw_cmds[2], parents=[plot_parser, signal_parser])
-    subparser_signal.set_defaults(func=plot_commands.single_sample_main)
-
-    compare_parser = plot_commands.get_compare_parser()
-    subparser_compare = subparsers.add_parser(
-        raw_cmds[3], parents=[plot_parser, compare_parser])
-    subparser_compare.set_defaults(func=plot_commands.compare_main)
-
-    plot_correct_parser = plot_commands.get_correction_parser()
-    subparser_plot_correct = subparsers.add_parser(
-        raw_cmds[4], parents=[plot_correct_parser,])
-    subparser_plot_correct.set_defaults(
-        func=plot_commands.plot_correction_main)
-
-    # create the parser for the "plot_kmer" command
-    kmer_parser = plot_commands.get_kmer_parser()
-    subparser_kmer = subparsers.add_parser(
-        raw_cmds[5], parents=[kmer_parser,])
-    subparser_kmer.set_defaults(func=plot_commands.kmer_main)
+    # fill subparser with parsers and linked main functions
+    for grp, cmds in commands:
+        for cmd, cmd_help, cmd_parser, cmd_main in cmds:
+            subparser_cmd = subparsers.add_parser(
+                cmd, parents=[cmd_parser,], add_help=False)
+            subparser_cmd.set_defaults(func=cmd_main)
 
     args = parser.parse_args(args)
 

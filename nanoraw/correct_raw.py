@@ -13,6 +13,8 @@ from itertools import groupby, izip
 from tempfile import NamedTemporaryFile
 from collections import defaultdict, namedtuple
 
+# import nanoraw functions
+import option_parsers
 from nanoraw_helper import normalize_raw_signal
 
 fd = sys.stderr.fileno()
@@ -37,7 +39,6 @@ with os.fdopen(os.dup(fd), 'w') as old_stderr:
 
 
 NANORAW_VERSION = '0.1'
-DO_PROFILE = False
 VERBOSE = False
 
 COMP_BASES = {'A':'T', 'C':'G', 'G':'C', 'T':'A', '-':'-'}
@@ -447,8 +448,9 @@ def get_read_data(
             'Analyses/' + basecall_group + '/' + basecall_subgroup +
             '/Events']
     except:
-        raise RuntimeError, ('No events in file. Likely a ' +
-                             'segmentation error.')
+        raise RuntimeError, (
+            'No events in file. Likely a segmentation error or ' +
+            'mis-specified basecall-subgroups (--2d?).')
     try:
         raw_dat = fast5_data['Raw/Reads/'].values()[0]
     except:
@@ -577,25 +579,29 @@ def correct_raw_data(
         basecall_subgroups, corrected_group, rmStayStates=True,
         outlier_threshold=5, timeout=None, min_event_obs=4,
         num_cpts_limit=None, overwrite=True, in_place=True):
+    # several checks to prepare the FAST5 file for correction before
+    # processing to save compute
     if not in_place:
-        raise NotImplementedError, (
-            'Not currently implementing new hdf5 file writing.')
-
+        return [('Not currently implementing new hdf5 file writing.',
+                 filename),]
+    # check that the file is writeable before trying to correct
+    if not os.access(filename, os.W_OK):
+        return [('FAST5 file is not writable.', filename),]
+    try:
+        read_data = h5py.File(filename, 'r+')
+        read_data.close()
+    except IOError:
+        return [('Error opening file. Likely a corrupted file.',
+                 filename),]
     if not overwrite:
-        try:
-            read_data = h5py.File(filename, 'r')
-            if 'Analyses/' + corrected_group in read_data:
-                raise RuntimeError, (
-                    "Raw genome corrected data exists for " +
-                    "this read and --overwrite is not set.")
-            read_data.close()
-        except IOError:
-            raise IOError, 'Error opening file. Likely a corrupted file.'
-    else:
-        # check that the file is writeable before trying to correct
-        if not os.access(filename, os.W_OK):
-            raise IOError, 'FAST5 file is not writable.'
+        read_data = h5py.File(filename, 'r')
+        if 'Analyses/' + corrected_group in read_data:
+            return [(
+                "Raw genome corrected data exists for " +
+                "this read and --overwrite is not set.", filename),]
+        read_data.close()
 
+    # create group to store data
     with h5py.File(filename, 'r+') as read_data:
         analyses_grp = read_data['Analyses']
         # check for previously created correction group and
@@ -613,8 +619,8 @@ def correct_raw_data(
             correct_raw_data_read(
                 filename, genome_filename, graphmap_path, basecall_group,
                 basecall_subgroup, corrected_group, rmStayStates,
-                outlier_threshold, timeout, min_event_obs, num_cpts_limit,
-                in_place)
+                outlier_threshold, timeout, min_event_obs,
+                num_cpts_limit, in_place)
         except Exception as e:
             file_failed_reads.append((
                 str(e), basecall_subgroup + ' :: ' + filename))
@@ -625,24 +631,6 @@ def get_aligned_seq_worker(
         filenames_q, failed_reads_q, genome_filename, graphmap_path,
         basecall_group, basecall_subgroups, corrected_group,
         timeout, num_cpts_limit, overwrite):
-    if DO_PROFILE:
-        import cProfile
-        cProfile.runctx(
-            """while not filenames_q.empty():
-        try:
-            fn = filenames_q.get(block=False)
-        except Queue.Empty:
-            break
-
-        try:
-            correct_raw_data(
-                fn, genome_filename, graphmap_path, basecall_group,
-                basecall_subgroups, corrected_group, timeout=timeout,
-                num_cpts_limit=num_cpts_limit)
-        except Exception as e:
-            failed_reads_q.put((str(e), fn))""",
-            globals(), locals(), 'profile.correct_reads.prof')
-        sys.exit()
     num_processed = 0
     while not filenames_q.empty():
         try:
@@ -687,7 +675,7 @@ def get_all_reads_data(
 
     if VERBOSE: sys.stderr.write(
             'Correcting ' + str(num_reads) + ' files with ' +
-            str(len(basecall_subgroups)) + ' subgroups/reads each ' +
+            str(len(basecall_subgroups)) + ' subgroup(s)/read(s) each ' +
             '(Will print a dot for each 100 files completed).\n')
     failed_reads = defaultdict(list)
     while any(p.is_alive() for p in processes):
@@ -708,7 +696,7 @@ def get_all_reads_data(
 
     return dict(failed_reads)
 
-def main(args):
+def resquiggle_main(args):
     global VERBOSE
     VERBOSE = not args.quiet
 
@@ -718,8 +706,6 @@ def main(args):
             'WARNING: Could not load rpy2 (inlucding package ' +
             '"changepoint"). Using python segmentation method.')
     USE_R_CPTS = args.use_r_cpts and USE_R_CPTS
-
-    num_p = 1 if DO_PROFILE else args.processes
 
     if VERBOSE: sys.stderr.write('Getting file list.\n')
     if args.fast5_pattern:
@@ -732,7 +718,7 @@ def main(args):
     failed_reads = get_all_reads_data(
         files, args.genome_fasta, args.graphmap_path,
         args.basecall_group, args.basecall_subgroups,
-        args.corrected_group, num_p, args.timeout,
+        args.corrected_group, args.processes, args.timeout,
         args.cpts_limit, args.overwrite)
     sys.stderr.write('Failed reads summary:\n' + '\n'.join(
         "\t" + err + " :\t" + str(len(fns))
@@ -745,86 +731,8 @@ def main(args):
 
     return
 
-# define function for getting parser so it can be shared in
-# __main__ package script
-def get_parser():
-    import argparse
-    parser = argparse.ArgumentParser(
-        description='Parse raw data from oxford nanopore R9 FAST5 ' +
-        'files and correct segmentation to match genomic regions.',
-        add_help=False)
-
-    parser.add_argument(
-        'fast5_basedir',
-        help='Directory containing fast5 files.')
-    parser.add_argument(
-        'graphmap_path',
-        help='Full path to built graphmap version.')
-    parser.add_argument(
-        'genome_fasta',
-        help='Path to fasta file for mapping.')
-
-    parser.add_argument(
-        '--fast5-pattern',
-        help='A pattern to search for a subset of files within ' +
-        'fast5-basedir. Note that on the unix command line patterns ' +
-        'may be expanded so it is best practice to quote patterns.')
-
-    parser.add_argument(
-        '--processes', default=1, type=int,
-        help='Number of processes. Default: %(default)d')
-    parser.add_argument(
-        '--timeout', default=None, type=int,
-        help='Timeout in seconds for the processing of a single ' +
-        'read.  Default: No timeout.')
-    parser.add_argument(
-        '--cpts-limit', default=None, type=int,
-        help='Maximum number of changepoints to find within a single ' +
-        'indel group. (Not setting this option can cause a process ' +
-        'to stall and cannot be controlled by the timeout option). ' +
-        'Default: No limit.')
-
-    parser.add_argument(
-        '--basecall-group', default='Basecall_1D_000',
-        help='FAST5 group to use for obtaining original ' +
-        'basecalls (under Analyses group). Default: %(default)s')
-    parser.add_argument(
-        '--basecall-subgroups', default=['BaseCalled_template',],
-        nargs='+',
-        help='FAST5 subgroup (under Analyses/[basecall-group]) where ' +
-        'individual template and/or complement reads are stored. ' +
-        'For 2D reads this should be set to "BaseCalled_template ' +
-        'BaseCalled_complement". Default: %(default)s')
-    parser.add_argument(
-        '--corrected-group', default='RawGenomeCorrected_000',
-        help='FAST5 group to use for storing corrected ' +
-        'events produced by this script. Default: %(default)s')
-
-    parser.add_argument(
-        '--use-r-cpts', default=False, action='store_true',
-        help='Use R changepoint package to determine new event ' +
-        'delimiters. (requires rpy2, R and R package ' +
-        '"changepoint" to be installed)')
-    parser.add_argument(
-        '--failed-reads-filename',
-        help='Output failed read filenames into a this file ' +
-        'with assoicated error for each read. Default: ' +
-        'Do not store failed reads.')
-
-    parser.add_argument(
-        '--overwrite', default=False, action='store_true',
-        help='Overwrite previous corrected group in FAST5/HDF5 ' +
-        'file. (Note this only effects the group defined ' +
-        'by --corrected-group).')
-
-    parser.add_argument(
-        '--quiet', '-q', default=False, action='store_true',
-        help="Don't print status information.")
-
-    return parser
-
 def args_and_main():
-    main(get_parser().parse_args())
+    resquiggle_main(option_parsers.get_resquiggle_parser().parse_args())
     return
 
 if __name__ == '__main__':

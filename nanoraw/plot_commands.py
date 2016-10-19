@@ -6,21 +6,12 @@ import h5py
 import numpy as np
 
 from copy import copy
+from scipy.stats import ttest_ind
 from collections import defaultdict
 from itertools import repeat, groupby
 
 from nanoraw_helper import (
     normalize_raw_signal, parse_fast5s, parse_fasta)
-
-try:
-    from scipy.stats import ttest_ind
-except ImportError:
-    # TODO should only caclulcate t-stat with numpy as don't really
-    # need p-value to get plotting regions
-    # and this would remove a dependency
-    sys.stderr.write(
-        'WARNING: scipy not installed. Not able to compute most ' +
-        'significantly different regions without scipy.')
 
 VERBOSE = False
 
@@ -235,7 +226,8 @@ def plot_kmer_dist(files, corrected_group, basecall_subgroups,
     for fn, basecall_subgroup in [(fn, bc_grp) for fn in files
                                   for bc_grp in basecall_subgroups]:
         read_data = h5py.File(fn)
-        if 'Analyses/' + corrected_group not in read_data:
+        if ('Analyses/' + corrected_group + '/' +
+            basecall_subgroup) not in read_data:
             continue
         corr_data = read_data[
             'Analyses/' + corrected_group + '/' + basecall_subgroup]
@@ -301,65 +293,6 @@ def plot_kmer_dist(files, corrected_group, basecall_subgroups,
 
     return
 
-def kmer_main(args):
-    global VERBOSE
-    VERBOSE = not args.quiet
-
-    files = [os.path.join(base_dir, fn)
-             for base_dir in args.fast5_basedirs
-             for fn in os.listdir(base_dir)]
-    plot_kmer_dist(
-        files, args.corrected_group, args.basecall_subgroups,
-        args.read_mean, args.kmer_length, args.num_trimer_threshold,
-        args.pdf_filename)
-
-    return
-
-def get_kmer_parser():
-    import argparse
-    parser = argparse.ArgumentParser(
-        description='Plot distribution of signal across kmers.',
-        add_help=False)
-    parser.add_argument(
-        '--fast5-basedirs', nargs='+', required=True,
-        help='Directories containing fast5 files.')
-
-    parser.add_argument(
-        '--corrected-group', default='RawGenomeCorrected_000',
-        help='FAST5 group to plot created by correct_raw ' +
-        'script. Default: %(default)s')
-    parser.add_argument(
-        '--basecall-subgroups', default=['BaseCalled_template',],
-        nargs='+',
-        help='FAST5 subgroup (under Analyses/[corrected-group]) where ' +
-        'individual template and/or complement reads are stored. ' +
-        'For 2D reads this should be set to "BaseCalled_template ' +
-        'BaseCalled_complement". Default: %(default)s')
-
-    parser.add_argument(
-        '--kmer-length', default=3, type=int, choices=(2,3,4),
-        help='Value of K to analyze. Should be one of ' +
-        '{2,3,4}. Default: %(default)d')
-    parser.add_argument(
-        '--num-trimer-threshold', default=4, type=int,
-        help='Number of each kmer required to include ' +
-        'a read in read level averages. Default: %(default)d')
-
-    parser.add_argument(
-        '--read-mean', default=False, action='store_true',
-        help='Plot kmer event means across reads as opposed ' +
-        'to each event.')
-
-    parser.add_argument(
-        '--pdf-filename', default='Nanopore_kmer_distribution.pdf',
-        help='PDF filename to store plot(s). Default: %(default)s')
-
-    parser.add_argument(
-        '--quiet', '-q', default=False, action='store_true',
-        help="Don't print status information.")
-
-    return parser
-
 
 
 ########################################
@@ -371,6 +304,9 @@ def get_read_correction_data(
         basecall_subgroup):
     fast5_data = h5py.File(filename, 'r')
     raw_data = fast5_data['Raw/Reads'].values()[0]
+    if ( 'Analyses/' + corrected_group + '/' +
+         basecall_subgroup) not in fast5_data:
+        return None, None, None
     corr_data = fast5_data[
         'Analyses/' + corrected_group + '/' + basecall_subgroup]
 
@@ -813,25 +749,26 @@ def get_base_means(raw_read_coverage, chrm_sizes):
 
 def get_base_events(raw_read_coverage, chrm_sizes):
     base_events = {}
-    for chrm in chrm_sizes.keys():
-        for strand in ('+', '-'):
-            reads = [
-                (r_data.means if strand == '+' else r_data.means[::-1],
-                 r_data.start, r_data.end)
-                for r_data in raw_read_coverage[chrm]
-                if r_data.strand == strand]
-            chrm_signal = np.concatenate(zip(*reads)[0])
-            chrm_pos = np.concatenate(
-                [np.arange(r_data[1], r_data[2]) for r_data in reads])
-            # get order of all bases from position array
-            as_chrm_pos = np.argsort(chrm_pos)
-            # then sort the signal array by genomic position and
-            # split into event means by base
-            base_events[(chrm, strand)] = dict(zip(
-                np.unique(chrm_pos[as_chrm_pos]),
-                np.split(chrm_signal[as_chrm_pos], np.where(
-                    np.concatenate([[0,], np.diff(
-                        chrm_pos[as_chrm_pos])]) > 0)[0])))
+    for chrm, strand in [(c, s) for c in chrm_sizes.keys()
+                         for s in ('+', '-')]:
+        reads = [
+            (r_data.means if strand == '+' else r_data.means[::-1],
+             r_data.start, r_data.end)
+            for r_data in raw_read_coverage[chrm]
+            if r_data.strand == strand]
+        if len(reads) == 0: continue
+        chrm_signal = np.concatenate(zip(*reads)[0])
+        chrm_pos = np.concatenate(
+            [np.arange(r_data[1], r_data[2]) for r_data in reads])
+        # get order of all bases from position array
+        as_chrm_pos = np.argsort(chrm_pos)
+        # then sort the signal array by genomic position and
+        # split into event means by base
+        base_events[(chrm, strand)] = dict(zip(
+            np.unique(chrm_pos[as_chrm_pos]),
+            np.split(chrm_signal[as_chrm_pos], np.where(
+                np.concatenate([[0,], np.diff(
+                    chrm_pos[as_chrm_pos])]) > 0)[0])))
 
     return base_events
 
@@ -847,11 +784,10 @@ def plot_corrections(
     if VERBOSE: sys.stderr.write('Preparing plot data.\n')
     OldSegDat, NewSegDat, SigDat = [], [], []
     for read_fn, reg_type in plot_intervals:
-        try:
-            old_dat, new_dat, signal_dat = get_read_correction_data(
-                read_fn, reg_type, reg_width, corrected_group,
-                basecall_subgroup)
-        except KeyError:
+        old_dat, new_dat, signal_dat = get_read_correction_data(
+            read_fn, reg_type, reg_width, corrected_group,
+            basecall_subgroup)
+        if old_dat is None:
             # skip reads that don't have correction slots b/c they
             # couldn't be corrected
             continue
@@ -1011,9 +947,77 @@ def plot_two_samples(
 
 
 
-############################################
-#### One or two sample plotting methods ####
-###########################################
+#################################
+#### Plot processing methods ####
+#################################
+
+def plot_max_coverage(
+        files, files2, num_regions, corrected_group, basecall_subgroups,
+        overplot_thresh, pdf_fn, num_bases, overplot_type):
+    if VERBOSE: sys.stderr.write('Parsing files.\n')
+    raw_read_coverage = parse_fast5s(
+        files, corrected_group, basecall_subgroups)
+    read_coverage = get_coverage(raw_read_coverage)
+
+    if files2 is None:
+        coverage_regions = []
+        for chrom, chrom_coverage in read_coverage.items():
+            chrm_coverage_regions = [
+                (x, len(list(y))) for x, y in groupby(chrom_coverage)]
+            coverage_regions.extend(zip(
+                zip(*chrm_coverage_regions)[0],
+                np.cumsum(np.insert(
+                    zip(*chrm_coverage_regions)[1], 0, 0)),
+                repeat(chrom), repeat(None)))
+
+            plot_intervals = zip(
+                ['{:03d}'.format(rn) for rn in range(num_regions)],
+                [(chrm, start, strand) for stat, start, chrm, strand in
+                 sorted(coverage_regions, reverse=True)[:num_regions]])
+
+        plot_single_sample(
+            plot_intervals, raw_read_coverage, num_bases,
+            overplot_thresh, overplot_type, corrected_group, pdf_fn)
+    else:
+        raw_read_coverage2 = parse_fast5s(
+            files2, corrected_group, basecall_subgroups)
+        read_coverage2 = get_coverage(raw_read_coverage2)
+        coverage_regions = []
+        # only process chromosomes in both read groups
+        for chrom in set(read_coverage.keys()).intersection(
+                read_coverage2.keys()):
+            chrom_coverage = read_coverage[chrom]
+            chrom_coverage2 = read_coverage2[chrom]
+            if chrom_coverage.shape[0] >= chrom_coverage2.shape[0]:
+                merged_chrom_cov = np.pad(
+                    chrom_coverage2, (0,chrom_coverage.shape[0] -
+                                      chrom_coverage2.shape[0]),
+                    'constant', constant_values=0) + chrom_coverage
+            else:
+                merged_chrom_cov = np.pad(
+                    chrom_coverage, (0, chrom_coverage2.shape[0] -
+                                     chrom_coverage.shape[0]),
+                    'constant', constant_values=0) + chrom_coverage2
+
+            chrm_coverage_regions = [
+                (x, len(list(y))) for x, y in groupby(merged_chrom_cov)]
+            coverage_regions.extend(zip(
+                zip(*chrm_coverage_regions)[0],
+                np.cumsum(np.insert(
+                    zip(*chrm_coverage_regions)[1], 0, 0)),
+                repeat(chrom), repeat(None)))
+
+            plot_intervals = zip(
+                ['{:03d}'.format(rn) for rn in range(num_regions)],
+                [(chrm, start, strand) for stat, start, chrm, strand in
+                 sorted(coverage_regions, reverse=True)[:num_regions]])
+
+        plot_two_samples(
+            plot_intervals, raw_read_coverage, raw_read_coverage2,
+            num_bases, overplot_thresh, overplot_type, corrected_group,
+            pdf_fn)
+
+    return
 
 def plot_genome_locations(
         files, files2, corrected_group, basecall_subgroups,
@@ -1086,16 +1090,21 @@ def plot_kmer_centered(
                                read_coverage2[chrm][pos])
                 except IndexError:
                     return 0
-            kmer_locs_cov = [
+            kmer_locs_cov = sorted([
                 (get_cov(chrm, pos), chrm, pos)
-                for chrm, pos in kmer_locs]
+                for chrm, pos in kmer_locs], reverse=True)
+            if kmer_locs_cov[0][0] == 0:
+                sys.stderr.write(
+                    '*' * 60 + '\nk-mer not covered ' +
+                    'by both groups at any positions.\n'
+                    + '*' * 60 + '\n')
+                sys.exit()
 
             plot_intervals = zip(
                 ['{:03d}'.format(rn) for rn in range(num_regions)],
                 ((chrm, max(pos - int(
                     (num_bases - len(kmer) + 1) / 2.0), 0), None)
-                 for cov, chrm, pos in sorted(
-                         kmer_locs_cov, reverse=True)))
+                 for cov, chrm, pos in kmer_locs_cov))
         else:
             # zip over iterator of regions that have at least a
             # read overlapping so we don't have to check all reads
@@ -1148,156 +1157,6 @@ def plot_kmer_centered(
             overplot_thresh, overplot_type, corrected_group, pdf_fn)
 
     return
-
-
-##########################################
-#### Read correction plotting methods ####
-##########################################
-
-def plot_correction_main(args):
-    global VERBOSE
-    VERBOSE = not args.quiet
-
-    files = [os.path.join(base_dir, fn)
-             for base_dir in args.fast5_basedirs
-             for fn in os.listdir(base_dir)]
-    plot_intervals = zip(files, repeat(args.region_type))
-    plot_corrections(
-        plot_intervals, args.num_obs, args.num_reads,
-        args.corrected_group, args.basecall_subgroup, args.pdf_filename)
-
-    return
-
-def get_correction_parser():
-    import argparse
-    parser = argparse.ArgumentParser(
-        description='Plot segments from before and after ' +
-        'genome-guided re-segmentation for reads corrected ' +
-        'with `nanoraw correct`.',
-        add_help=False)
-    parser.add_argument(
-        '--num-reads', type=int, default=10,
-        help='Number of reads to plot (one region per read). ' +
-        'Default: %(default)d')
-    parser.add_argument(
-        '--fast5-basedirs', nargs='+', required=True,
-        help='Directories containing fast5 files.')
-    parser.add_argument(
-        '--region-type', choices=['random', 'start', 'end'],
-        help='Region to plot within eanh read. Choices are: ' +
-        'random (default), start, end.')
-
-    parser.add_argument(
-        '--num-obs', type=int, default=500,
-        help='Number of observations to plot in each region. ' +
-        'Default: %(default)d')
-
-    parser.add_argument(
-        '--corrected-group', default='RawGenomeCorrected_000',
-        help='FAST5 group to plot created by correct_raw ' +
-        'script. Default: %(default)s')
-    parser.add_argument(
-        '--basecall-subgroup', default='BaseCalled_template',
-        help='FAST5 subgroup (under Analyses/[corrected-group]) where ' +
-        'individual template or complement read is stored. ' +
-        'Default: %(default)s')
-    parser.add_argument(
-        '--pdf-filename',
-        default='Nanopore_genome_correction.pdf',
-        help='PDF filename to store plots. Default: %(default)s')
-
-    parser.add_argument(
-        '--quiet', '-q', default=False, action='store_true',
-        help="Don't print status information.")
-
-    return parser
-
-
-########################################
-#### Single sample plotting methods ####
-########################################
-
-def plot_max_coverage(
-        files, num_regions, corrected_group, basecall_subgroups,
-        overplot_thresh, pdf_fn, num_bases, overplot_type):
-    if VERBOSE: sys.stderr.write('Parsing files.\n')
-    raw_read_coverage = parse_fast5s(
-        files, corrected_group, basecall_subgroups)
-    read_coverage = get_coverage(raw_read_coverage)
-    coverage_regions = []
-    for chrom, chrom_coverage in read_coverage.items():
-        chrm_coverage_regions = [
-            (x, len(list(y))) for x, y in groupby(chrom_coverage)]
-        coverage_regions.extend(zip(
-            zip(*chrm_coverage_regions)[0],
-            np.cumsum(np.insert(zip(*chrm_coverage_regions)[1], 0, 0)),
-            repeat(chrom), repeat(None)))
-
-    plot_intervals = zip(
-        ['{:03d}'.format(rn) for rn in range(num_regions)],
-        [(chrm, start, strand) for stat, start, chrm, strand in
-         sorted(coverage_regions, reverse=True)[:num_regions]])
-
-    plot_single_sample(
-        plot_intervals, raw_read_coverage, num_bases,
-        overplot_thresh, overplot_type, corrected_group, pdf_fn)
-
-    return
-
-def single_sample_main(args):
-    global VERBOSE
-    VERBOSE = not args.quiet
-
-    files = [os.path.join(base_dir, fn)
-             for base_dir in args.fast5_basedirs
-             for fn in os.listdir(base_dir)]
-    if args.genome_locations is not None:
-        plot_genome_locations(
-            files, None, args.corrected_group, args.basecall_subgroups,
-            args.overplot_threshold, args.pdf_filename, args.num_bases,
-            args.overplot_type, args.genome_locations)
-    elif args.kmer:
-        if not args.fasta_filename:
-            sys.stderr.write(
-                '*' * 60 + '\n' +
-                'ERROR: Must provide fasta filename if using k-mer ' +
-                'centered plotting\n' + '*' * 60 + '\n')
-            sys.exit(0)
-        plot_kmer_centered(
-            files, None, args.num_regions, args.corrected_group,
-            args.basecall_subgroups, args.overplot_threshold,
-            args.pdf_filename, args.num_bases, args.overplot_type,
-            args.kmer, args.fasta_filename, args.deepest_coverage)
-    else:
-        plot_max_coverage(
-            files, args.num_regions, args.corrected_group,
-            args.basecall_subgroups, args.overplot_threshold,
-            args.pdf_filename, args.num_bases, args.overplot_type)
-
-    return
-
-def get_single_sample_parser():
-    import argparse
-    parser = argparse.ArgumentParser(
-        description='Plot raw signal from from two samples where ' +
-        'FAST5 files were corrected with `nanoraw correct`.',
-        add_help=False)
-    parser.add_argument(
-        '--fast5-basedirs', nargs='+', required=True,
-        help='Directories containing fast5 files.')
-
-    parser.add_argument(
-        '--pdf-filename',
-        default='Nanopore_read_coverage.pdf',
-        help='PDF filename to store plots. Default: %(default)s')
-
-    return parser
-
-
-
-#####################################
-#### Two sample plotting methods ####
-#####################################
 
 def plot_max_diff(
         files1, files2, num_regions, corrected_group, basecall_subgroups,
@@ -1403,137 +1262,123 @@ def plot_most_signif(
 
     return
 
-def compare_main(args):
+
+
+#########################################
+#### Non-genome based plotting mains ####
+#########################################
+
+def get_files_list(basedirs):
+    return [os.path.join(base_dir, fn)
+            for base_dir in basedirs
+            for fn in os.listdir(base_dir)]
+
+def plot_correction_main(args):
     global VERBOSE
     VERBOSE = not args.quiet
 
-    files1 = [os.path.join(base_dir, fn)
-              for base_dir in args.fast5_basedirs
-              for fn in os.listdir(base_dir)]
-    files2 = [os.path.join(base_dir, fn)
-              for base_dir in args.fast5_basedirs2
-              for fn in os.listdir(base_dir)]
-
-    if args.genome_locations is not None:
-        plot_genome_locations(
-            files1, files2, args.corrected_group,
-            args.overplot_threshold, args.pdf_filename,
-            args.num_bases, args.overplot_type, args.genome_locations)
-    elif args.kmer:
-        if not args.fasta_filename:
-            sys.stderr.write(
-                '*' * 60 + '\n' +
-                'ERROR: Must provide fasta filename if using k-mer ' +
-                'centered plotting\n' + '*' * 60 + '\n')
-            sys.exit(0)
-        plot_kmer_centered(
-            files1, files2, args.num_regions, args.corrected_group,
-            args.basecall_subgroups, args.overplot_threshold,
-            args.pdf_filename, args.num_bases, args.overplot_type,
-            args.kmer, args.fasta_filename, args.deepest_coverage)
-    elif args.t_test_locations:
-        plot_most_signif(
-            files1, files2, args.num_regions, args.corrected_group,
-            args.basecall_subgroups, args.overplot_threshold,
-            args.pdf_filename, args.num_bases, args.overplot_type)
-    else:
-        plot_max_diff(
-            files1, files2, args.num_regions, args.corrected_group,
-            args.basecall_subgroups, args.overplot_threshold,
-            args.pdf_filename, args.num_bases, args.overplot_type)
+    files = get_files_list(args.fast5_basedirs)
+    plot_intervals = zip(files, repeat(args.region_type))
+    plot_corrections(
+        plot_intervals, args.num_obs, args.num_reads,
+        args.corrected_group, args.basecall_subgroup, args.pdf_filename)
 
     return
 
-def get_compare_parser():
-    import argparse
-    parser = argparse.ArgumentParser(
-        description='Plot raw signal from from two samples where ' +
-        'FAST5 files were corrected with `nanoraw correct`.',
-        add_help=False)
-    parser.add_argument(
-        '--fast5-basedirs', nargs='+', required=True,
-        help='Directories containing fast5 files.')
-    parser.add_argument(
-        '--fast5-basedirs2', nargs='+', required=True,
-        help='Second set of directories containing fast5 ' +
-        'files to compare.')
+def kmer_dist_main(args):
+    global VERBOSE
+    VERBOSE = not args.quiet
 
-    parser.add_argument(
-        '--pdf-filename',
-        default='Nanopore_read_coverage.compare_groups.pdf',
-        help='PDF filename to store plots. Default: %(default)s')
+    files = get_files_list(args.fast5_basedirs)
+    plot_kmer_dist(
+        files, args.corrected_group, args.basecall_subgroups,
+        args.read_mean, args.kmer_length, args.num_trimer_threshold,
+        args.pdf_filename)
 
-    parser.add_argument(
-        '--t-test-locations', default=False, action='store_true',
-        help="Select locations to plot based on t-test of " +
-        "event means instead of difference in means.")
-
-    return parser
+    return
 
 
 
-########################################
-#### General plotting option parser ####
-########################################
+##############################################
+#### Signal plot parsers and main methods ####
+##############################################
 
-def get_plot_parser():
-    import argparse
-    parser = argparse.ArgumentParser(add_help=False)
-    parser.add_argument(
-        '--num-regions', type=int, default=10,
-        help='Number of regions to plot. Default: %(default)d')
-    parser.add_argument(
-        '--genome-locations', nargs='*',
-        help='Plot genomic locations instead of regions selected ' +
-        'by criterion (default is max coverage regions). Format ' +
-        'locations as "chrm:position [chrm2:position2 ...]"')
-    parser.add_argument(
-        '--kmer',
-        help='Plot regions centered on a particular kmer of ' +
-        'interest. This option requires a FASTA also be provided. ' +
-        'Default is to randomly select [--num_regions] of regions ' +
-        'with this kmer. Set --deepest-coverage flag to select ' +
-        'applicable regions for plotting')
-    parser.add_argument(
-        '--fasta-filename',
-        help='FASTA file used to map reads with "correct" ' +
-        'command (required for --kmer option).')
-    parser.add_argument(
-        '--deepest-coverage', default=False, action='store_true',
-        help='Plot the deepest coverage regions when plotting ' +
-        'kmer-centered regions')
+def get_files_lists(basedirs1, basedirs2):
+    files1 = get_files_list(basedirs1)
+    files2 = get_files_list(basedirs2) if basedirs2 else None
 
-    parser.add_argument(
-        '--num-bases', type=int, default=51,
-        help='Number of bases to plot from region. Default: %(default)d')
+    return files1, files2
 
-    parser.add_argument(
-        '--corrected-group', default='RawGenomeCorrected_000',
-        help='FAST5 group to plot created by correct_raw ' +
-        'script. Default: %(default)s')
-    parser.add_argument(
-        '--basecall-subgroups', default=['BaseCalled_template',],
-        nargs='+',
-        help='FAST5 subgroup (under Analyses/[corrected-group]) where ' +
-        'individual template and/or complement reads are stored. ' +
-        'For 2D reads this should be set to "BaseCalled_template ' +
-        'BaseCalled_complement". Default: %(default)s')
-    parser.add_argument(
-        '--overplot-threshold', type=int, default=50,
-        help='Number of reads to trigger alternative plot type ' +
-        'instead of raw signal due to overplotting. ' +
-        'Default: %(default)d')
-    parser.add_argument(
-        '--overplot-type', default='Boxplot',
-        choices=['Boxplot', 'Quantile', 'Violin'],
-        help='Plot type for regions with higher coverage. ' +
-        'Choices: Boxplot (default), Quantile, Violin')
+def max_cov_main(args):
+    global VERBOSE
+    VERBOSE = not args.quiet
 
-    parser.add_argument(
-        '--quiet', '-q', default=False, action='store_true',
-        help="Don't print status information.")
+    files1, files2 = get_files_lists(
+        args.fast5_basedirs, args.fast5_basedirs2)
 
-    return parser
+    plot_max_coverage(
+        files1, files2, args.num_regions, args.corrected_group,
+        args.basecall_subgroups, args.overplot_threshold,
+        args.pdf_filename, args.num_bases, args.overplot_type)
+
+    return
+
+def genome_loc_main(args):
+    global VERBOSE
+    VERBOSE = not args.quiet
+
+    files1, files2 = get_files_lists(
+        args.fast5_basedirs, args.fast5_basedirs2)
+
+    plot_genome_locations(
+        files1, files2, args.corrected_group, args.basecall_subgroups,
+        args.overplot_threshold, args.pdf_filename,
+        args.num_bases, args.overplot_type, args.genome_locations)
+
+    return
+
+def kmer_loc_main(args):
+    global VERBOSE
+    VERBOSE = not args.quiet
+
+    files1, files2 = get_files_lists(
+        args.fast5_basedirs, args.fast5_basedirs2)
+
+    plot_kmer_centered(
+        files1, files2, args.num_regions, args.corrected_group,
+        args.basecall_subgroups, args.overplot_threshold,
+        args.pdf_filename, args.num_bases, args.overplot_type,
+        args.kmer, args.genome_fasta, args.deepest_coverage)
+
+    return
+
+def max_diff_main(args):
+    global VERBOSE
+    VERBOSE = not args.quiet
+
+    files1, files2 = get_files_lists(
+        args.fast5_basedirs, args.fast5_basedirs2)
+
+    plot_max_diff(
+        files1, files2, args.num_regions, args.corrected_group,
+        args.basecall_subgroups, args.overplot_threshold,
+        args.pdf_filename, args.num_bases, args.overplot_type)
+
+    return
+
+def signif_diff_main(args):
+    global VERBOSE
+    VERBOSE = not args.quiet
+
+    files1, files2 = get_files_lists(
+        args.fast5_basedirs, args.fast5_basedirs2)
+
+    plot_most_signif(
+        files1, files2, args.num_regions, args.corrected_group,
+        args.basecall_subgroups, args.overplot_threshold,
+        args.pdf_filename, args.num_bases, args.overplot_type)
+
+    return
 
 
 if __name__ == '__main__':

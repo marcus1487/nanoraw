@@ -6,9 +6,10 @@ from nanoraw_helper import parse_fast5s
 
 VERBOSE = False
 
-def write_wiggle(files, corrected_group, wiggle_fn):
+def write_wiggle(files, corrected_group, wiggle_fn, basecall_subgroups):
     if VERBOSE: sys.stderr.write('Parsing files.\n')
-    raw_read_coverage = parse_fast5s(files, corrected_group)
+    raw_read_coverage = parse_fast5s(
+        files, corrected_group, basecall_subgroups)
 
     if VERBOSE: sys.stderr.write('Calculating read coverage.\n')
     wiggle_cov = []
@@ -38,38 +39,13 @@ def wiggle_main(args):
     global VERBOSE
     VERBOSE = not args.quiet
 
-    files = [os.path.join(args.fast5_basedir, fn)
-             for fn in os.listdir(args.fast5_basedir)]
-    write_wiggle(files, args.corrected_group, args.wiggle_filename)
+    files = [os.path.join(base_dir, fn)
+             for base_dir in args.fast5_basedirs
+             for fn in os.listdir(base_dir)]
+    write_wiggle(files, args.corrected_group, args.wiggle_filename,
+                 args.basecall_subgroups)
 
     return
-
-def get_wiggle_parser():
-    import argparse
-    parser = argparse.ArgumentParser(
-        description='Plot raw signal from from two samples where ' +
-        'FAST5 files were corrected with `nanoraw correct`.',
-        add_help=False)
-    parser.add_argument(
-        'fast5_basedir',
-        help='Directory containing fast5 files.')
-    parser.add_argument(
-        '--corrected-group', default='RawGenomeCorrected_000',
-        help='FAST5 group to plot created by correct_raw ' +
-        'script. Default: %(default)s')
-
-    parser.add_argument(
-        '--wiggle-filename',
-        help="Output wiggle read coverage file. Note that this will " +
-        "also be the track name in the def line (only available for " +
-        "single FAST5 dir currently). Default: Dont't output " +
-        "coverage wiggle.")
-
-    parser.add_argument(
-        '--quiet', '-q', default=False, action='store_true',
-        help="Don't print status information.")
-
-    return parser
 
 
 if __name__ == '__main__':
