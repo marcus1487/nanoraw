@@ -589,6 +589,9 @@ def correct_raw_data(
         return [('FAST5 file is not writable.', filename),]
     try:
         read_data = h5py.File(filename, 'r+')
+        if 'Analyses/' + basecall_group not in read_data:
+            return [('FAST5 basecall or Analyses group does not ' +
+                     'exist. Likely a mux scan file.', filename),]
         read_data.close()
     except IOError:
         return [('Error opening file. Likely a corrupted file.',
