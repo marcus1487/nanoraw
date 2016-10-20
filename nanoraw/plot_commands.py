@@ -429,7 +429,7 @@ def get_reg_events(r_data, interval_start, num_bases):
 
 def get_event_data(
         all_reg_data, plot_types, num_bases, corrected_group,
-        group_num='Group1'):
+        overplot_thresh, group_num='Group1'):
     Position, Signal, Strand, Region = [], [], [], []
     for reg_plot_sig, (
             region_i, interval_start, chrom, reg_reads) in zip(
@@ -468,7 +468,7 @@ def get_event_data(
 
 def get_boxplot_data(
         all_reg_data, plot_types, num_bases, corrected_group,
-        group_num='Group1'):
+        overplot_thresh, group_num='Group1'):
     (Position, SigMin, Sig25, SigMed, Sig75, SigMax, Strand, Region) = (
         [], [], [], [], [], [], [], [])
     for reg_plot_sig, (
@@ -513,7 +513,7 @@ def get_boxplot_data(
 
 def get_quant_data(
         all_reg_data, plot_types, num_bases, corrected_group,
-        group_num='Group1', pos_offest=0,
+        overplot_thresh, group_num='Group1', pos_offest=0,
         pcntls=[1,10,20,30,40,49]):
     upper_pcntls = [100 - pcntl for pcntl in pcntls]
     Position, Lower, Upper, Strand, Region = [], [], [], [], []
@@ -563,13 +563,27 @@ def get_signal(read_fn, read_start_rel_to_raw, num_obs):
 
     return r_sig
 
-def get_signal_data(all_reg_data, plot_types, num_bases,
-                    corrected_group, group_num='Group1'):
+def get_signal_data(
+        all_reg_data, plot_types, num_bases, corrected_group,
+        overplot_thresh, group_num='Group1'):
     Position, Signal, Read, Strand, Region = [], [], [], [], []
     for reg_plot_sig, (
             region_i, interval_start, chrom, reg_reads) in zip(
                 plot_types, all_reg_data):
-        if reg_plot_sig != 'Signal': continue
+        if not reg_plot_sig in ('Signal', 'Downsample'): continue
+        if reg_plot_sig == 'Downsample':
+            plus_reads = [r_data for r_data in reg_reads
+                          if r_data.strand == '+']
+            minus_reads = [r_data for r_data in reg_reads
+                           if r_data.strand == '-']
+            # randomly select reads to plot if too many
+            if len(plus_reads) > overplot_thresh:
+                np.random.shuffle(plus_reads)
+                plus_reads = plus_reads[:overplot_thresh]
+            if len(minus_reads) > overplot_thresh:
+                np.random.shuffle(minus_reads)
+                minus_reads = minus_reads[:overplot_thresh]
+            reg_reads = plus_reads + minus_reads
         for r_num, r_data in enumerate(reg_reads):
             r_strand = r_data.strand
 
@@ -829,20 +843,28 @@ def plot_single_sample(
          sum(r_data.strand == '-' for r_data in reg_data[3]))
         for reg_data in all_reg_data]
     plot_types = [
-        'Signal' if (max(covs) < overplot_thresh or
+        'Signal' if (max(covs) <= overplot_thresh or
                      min(covs) < QUANT_MIN)
         else overplot_type for covs in strand_cov]
+    dnspl_stars = [
+        ['*' if grp_r_ovr_cov > overplot_thresh and
+         p_type == 'Downsample' else ''
+         for grp_r_ovr_cov in r_cov] for r_cov, p_type in zip(
+                 strand_cov, plot_types)]
     Titles = r.DataFrame({
         'Title':r.StrVector([
             chrm + " ::: Coverage: " +
-            str(r_cov[0]) + " + " +
-            str(r_cov[1]) + " -" for chrm, r_cov in zip(
-                zip(*zip(*plot_intervals)[1])[0], strand_cov)]),
+            str(r_cov[0]) + r_ovp[0] + " + " +
+            str(r_cov[1]) + r_ovp[1] + " -"
+            for chrm, r_cov, r_ovp in zip(
+                    zip(*zip(*plot_intervals)[1])[0], strand_cov,
+                    dnspl_stars)]),
         'Region':r.StrVector(zip(*plot_intervals)[0])})
 
     BasesData = get_reg_seq(all_reg_data, corrected_group, num_bases)
     SignalData, QuantData, BoxData, EventData = get_plot_types_data(
-        (all_reg_data, plot_types, num_bases, corrected_group, 'Group1'))
+        (all_reg_data, plot_types, num_bases, corrected_group,
+         overplot_thresh, 'Group1'))
 
     if VERBOSE: sys.stderr.write('Plotting.\n')
     r.r('pdf("' + pdf_fn + '", height=5, width=11)')
@@ -909,14 +931,21 @@ def plot_two_samples(
         'Signal' if (max(covs) < overplot_thresh or
                      min(covs) < QUANT_MIN)
         else overplot_type for covs in strand_cov]
+    dnspl_stars = [
+        ['*' if grp_r_ovr_cov > overplot_thresh and
+         p_type == 'Downsample' else ''
+         for grp_r_ovr_cov in r_cov] for r_cov, p_type in zip(
+                 strand_cov, plot_types)]
     Titles = r.DataFrame({
         'Title':r.StrVector([
             chrm + " ::: Group1 Coverage (Blue): " +
-            str(r_cov[0]) + " + " +
-            str(r_cov[1]) + " -; Group2 Coverage (Red): " +
-            str(r_cov[2]) + " + " +
-            str(r_cov[3]) + " -" for chrm, r_cov in zip(
-                zip(*zip(*plot_intervals)[1])[0], strand_cov)]),
+            str(r_cov[0]) + r_dnspl[0] + " + " +
+            str(r_cov[1]) + r_dnspl[1] + " -; Group2 Coverage (Red): " +
+            str(r_cov[2]) + r_dnspl[2] + " + " +
+            str(r_cov[3]) + r_dnspl[3] + " -"
+            for chrm, r_cov, r_dnspl in zip(
+                    zip(*zip(*plot_intervals)[1])[0], strand_cov,
+                    dnspl_stars)]),
         'Region':r.StrVector(zip(*plot_intervals)[0])})
 
     # bases are the same from either group so only get from first
@@ -929,10 +958,10 @@ def plot_two_samples(
     # get plotting data for either quantiles of raw signal
     SignalData1, QuantData1, BoxData1, EventData1 = get_plot_types_data(
         (all_reg_data1, plot_types, num_bases, corrected_group,
-         'Group1'), 0.1)
+         overplot_thresh, 'Group1'), 0.1)
     SignalData2, QuantData2, BoxData2, EventData2 = get_plot_types_data(
         (all_reg_data2, plot_types, num_bases, corrected_group,
-         'Group2'), 0.5)
+         overplot_thresh, 'Group2'), 0.5)
 
     if VERBOSE: sys.stderr.write('Plotting.\n')
     r.r('pdf("' + pdf_fn + '", height=5, width=11)')

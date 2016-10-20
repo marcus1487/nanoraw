@@ -144,10 +144,10 @@ ovpltthresh_opt=('--overplot-threshold', {
     'instead of raw signal due to overplotting. ' +
     'Default: %(default)d'})
 ovplttype_opt=('--overplot-type', {
-    'default':'Violin',
-    'choices':['Boxplot', 'Quantile', 'Violin'],
+    'default':'Downsample',
+    'choices':['Downsample', 'Boxplot', 'Quantile', 'Violin'],
     'help':'Plot type for regions with higher coverage. ' +
-    'Choices: Boxplot (default), Quantile, Violin'})
+    'Choices: Downsample (default), Boxplot , Quantile, Violin'})
 
 # write wiggle opts
 wigfn_opt=('--wiggle-filename', {
