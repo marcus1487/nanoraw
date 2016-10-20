@@ -1,26 +1,6 @@
 ## Summary
 This package provides tools for the analysis of raw nanopore sequencing data, including correction of basecalls and visualization.
 
-## Requirements
-
-- HDF5 (<http://micro.stanford.edu/wiki/Install_HDF5#Install>)
-- graphmap (<https://github.com/isovic/graphmap>)
-
-#### python Requirements:
-- python
-- numpy
-- scipy
-- h5py
-- rpy2
-
-#### R Requirements:
-- R
-- ggplot2 (not actually enfored on install, but plotting commands will fail; install with `install.packages('ggplot2')` from an R prompt)
-
-#### Optionally:
-- changepoint (for using R's changepoint package for re-segmentation)
-- Biopython (for robust FASTA parsing, but a simple parser is provided)
-
 ## Installation
 Install nanoraw via pip
 ```
@@ -59,6 +39,26 @@ nanoraw [command] [options]
     write_wiggle                  Write wiggle file of genome coverage from genome_resquiggle mappings.
 
 > Get additional help for subcommands with `nanoraw [command] -h`
+
+## Requirements
+
+- HDF5 (<http://micro.stanford.edu/wiki/Install_HDF5#Install>)
+- graphmap (<https://github.com/isovic/graphmap>)
+
+#### python Requirements (handled by pip):
+- python
+- numpy
+- scipy
+- h5py
+- rpy2
+
+#### R Requirements:
+- R
+- ggplot2 (not actually enfored on install, but plotting commands will fail; install with `install.packages('ggplot2')` from an R prompt)
+
+#### Optionally:
+- changepoint (for using R's changepoint package for re-segmentation)
+- Biopython (for robust FASTA parsing, but a simple parser is provided)
 
 ## Legal
 nanoraw v.1 Copyright (c) 2016, The Regents of the University of California, through Lawrence Berkeley National Laboratory (subject to receipt of any required approvals from the U.S. Dept. of Energy).  All rights reserved.

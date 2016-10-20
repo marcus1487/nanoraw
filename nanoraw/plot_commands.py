@@ -37,13 +37,19 @@ try:
     ggplot = importr("ggplot2")
     r.r('''
     plotSingleRun <- function(
-        dat, quantDat, boxDat, eventDat, BaseDat, TitleDat){
+        dat, quantDat, boxDat, eventDat, baseDat, TitleDat){
+    ## fix 0 baased coordinates passed in
+    dat$Position <- dat$Position + 1
+    quantDat$Position <- quantDat$Position + 1
+    boxDat$Position <- boxDat$Position + 1
+    eventDat$Position <- eventDat$Position + 1
+    baseDat$Position <- baseDat$Position + 1
     regions <- sort(c(unique(as.character(dat$Region)),
                  unique(as.character(quantDat$Region)),
                  unique(as.character(boxDat$Region)),
                  unique(as.character(eventDat$Region))))
     for(reg_i in regions){
-    reg_base_dat <- BaseDat[BaseDat$Region==reg_i,]
+    reg_base_dat <- baseDat[baseDat$Region==reg_i,]
     title <- TitleDat[TitleDat$Region==reg_i,'Title']
     if(reg_i %in% dat$Region){
     reg_sig_dat <- dat[dat$Region == reg_i,]
@@ -82,7 +88,7 @@ try:
         geom_vline(xintercept=min(reg_base_dat$Position):(
                               max(reg_base_dat$Position) + 1),
                    size=0.01) +
-        ggtitle(title) +
+        ggtitle(title) + scale_y_continuous(limits=c(-5, 5)) +
         theme_bw() + theme(axis.text.x=element_text(hjust=0)))
 }}
 ''')
@@ -91,6 +97,12 @@ try:
     r.r('''
     plotGroupComp <- function(dat, quantDat, boxDat, eventDat,
                               baseDat, TitleDat, QuantWidth){
+    ## fix 0 baased coordinates passed in
+    dat$Position <- dat$Position + 1
+    quantDat$Position <- quantDat$Position + 1
+    boxDat$Position <- boxDat$Position + 1
+    eventDat$Position <- eventDat$Position + 1
+    baseDat$Position <- baseDat$Position + 1
     regions <- sort(c(unique(as.character(dat$Region)),
                       unique(as.character(quantDat$Region)),
                       unique(as.character(boxDat$Region)),
@@ -138,7 +150,7 @@ try:
         geom_vline(xintercept=min(reg_base_dat$Position):(
                               max(reg_base_dat$Position) + 1),
                    size=0.01) +
-        ggtitle(title) +
+        ggtitle(title) + scale_y_continuous(limits=c(-5, 5)) +
         theme_bw() + theme(axis.text.x=element_text(hjust=0)))
 }}
 ''')
@@ -1054,9 +1066,11 @@ def plot_genome_locations(
         genome_locations):
     genome_locations = [chrm_pos.split(':')
                         for chrm_pos in genome_locations]
+    # minus one here as all python internal coords are 0-based, but
+    # genome is generally 1-based
     plot_intervals = [
         ('{:03d}'.format(i), (
-            chrm, max(0, int(int(pos) - np.floor(num_bases / 2.0))),
+            chrm, max(0, int(int(pos) - np.floor(num_bases / 2.0) - 1)),
             None)) for i, (chrm, pos) in enumerate(genome_locations)]
 
     raw_read_coverage = parse_fast5s(
