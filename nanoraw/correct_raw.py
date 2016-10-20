@@ -38,7 +38,7 @@ with os.fdopen(os.dup(fd), 'w') as old_stderr:
         _redirect_stderr(old_stderr)
 
 
-NANORAW_VERSION = '0.1'
+NANORAW_VERSION = '0.2'
 VERBOSE = False
 
 COMP_BASES = {'A':'T', 'C':'G', 'G':'C', 'T':'A', '-':'-'}
