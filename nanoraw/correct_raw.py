@@ -15,7 +15,7 @@ from collections import defaultdict, namedtuple
 
 # import nanoraw functions
 import option_parsers
-from nanoraw_helper import normalize_raw_signal
+from nanoraw_helper import normalize_raw_signal, rev_comp
 
 fd = sys.stderr.fileno()
 def _redirect_stderr(to):
@@ -40,10 +40,6 @@ with os.fdopen(os.dup(fd), 'w') as old_stderr:
 
 NANORAW_VERSION = '0.2'
 VERBOSE = False
-
-COMP_BASES = {'A':'T', 'C':'G', 'G':'C', 'T':'A', '-':'-'}
-def rev_comp(seq):
-    return ''.join(COMP_BASES[b] for b in seq[::-1])
 
 BASES = ['A', 'C', 'G', 'T']
 baseP = ['p_A', 'p_C', 'p_G', 'p_T']

@@ -11,7 +11,7 @@ from collections import defaultdict
 from itertools import repeat, groupby
 
 from nanoraw_helper import (
-    normalize_raw_signal, parse_fast5s, parse_fasta)
+    normalize_raw_signal, parse_fast5s, parse_fasta, rev_comp)
 
 VERBOSE = False
 
@@ -20,10 +20,6 @@ VERBOSE = False
 QUANT_MIN = 3
 
 MIN_TEST_VALS = 2
-
-COMP_BASES = {'A':'T', 'C':'G', 'G':'C', 'T':'A', '-':'-'}
-def rev_comp(seq):
-    return [COMP_BASES[b] for b in seq[::-1]]
 
 
 
@@ -84,7 +80,7 @@ try:
                   hjust=0.5, vjust=0, size=3, show.legend=FALSE) +
         scale_color_manual(values=c(
             'A'='#00CC00', 'C'='#0000CC', 'G'='#FFB300', 'T'='#CC0000',
-            '-'='black')) +
+            '-'='black', 'N'='black')) +
         geom_vline(xintercept=min(reg_base_dat$Position):(
                               max(reg_base_dat$Position) + 1),
                    size=0.01) +
@@ -144,7 +140,7 @@ try:
                   hjust=0.5, vjust=0, size=3, show.legend=FALSE) +
         scale_color_manual(values=c(
             'A'='#00CC00', 'C'='#0000CC', 'G'='#FFB300', 'T'='#CC0000',
-            '-'='black', 'Group1'='blue', 'Group2'='red')) +
+            '-'='black', 'N'='black', 'Group1'='blue', 'Group2'='red')) +
         scale_fill_manual(values=c(
             'Group1'='blue', 'Group2'='red')) +
         geom_vline(xintercept=min(reg_base_dat$Position):(
@@ -1064,6 +1060,7 @@ def plot_genome_locations(
         files, files2, corrected_group, basecall_subgroups,
         overplot_thresh, pdf_fn, num_bases, overplot_type,
         genome_locations):
+    if VERBOSE: sys.stderr.write('Parsing genome locations.\n')
     genome_locations = [chrm_pos.split(':')
                         for chrm_pos in genome_locations]
     # minus one here as all python internal coords are 0-based, but
@@ -1073,6 +1070,7 @@ def plot_genome_locations(
             chrm, max(0, int(int(pos) - np.floor(num_bases / 2.0) - 1)),
             None)) for i, (chrm, pos) in enumerate(genome_locations)]
 
+    if VERBOSE: sys.stderr.write('Parsing files.\n')
     raw_read_coverage = parse_fast5s(
         files, corrected_group, basecall_subgroups)
 

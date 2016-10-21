@@ -14,6 +14,16 @@ NORM_TYPES = ('none', 'ont', 'median', 'robust_median')
 # got quantiles from analysis of stability after shift-only normalization
 robust_quantiles = (46.5, 53.5)
 
+COMP_BASES = {'A':'T', 'C':'G', 'G':'C', 'T':'A', '-':'-', 'N':'N'}
+def comp_base(base):
+    # replace non-ACGT bases with dash
+    try:
+        return COMP_BASES[base]
+    except KeyError:
+        return 'N'
+def rev_comp(seq):
+    return ''.join(comp_base(b) for b in seq[::-1])
+
 
 def parse_fast5s(files, corrected_group, basecall_subgroups,
                  get_means=False):
