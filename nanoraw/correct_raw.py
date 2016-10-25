@@ -382,29 +382,28 @@ def trim_alignment(alignVals, starts_rel_to_read,
 def fix_stay_states(
         called_dat, starts_rel_to_read, basecalls,
         read_start_rel_to_raw, abs_event_start):
-    change_states = (called_dat['model_state'][:-1] !=
-                     called_dat['model_state'][1:])
+    move_states = called_dat['move'][1:] > 0
     start_trim = 0
-    event_change_state = change_states[0]
+    event_change_state = move_states[0]
     while not event_change_state:
-        if start_trim >= len(change_states) - 2:
+        if start_trim >= len(move_states) - 2:
             raise RuntimeError, (
                 'Read is composed entirely of stay model ' +
                 'states and cannot be processed')
         start_trim += 1
-        event_change_state = change_states[start_trim]
+        event_change_state = move_states[start_trim]
     end_trim = 0
-    event_change_state = change_states[-1]
+    event_change_state = move_states[-1]
     while not event_change_state:
         end_trim += 1
-        event_change_state = change_states[-(end_trim+1)]
+        event_change_state = move_states[-(end_trim+1)]
 
     # trim all applicable data structures
-    change_states = change_states[start_trim:]
+    move_states = move_states[start_trim:]
     starts_rel_to_read = starts_rel_to_read[start_trim:]
     basecalls = basecalls[start_trim:]
     if end_trim > 0:
-        change_states = change_states[:-end_trim]
+        move_states = move_states[:-end_trim]
         starts_rel_to_read = starts_rel_to_read[:-end_trim]
         basecalls = basecalls[:-end_trim]
     if start_trim > 0:
@@ -414,10 +413,10 @@ def fix_stay_states(
         abs_event_start += start_trim_obs
 
     # now actually remove internal stay states
-    change_states = np.insert(
-        change_states, (0, len(change_states) - 1), True)
-    starts_rel_to_read = starts_rel_to_read[change_states]
-    basecalls = basecalls[change_states[:-1]]
+    move_states = np.insert(
+        move_states, (0, len(move_states) - 1), True)
+    starts_rel_to_read = starts_rel_to_read[move_states]
+    basecalls = basecalls[move_states[:-1]]
 
     return (starts_rel_to_read, basecalls, read_start_rel_to_raw,
             abs_event_start, start_trim, end_trim)
@@ -469,9 +468,7 @@ def get_read_data(
         starts_rel_to_read *
         channel_info.sampling_rate).astype('int_') - abs_event_start
     basecalls = np.array([
-        BASES[eventBasePs.argmax()]
-        for eventBasePs in np.column_stack(
-            called_dat[basePVal] for basePVal in baseP)])
+        event_state[2] for event_state in called_dat['model_state']])
 
     if any(len(vals) <= 1 for vals in (
         all_raw_signal, starts_rel_to_read, basecalls,
