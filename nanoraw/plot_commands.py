@@ -1129,7 +1129,7 @@ def plot_kmer_centered(
                 try:
                     return min(read_coverage[chrm][pos],
                                read_coverage2[chrm][pos])
-                except IndexError:
+                except (IndexError, KeyError):
                     return 0
             kmer_locs_cov = sorted([
                 (get_cov(chrm, pos), chrm, pos)
