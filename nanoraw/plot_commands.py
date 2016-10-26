@@ -32,123 +32,140 @@ try:
     from rpy2.robjects.packages import importr
     ggplot = importr("ggplot2")
     r.r('''
-    plotSingleRun <- function(
-        dat, quantDat, boxDat, eventDat, baseDat, TitleDat){
+    plotSingleRun <- function(sigDat, quantDat, boxDat, eventDat,
+                          baseDat, TitleDat){
     ## fix 0 baased coordinates passed in
-    dat$Position <- dat$Position + 1
+    sigDat$Position <- sigDat$Position + 1
     quantDat$Position <- quantDat$Position + 1
     boxDat$Position <- boxDat$Position + 1
     eventDat$Position <- eventDat$Position + 1
     baseDat$Position <- baseDat$Position + 1
-    regions <- sort(c(unique(as.character(dat$Region)),
-                 unique(as.character(quantDat$Region)),
-                 unique(as.character(boxDat$Region)),
-                 unique(as.character(eventDat$Region))))
-    for(reg_i in regions){
-    reg_base_dat <- baseDat[baseDat$Region==reg_i,]
-    title <- TitleDat[TitleDat$Region==reg_i,'Title']
-    if(reg_i %in% dat$Region){
-    reg_sig_dat <- dat[dat$Region == reg_i,]
-    p <- ggplot(reg_sig_dat) +
-        geom_path(aes(x=Position, y=Signal, group=Read),
-                  alpha=0.3, size=0.05, show.legend=FALSE)
-    } else if(reg_i %in% quantDat$Region) {
-    reg_quant_dat <- quantDat[quantDat$Region == reg_i,]
-    p <- ggplot(reg_quant_dat) +
-        geom_rect(aes(xmin=Position, xmax=Position+1,
-                      ymin=Lower, ymax=Upper),
-                  alpha=0.1, show.legend=FALSE) +
-        ylab('Signal')
-    } else if(reg_i %in% boxDat$Region) {
-    reg_box_dat <- boxDat[boxDat$Region == reg_i,]
-    p <- ggplot(reg_box_dat) +
-        geom_boxplot(aes(Position + 0.5, ymin=SigMin, lower=Sig25,
-                         middle=SigMed, upper=Sig75, ymax=SigMax),
-                     size=0.2, alpha=0.5,
-                     stat="identity", show.legend=FALSE) +
-        ylab('Signal') + xlab('Position')
-    } else {
-    reg_event_dat <- eventDat[eventDat$Region == reg_i,]
-    p <- ggplot(reg_event_dat) +
-        geom_violin(aes(x=Position + 0.5, y=Signal, group=Position),
-                    size=0, show.legend=FALSE) +
-        ylab('Signal') + xlab('Position')
-    }
-    print(p + facet_grid(Strand ~ .) +
-        geom_text(aes(x=Position+0.5, y=-5, label=Base, color=Base),
-                  data=reg_base_dat,
-                  hjust=0.5, vjust=0, size=3, show.legend=FALSE) +
-        scale_color_manual(values=c(
-            'A'='#00CC00', 'C'='#0000CC', 'G'='#FFB300', 'T'='#CC0000',
-            '-'='black', 'N'='black')) +
-        geom_vline(xintercept=min(reg_base_dat$Position):(
-                              max(reg_base_dat$Position) + 1),
-                   size=0.01) +
-        ggtitle(title) + scale_y_continuous(limits=c(-5, 5)) +
-        theme_bw() + theme(axis.text.x=element_text(hjust=0)))
-}}
-''')
-    plotSingleRun = r.globalenv['plotSingleRun']
-
-    r.r('''
-    plotGroupComp <- function(dat, quantDat, boxDat, eventDat,
-                              baseDat, TitleDat, QuantWidth){
-    ## fix 0 baased coordinates passed in
-    dat$Position <- dat$Position + 1
-    quantDat$Position <- quantDat$Position + 1
-    boxDat$Position <- boxDat$Position + 1
-    eventDat$Position <- eventDat$Position + 1
-    baseDat$Position <- baseDat$Position + 1
-    regions <- sort(c(unique(as.character(dat$Region)),
+    regions <- sort(c(unique(as.character(sigDat$Region)),
                       unique(as.character(quantDat$Region)),
                       unique(as.character(boxDat$Region)),
                       unique(as.character(eventDat$Region))))
     for(reg_i in regions){
-    reg_base_dat <- baseDat[baseDat$Region==reg_i,]
-    title <- TitleDat[TitleDat$Region==reg_i,'Title']
-    if(reg_i %in% dat$Region){
-    reg_sig_dat <- dat[dat$Region == reg_i,]
-    p <- ggplot(reg_sig_dat) +
-        geom_path(aes(x=Position, y=Signal, color=Group, group=Read),
-                  alpha=0.3, size=0.05, show.legend=FALSE)
-    } else if(reg_i %in% quantDat$Region) {
-    reg_quant_dat <- quantDat[quantDat$Region == reg_i,]
-    p <- ggplot(reg_quant_dat) +
-        geom_rect(aes(xmin=Position, xmax=Position + QuantWidth,
-                      ymin=Lower, ymax=Upper, fill=Group),
-                  alpha=0.1, show.legend=FALSE) +
-        ylab('Signal')
-    } else if (reg_i %in% boxDat$Region) {
-    reg_box_dat <- boxDat[boxDat$Region == reg_i,]
-    p <- ggplot(reg_box_dat) +
-        geom_boxplot(aes(Position + 0.5, ymin=SigMin, lower=Sig25,
-                         middle=SigMed, upper=Sig75, ymax=SigMax,
-                         fill=Group), size=0.2, alpha=0.3,
-                     stat="identity", show.legend=FALSE) +
-        ylab('Signal') + xlab('Position')
-    } else {
-    reg_event_dat <- eventDat[eventDat$Region == reg_i,]
-    p <- ggplot(reg_event_dat) +
-        geom_violin(aes(x=Position + 0.5, y=Signal, fill=Group,
-                       group=paste0(Group, Position)),
-                     size=0, show.legend=FALSE) +
-        ylab('Signal') + xlab('Position')
-    }
-    print(p + facet_grid(Strand ~ .) +
-        geom_text(aes(x=Position+0.5, y=-5, label=Base, color=Base),
-                  data=reg_base_dat,
-                  hjust=0.5, vjust=0, size=3, show.legend=FALSE) +
-        scale_color_manual(values=c(
-            'A'='#00CC00', 'C'='#0000CC', 'G'='#FFB300', 'T'='#CC0000',
-            '-'='black', 'N'='black', 'Group1'='blue', 'Group2'='red')) +
-        scale_fill_manual(values=c(
-            'Group1'='blue', 'Group2'='red')) +
-        geom_vline(xintercept=min(reg_base_dat$Position):(
-                              max(reg_base_dat$Position) + 1),
-                   size=0.01) +
-        ggtitle(title) + scale_y_continuous(limits=c(-5, 5)) +
-        theme_bw() + theme(axis.text.x=element_text(hjust=0)))
-}}
+        reg_base_dat <- baseDat[baseDat$Region==reg_i,]
+        title <- TitleDat[TitleDat$Region==reg_i,'Title']
+        if(reg_i %in% sigDat$Region){
+            reg_sig_dat <- sigDat[sigDat$Region == reg_i,]
+            base_pos <- min(reg_sig_dat$Signal)
+            p <- ggplot(reg_sig_dat) +
+                geom_path(aes(x=Position, y=Signal, group=Read),
+                          alpha=0.3, size=0.05, show.legend=FALSE)
+        } else if(reg_i %in% quantDat$Region) {
+            reg_quant_dat <- quantDat[quantDat$Region == reg_i,]
+            base_pos <- min(reg_quant_dat$Lower)
+            p <- ggplot(reg_quant_dat) +
+                geom_rect(aes(xmin=Position, xmax=Position+1,
+                              ymin=Lower, ymax=Upper),
+                          alpha=0.1, show.legend=FALSE) +
+                ylab('Signal')
+        } else if(reg_i %in% boxDat$Region) {
+            reg_box_dat <- boxDat[boxDat$Region == reg_i,]
+            base_pos <- min(reg_box_dat$SigMin)
+            p <- ggplot(reg_box_dat) +
+                geom_boxplot(
+                    aes(Position + 0.5, ymin=SigMin, lower=Sig25,
+                        middle=SigMed, upper=Sig75, ymax=SigMax),
+                    size=0.2, alpha=0.5, stat="identity",
+                    show.legend=FALSE) +
+                ylab('Signal') + xlab('Position')
+        } else {
+            reg_event_dat <- eventDat[eventDat$Region == reg_i,]
+            base_pos <- min(reg_event_dat$Signal)
+            p <- ggplot(reg_event_dat) +
+                geom_violin(aes(
+                    x=Position + 0.5, y=Signal, group=Position),
+                    size=0, show.legend=FALSE) +
+                ylab('Signal') + xlab('Position')
+        }
+        print(p + facet_grid(Strand ~ .) +
+              geom_text(aes(x=Position+0.5, y=base_pos,
+                            label=Base, color=Base),
+                        data=reg_base_dat,
+                        hjust=0.5, vjust=0, size=3, show.legend=FALSE) +
+              scale_color_manual(
+                  values=c('A'='#00CC00', 'C'='#0000CC', 'G'='#FFB300',
+                           'T'='#CC0000', '-'='black', 'N'='black')) +
+              geom_vline(
+                  xintercept=min(reg_base_dat$Position):
+                  (max(reg_base_dat$Position) + 1),
+                  size=0.01) + ggtitle(title) +
+              theme_bw() + theme(axis.text.x=element_text(hjust=0)))
+    }}
+''')
+    plotSingleRun = r.globalenv['plotSingleRun']
+
+    r.r('''
+    plotGroupComp <- function(sigDat, quantDat, boxDat, eventDat,
+                          baseDat, TitleDat, QuantWidth){
+    ## fix 0 baased coordinates passed in
+    sigDat$Position <- sigDat$Position + 1
+    quantDat$Position <- quantDat$Position + 1
+    boxDat$Position <- boxDat$Position + 1
+    eventDat$Position <- eventDat$Position + 1
+    baseDat$Position <- baseDat$Position + 1
+    regions <- sort(c(unique(as.character(sigDat$Region)),
+                      unique(as.character(quantDat$Region)),
+                      unique(as.character(boxDat$Region)),
+                      unique(as.character(eventDat$Region))))
+    for(reg_i in regions){
+        reg_base_dat <- baseDat[baseDat$Region==reg_i,]
+        title <- TitleDat[TitleDat$Region==reg_i,'Title']
+        if(reg_i %in% sigDat$Region){
+            reg_sig_dat <- sigDat[sigDat$Region == reg_i,]
+            base_pos <- min(reg_sig_dat$Signal)
+            p <- ggplot(reg_sig_dat) +
+                geom_path(
+                    aes(x=Position, y=Signal, color=Group, group=Read),
+                    alpha=0.3, size=0.05, show.legend=FALSE)
+        } else if(reg_i %in% quantDat$Region) {
+            reg_quant_dat <- quantDat[quantDat$Region == reg_i,]
+            base_pos <- min(reg_quant_dat$Lower)
+            p <- ggplot(reg_quant_dat) +
+                geom_rect(aes(xmin=Position, xmax=Position + QuantWidth,
+                              ymin=Lower, ymax=Upper, fill=Group),
+                          alpha=0.1, show.legend=FALSE) +
+                ylab('Signal')
+        } else if (reg_i %in% boxDat$Region) {
+            reg_box_dat <- boxDat[boxDat$Region == reg_i,]
+            base_pos <- min(reg_box_dat$SigMin)
+            p <- ggplot(reg_box_dat) +
+                geom_boxplot(
+                    aes(Position + 0.5, ymin=SigMin, lower=Sig25,
+                        middle=SigMed, upper=Sig75, ymax=SigMax,
+                        fill=Group), size=0.2, alpha=0.3,
+                    stat="identity", show.legend=FALSE) +
+                ylab('Signal') + xlab('Position')
+        } else {
+            reg_event_dat <- eventDat[eventDat$Region == reg_i,]
+            base_pos <- min(reg_event_dat$Signal)
+            p <- ggplot(reg_event_dat) +
+                geom_violin(aes(x=Position + 0.5, y=Signal, fill=Group,
+                                group=paste0(Group, Position)),
+                            size=0, show.legend=FALSE) +
+                ylab('Signal') + xlab('Position')
+        }
+        print(p + facet_grid(Strand ~ .) +
+              geom_text(aes(x=Position+0.5, y=base_pos, label=Base,
+                            color=Base), data=reg_base_dat,
+                        hjust=0.5, vjust=0, size=3, show.legend=FALSE) +
+              scale_color_manual(
+                  values=c(
+                      'A'='#00CC00', 'C'='#0000CC', 'G'='#FFB300',
+                      'T'='#CC0000', '-'='black', 'N'='black',
+                      'Group1'='blue', 'Group2'='red')) +
+              scale_fill_manual(
+                  values=c('Group1'='blue', 'Group2'='red')) +
+              geom_vline(
+                  xintercept=
+                      min(reg_base_dat$Position):
+                  (max(reg_base_dat$Position) + 1),
+                  size=0.01) +
+              ggtitle(title) +
+              theme_bw() + theme(axis.text.x=element_text(hjust=0)))
+    }}
 ''')
     plotGroupComp = r.globalenv['plotGroupComp']
 
@@ -563,11 +580,17 @@ def get_quant_data(
         'Region':r.StrVector(Region),
         'Group':r.StrVector(list(repeat(group_num, len(Position))))})
 
-def get_signal(read_fn, read_start_rel_to_raw, num_obs):
-    with h5py.File(read_fn) as read_data:
+def get_signal(read_fn, read_start_rel_to_raw, num_obs, corrected_group):
+    with h5py.File(read_fn) as fast5_data:
+        # retrieve shift and scale computed in correction script
+        corr_subgrp = fast5_data['Analyses/' + corrected_group]
+        shift = corr_subgrp.attrs['shift']
+        scale = corr_subgrp.attrs['scale']
+        outlier_thresh = corr_subgrp.attrs['outlier_threshold']
         r_sig, shift, scale = normalize_raw_signal(
-            read_data['Raw/Reads'].values()[0]['Signal'],
-            read_start_rel_to_raw, num_obs, 'median', None, 5)
+            fast5_data['Raw/Reads'].values()[0]['Signal'],
+            read_start_rel_to_raw, num_obs, None, None,
+            outlier_thresh, shift, scale)
 
     return r_sig
 
@@ -597,7 +620,8 @@ def get_signal_data(
 
             segs = r_data.segs
             r_sig = get_signal(
-                r_data.fn, r_data.read_start_rel_to_raw, segs[-1])
+                r_data.fn, r_data.read_start_rel_to_raw, segs[-1],
+                r_data.corr_group)
             if r_strand == "-":
                 segs = (segs[::-1] * -1) + segs[-1]
                 r_sig = r_sig[::-1]

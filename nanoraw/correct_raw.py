@@ -1,5 +1,4 @@
 import os, sys
-
 import h5py
 import Queue
 
@@ -15,7 +14,8 @@ from collections import defaultdict, namedtuple
 
 # import nanoraw functions
 import option_parsers
-from nanoraw_helper import normalize_raw_signal, rev_comp
+from nanoraw_helper import (
+    normalize_raw_signal, rev_comp, get_channel_info)
 
 fd = sys.stderr.fileno()
 def _redirect_stderr(to):
@@ -41,16 +41,10 @@ with os.fdopen(os.dup(fd), 'w') as old_stderr:
 NANORAW_VERSION = '0.2'
 VERBOSE = False
 
-BASES = ['A', 'C', 'G', 'T']
-baseP = ['p_A', 'p_C', 'p_G', 'p_T']
-
 indelStats = namedtuple('indelStats',
                         ('start', 'end', 'diff'))
 indelGroupStats = namedtuple('indelGroupStats',
                              ('start', 'end', 'cpts', 'indels'))
-channelInfo = namedtuple(
-    'channelInfo',
-    ('offset', 'range', 'digitisation', 'number', 'sampling_rate'))
 readInfo = namedtuple(
     'readInfo',
     ('ID', 'Start', 'TrimStart', 'TrimEnd',
@@ -69,12 +63,16 @@ def write_new_fast5_group(
         filename, genome_location, read_info,
         read_start_rel_to_raw, new_segs, align_seq, alignVals,
         old_segs, norm_signal, shift, scale, corrected_group,
-        basecall_subgroup):
+        basecall_subgroup, norm_type, outlier_thresh):
     # save new events as new hdf5 Group
     read_data = h5py.File(filename, 'r+')
     corr_grp = read_data['Analyses/' + corrected_group]
     # add subgroup matching subgroup from original basecalls
     corr_subgrp = corr_grp.create_group(basecall_subgroup)
+    corr_subgrp.attrs['shift'] = shift
+    corr_subgrp.attrs['scale'] = scale
+    corr_subgrp.attrs['norm_type'] = norm_type
+    corr_subgrp.attrs['outlier_threshold'] = outlier_thresh
 
     # store alignment statistics
     corr_alignment = corr_subgrp.create_group('Alignment')
@@ -100,8 +98,6 @@ def write_new_fast5_group(
     corr_alignment.create_dataset('read_segments', data=old_segs)
 
     # store new aligned segments and sequence
-    corr_subgrp.attrs['shift'] = shift
-    corr_subgrp.attrs['scale'] = scale
     corr_segs = corr_subgrp.create_dataset('Segments', data=new_segs)
     corr_segs.attrs['read_start_rel_to_raw'] = read_start_rel_to_raw
 
@@ -429,16 +425,6 @@ def get_read_data(
         raise IOError, 'Error opening file. Likely a corrupted file.'
 
     try:
-        channel_info = fast5_data['UniqueGlobalKey/channel_id'].attrs
-    except:
-        raise RuntimeError, ("No channel_id group in HDF5 file. " +
-                             "Probably mux scan HDF5 file.")
-    channel_info = channelInfo(
-        channel_info['offset'], channel_info['range'],
-        channel_info['digitisation'], channel_info['channel_number'],
-        channel_info['sampling_rate'].astype('int_'))
-
-    try:
         called_dat = fast5_data[
             'Analyses/' + basecall_group + '/' + basecall_subgroup +
             '/Events']
@@ -452,6 +438,8 @@ def get_read_data(
         raise RuntimeError, (
             'Raw data is not stored in Raw/Reads/Read_[read#] so ' +
             'new segments cannot be identified.')
+
+    channel_info = get_channel_info(fast5_data)
 
     all_raw_signal = raw_dat['Signal'].value
     read_id = raw_dat.attrs['read_id']
@@ -492,8 +480,8 @@ def get_read_data(
 def correct_raw_data_read(
         filename, genome_filename, graphmap_path, basecall_group,
         basecall_subgroup, corrected_group, rmStayStates,
-        outlier_threshold, timeout, min_event_obs, num_cpts_limit,
-        in_place):
+        norm_type, outlier_thresh, timeout, min_event_obs,
+        num_cpts_limit, in_place):
     (all_raw_signal, read_start_rel_to_raw, starts_rel_to_read,
      basecalls, channel_info, abs_event_start, read_id,
      rm_stay_start_trim, rm_stay_end_trim) = get_read_data(
@@ -520,7 +508,7 @@ def correct_raw_data_read(
     # normalize signal
     norm_signal, shift, scale = normalize_raw_signal(
         all_raw_signal, read_start_rel_to_raw, starts_rel_to_read[-1],
-        'median', channel_info, outlier_threshold)
+        norm_type, channel_info, outlier_thresh)
 
     # parse out aligned (including deleted) and inserted bases
     align_dat = {'aligned':[], 'insertion':defaultdict(str)}
@@ -560,7 +548,8 @@ def correct_raw_data_read(
             filename, genome_location, read_info,
             read_start_rel_to_raw, new_segs, align_seq, alignVals,
             starts_rel_to_read, norm_signal, shift, scale,
-            corrected_group, basecall_subgroup)
+            corrected_group, basecall_subgroup, norm_type,
+            outlier_thresh)
     else:
         # create new hdf5 file to hold corrected read events
         pass
@@ -569,9 +558,9 @@ def correct_raw_data_read(
 
 def correct_raw_data(
         filename, genome_filename, graphmap_path, basecall_group,
-        basecall_subgroups, corrected_group, rmStayStates=True,
-        outlier_threshold=5, timeout=None, min_event_obs=4,
-        num_cpts_limit=None, overwrite=True, in_place=True):
+        basecall_subgroups, corrected_group, norm_type,
+        outlier_thresh, timeout, num_cpts_limit, overwrite,
+        rmStayStates=True, min_event_obs=4, in_place=True):
     # several checks to prepare the FAST5 file for correction before
     # processing to save compute
     if not in_place:
@@ -615,7 +604,7 @@ def correct_raw_data(
             correct_raw_data_read(
                 filename, genome_filename, graphmap_path, basecall_group,
                 basecall_subgroup, corrected_group, rmStayStates,
-                outlier_threshold, timeout, min_event_obs,
+                norm_type, outlier_thresh, timeout, min_event_obs,
                 num_cpts_limit, in_place)
         except Exception as e:
             file_failed_reads.append((
@@ -625,8 +614,8 @@ def correct_raw_data(
 
 def get_aligned_seq_worker(
         filenames_q, failed_reads_q, genome_filename, graphmap_path,
-        basecall_group, basecall_subgroups, corrected_group,
-        timeout, num_cpts_limit, overwrite):
+        basecall_group, basecall_subgroups, corrected_group, norm_type,
+        outlier_thresh, timeout, num_cpts_limit, overwrite):
     num_processed = 0
     while not filenames_q.empty():
         try:
@@ -641,8 +630,8 @@ def get_aligned_seq_worker(
 
         file_failed_reads = correct_raw_data(
             fn, genome_filename, graphmap_path, basecall_group,
-            basecall_subgroups, corrected_group, timeout=timeout,
-            num_cpts_limit=num_cpts_limit, overwrite=overwrite)
+            basecall_subgroups, corrected_group, norm_type,
+            outlier_thresh, timeout, num_cpts_limit, overwrite)
         for failed_read in file_failed_reads:
             failed_reads_q.put(failed_read)
 
@@ -650,8 +639,9 @@ def get_aligned_seq_worker(
 
 def get_all_reads_data(
         fast5_fns, genome_filename, graphmap_path, basecall_group,
-        basecall_subgroups, corrected_group, num_processes=1,
-        timeout=None, num_cpts_limit=None, overwrite=True):
+        basecall_subgroups, corrected_group, norm_type,
+        outlier_thresh, timeout, num_cpts_limit, overwrite,
+        num_processes):
     manager = mp.Manager()
     fast5_q = manager.Queue()
     failed_reads_q = manager.Queue()
@@ -662,7 +652,8 @@ def get_all_reads_data(
 
     args = (fast5_q, failed_reads_q, genome_filename,
             graphmap_path, basecall_group, basecall_subgroups,
-            corrected_group, timeout, num_cpts_limit, overwrite)
+            corrected_group, norm_type, outlier_thresh, timeout,
+            num_cpts_limit, overwrite)
     processes = []
     for p_id in xrange(num_processes):
         p = mp.Process(target=get_aligned_seq_worker, args=args)
@@ -711,11 +702,15 @@ def resquiggle_main(args):
         files = [os.path.join(args.fast5_basedir, fn)
                  for fn in os.listdir(args.fast5_basedir)]
 
+    outlier_thresh = args.outlier_threshold if (
+        args.outlier_threshold > 0) else None
+
     failed_reads = get_all_reads_data(
         files, args.genome_fasta, args.graphmap_path,
         args.basecall_group, args.basecall_subgroups,
-        args.corrected_group, args.processes, args.timeout,
-        args.cpts_limit, args.overwrite)
+        args.corrected_group, args.normalization_type,
+        outlier_thresh, args.timeout, args.cpts_limit, args.overwrite,
+        args.processes)
     sys.stderr.write('Failed reads summary:\n' + '\n'.join(
         "\t" + err + " :\t" + str(len(fns))
         for err, fns in failed_reads.items()) + '\n')

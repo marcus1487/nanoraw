@@ -45,6 +45,21 @@ rcpt_opt=('--use-r-cpts', {
     'help':'Use R changepoint package to determine new event ' +
     'delimiters. (requires rpy2, R and R package ' +
     '"changepoint" to be installed)'})
+normtype_opt=('--normalization-type', {
+    'default':'median', 'choices':('median', 'ont', 'none'),
+    'help':'Type of normalization to apply to raw signal when ' +
+    'calculating statistics based on new segmentation. Should ' +
+    'be one of {"median", "ont", "none"}. "None" will provde the ' +
+    'raw integer as the raw signal is stored. "ont" will calculate ' +
+    'the pA estimates as in the ONT events mean/sd. "median" will ' +
+    "shift by the median of each reads' raw signal and scale by the " +
+    'MAD. Default: %(default)s'})
+otlthresh_opt=('--outlier-threshold', {
+    'default':5, 'type':float,
+    'help':'Number of scales values (median:MADs; ont:SDs, none:SDs) ' +
+    'at which to trim the raw signal. This can help avoid strong ' +
+    're-segmentation artifacts from spikes in signal. Set to ' +
+    'negative value to disable outlier trimming. Default: %(default)d'})
 
 # FAST5 dir opts
 fast5dir_opt = ('--fast5-basedirs', {
@@ -183,6 +198,10 @@ def get_resquiggle_parser():
     filt_args = parser.add_argument_group('Read Filtering Arguments')
     filt_args.add_argument(timeout_opt[0], **timeout_opt[1])
     filt_args.add_argument(cpt_opt[0], **cpt_opt[1])
+
+    norm_args = parser.add_argument_group('Read Normalization Arguments')
+    filt_args.add_argument(normtype_opt[0], **normtype_opt[1])
+    filt_args.add_argument(otlthresh_opt[0], **otlthresh_opt[1])
 
     io_args = parser.add_argument_group('Input/Output Arguments')
     io_args.add_argument(pat_opt[0], **pat_opt[1])

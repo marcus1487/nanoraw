@@ -8,6 +8,9 @@ from collections import defaultdict, namedtuple
 readData = namedtuple('readData', (
     'start', 'end', 'segs', 'read_start_rel_to_raw',
     'strand', 'means', 'fn', 'corr_group'))
+channelInfo = namedtuple(
+    'channelInfo',
+    ('offset', 'range', 'digitisation', 'number', 'sampling_rate'))
 
 NORM_TYPES = ('none', 'ont', 'median', 'robust_median')
 
@@ -61,40 +64,51 @@ def parse_fast5s(files, corrected_group, basecall_subgroups,
 
     return raw_read_coverage
 
+def get_channel_info(fast5_data):
+    try:
+        fast5_info = fast5_data['UniqueGlobalKey/channel_id'].attrs
+    except:
+        raise RuntimeError, ("No channel_id group in HDF5 file. " +
+                             "Probably mux scan HDF5 file.")
+
+    channel_info = channelInfo(
+        fast5_info['offset'], fast5_info['range'],
+        fast5_info['digitisation'], fast5_info['channel_number'],
+        fast5_info['sampling_rate'].astype('int_'))
+
+    return channel_info
+
 def normalize_raw_signal(
         all_raw_signal, read_start_rel_to_raw, read_obs_len,
-        norm_type, channel_info, outlier_threshold):
-    if norm_type not in NORM_TYPES:
+        norm_type, channel_info, outlier_threshold,
+        shift=None, scale=None):
+    if norm_type not in NORM_TYPES and (shift is None or scale is None):
         raise NotImplementedError, (
-            'Normalization type ' + norm_type +
-            ' is not a valid option. Please select a ' +
-            'valid normalization method.')
+            'Normalization type ' + norm_type + ' is not a valid ' +
+            'option and shift or scale parameters were not provided.')
 
     raw_signal = np.array(all_raw_signal[
         read_start_rel_to_raw:
         read_start_rel_to_raw + read_obs_len])
-    shift, scale = 0, 1
-    if norm_type == 'ont':
-        # correct raw signal as described here:
-        #     https://community.nanoporetech.com
-        #           /posts/squiggle-plot-for-raw-data
-        raw_signal = (((raw_signal + channel_info.offset) *
-                       channel_info.range) / channel_info.digitisation)
-        shift, scale = (
-            channel_info.offset * channel_info.range /
-            channel_info.digitisation,
-            channel_info.range / channel_info.digitisation)
-    elif norm_type == 'median':
-        read_med = np.median(raw_signal)
-        read_mad = np.median(np.abs(raw_signal - read_med))
-        raw_signal = (raw_signal - read_med) / read_mad
-        shift, scale = read_med, read_mad
-    elif norm_type == 'robust_median':
-        read_robust_med = np.mean(np.percentile(
-            raw_signal, robust_quantiles))
-        read_mad = np.median(np.abs(raw_signal - read_robust_med))
-        raw_signal = (raw_signal - read_robust_med) / read_mad
-        shift, scale = read_robust_med, read_mad
+    if shift is None or scale is None:
+        if norm_type == 'none':
+            shift, scale = 0, 1
+        elif norm_type == 'ont':
+            # correct raw signal as described here:
+            #     https://community.nanoporetech.com
+            #           /posts/squiggle-plot-for-raw-data
+            shift, scale = (
+                -1 * channel_info.offset,
+                channel_info.digitisation / channel_info.range)
+        elif norm_type == 'median':
+            shift = np.median(raw_signal)
+            scale = np.median(np.abs(raw_signal - read_med))
+        elif norm_type == 'robust_median':
+            shift = np.mean(np.percentile(
+                raw_signal, robust_quantiles))
+            scale = np.median(np.abs(raw_signal - read_robust_med))
+
+    raw_signal = (raw_signal - shift) / scale
 
     if outlier_threshold is not None:
         read_med = np.median(raw_signal)
