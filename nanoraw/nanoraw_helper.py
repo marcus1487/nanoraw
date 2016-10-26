@@ -47,9 +47,12 @@ def parse_fast5s(files, corrected_group, basecall_subgroups,
             'Analyses/' + corrected_group + '/' + basecall_subgroup]
 
         align_data = corr_data['Alignment'].attrs
-        seg_grp = corr_data['Segments']
-        read_start_rel_to_raw = seg_grp.attrs['read_start_rel_to_raw']
-        segs = seg_grp.value
+        events_end = corr_data['Events']['start'][-1] + \
+                     corr_data['Events']['length'][-1]
+        segs = np.concatenate([corr_data['Events']['start'],
+                               [events_end,]])
+        read_start_rel_to_raw = corr_data['Events'].attrs[
+            'read_start_rel_to_raw']
         base_means = (corr_data['Events']['norm_mean']
                       if get_means else None)
         raw_read_coverage[align_data['mapped_chrom']].append(
@@ -102,7 +105,7 @@ def normalize_raw_signal(
                 channel_info.digitisation / channel_info.range)
         elif norm_type == 'median':
             shift = np.median(raw_signal)
-            scale = np.median(np.abs(raw_signal - read_med))
+            scale = np.median(np.abs(raw_signal - shift))
         elif norm_type == 'robust_median':
             shift = np.mean(np.percentile(
                 raw_signal, robust_quantiles))

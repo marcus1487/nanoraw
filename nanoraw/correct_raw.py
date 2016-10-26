@@ -97,10 +97,6 @@ def write_new_fast5_group(
     # store old segmentation in order to plot "correction process"
     corr_alignment.create_dataset('read_segments', data=old_segs)
 
-    # store new aligned segments and sequence
-    corr_segs = corr_subgrp.create_dataset('Segments', data=new_segs)
-    corr_segs.attrs['read_start_rel_to_raw'] = read_start_rel_to_raw
-
     # Add Events to data frame with event means, SDs and lengths
     """raw_mean_sd = [(base_sig.mean(), base_sig.std()) for base_sig in
                    np.split(raw_signal, new_segs[1:-1])]"""
@@ -111,8 +107,9 @@ def write_new_fast5_group(
         zip(zip(*norm_mean_sd)[0], zip(*norm_mean_sd)[1],
             new_segs[:-1], np.diff(new_segs), list(align_seq)),
         dtype=[('norm_mean', '<f8'), ('norm_stdev', '<f8'),
-               ('start', '<f8'), ('length', '<f8'), ('base', 'S1')])
+               ('start', '<u4'), ('length', '<u4'), ('base', 'S1')])
     corr_events = corr_subgrp.create_dataset('Events', data=event_data)
+    corr_events.attrs['read_start_rel_to_raw'] = read_start_rel_to_raw
 
     read_data.flush()
     read_data.close()

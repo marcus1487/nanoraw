@@ -338,30 +338,36 @@ def get_read_correction_data(
     read_id = raw_data.attrs['read_id']
 
     # if a random region should be selected
+    events_end = corr_data['Events']['start'][-1] + \
+                 corr_data['Events']['length'][-1]
     if reg_type == 'start':
         reg_start = 0
     elif reg_type == 'end':
-        reg_start = corr_data['Segments'][-1] - reg_width
+        reg_start = events_end - reg_width
     elif reg_type == 'random':
-        reg_start = np.random.randint(
-            0, corr_data['Segments'][-1] - reg_width)
+        reg_start = np.random.randint(0, events_end - reg_width)
     else:
         # reg_type should be an integer which is the raw start position
         assert isinstance(reg_type, int)
         reg_start = reg_type
 
-    raw_offset = corr_data['Segments'].attrs['read_start_rel_to_raw']
-    # TODO: remove outliers from signal
+    raw_offset = corr_data['Events'].attrs['read_start_rel_to_raw']
     # TODO: calculate moving window difference to plot
-    raw_reg_signal = raw_data['Signal'].value[
-        reg_start + raw_offset:reg_start + reg_width + raw_offset]
+    shift = corr_data.attrs['shift']
+    scale = corr_data.attrs['scale']
+    outlier_thresh = corr_data.attrs['outlier_threshold']
+    norm_signal, scale, shift = normalize_raw_signal(
+        raw_data['Signal'].value, raw_offset, events_end, None, None,
+        outlier_thresh, shift, scale)
+    norm_reg_signal = norm_signal[reg_start:reg_start + reg_width]
 
     old_segs = corr_data['Alignment/read_segments'].value
     old_segs_in_reg = np.where(np.logical_and(
             reg_start <= old_segs, old_segs < reg_start + reg_width))[0]
     old_reg_segs = old_segs[old_segs_in_reg]
     old_align_vals = corr_data['Alignment/read_alignment'].value
-    new_segs = corr_data['Segments'].value
+    new_segs = np.concatenate([corr_data['Events']['start'],
+                               [events_end,]])
     new_segs_in_reg = np.where(np.logical_and(
             reg_start <= new_segs, new_segs < reg_start + reg_width))[0]
     new_reg_segs = new_segs[new_segs_in_reg]
@@ -371,7 +377,8 @@ def get_read_correction_data(
     i_new_segs = iter(new_segs)
     align_vals = [((old_b, next(i_old_segs) if old_b != '-' else -1),
                    (new_b, next(i_new_segs) if new_b != '-' else -1))
-                  for old_b, new_b in zip(old_align_vals, new_align_vals)]
+                  for old_b, new_b in zip(
+                          old_align_vals, new_align_vals)]
     reg_align_vals = [
         ((old_b, old_pos, old_pos in old_reg_segs),
          (new_b, new_pos, new_pos in new_reg_segs))
@@ -414,11 +421,11 @@ def get_read_correction_data(
         'Read':r.StrVector([read_id for _ in range(len(new_bases))])})
 
     sig_dat = r.DataFrame({
-        'Signal':r.FloatVector(raw_reg_signal),
+        'Signal':r.FloatVector(norm_reg_signal),
         'Position':r.FloatVector(range(
             reg_start, reg_start + reg_width)),
         'Read':r.StrVector([
-            read_id for _ in range(len(raw_reg_signal))])})
+            read_id for _ in range(len(norm_reg_signal))])})
 
     return old_dat, new_dat, sig_dat
 
