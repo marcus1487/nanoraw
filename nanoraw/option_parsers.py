@@ -200,8 +200,8 @@ def get_resquiggle_parser():
     filt_args.add_argument(cpt_opt[0], **cpt_opt[1])
 
     norm_args = parser.add_argument_group('Read Normalization Arguments')
-    filt_args.add_argument(normtype_opt[0], **normtype_opt[1])
-    filt_args.add_argument(otlthresh_opt[0], **otlthresh_opt[1])
+    norm_args.add_argument(normtype_opt[0], **normtype_opt[1])
+    norm_args.add_argument(otlthresh_opt[0], **otlthresh_opt[1])
 
     io_args = parser.add_argument_group('Input/Output Arguments')
     io_args.add_argument(pat_opt[0], **pat_opt[1])
