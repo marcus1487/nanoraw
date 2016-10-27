@@ -7,7 +7,7 @@ from collections import defaultdict, namedtuple
 
 readData = namedtuple('readData', (
     'start', 'end', 'segs', 'read_start_rel_to_raw',
-    'strand', 'means', 'fn', 'corr_group'))
+    'strand', 'means', 'stdevs', 'fn', 'corr_group'))
 channelInfo = namedtuple(
     'channelInfo',
     ('offset', 'range', 'digitisation', 'number', 'sampling_rate'))
@@ -29,7 +29,7 @@ def rev_comp(seq):
 
 
 def parse_fast5s(files, corrected_group, basecall_subgroups,
-                 get_means=False):
+                 get_means=False, get_stdevs=False):
     raw_read_coverage = defaultdict(list)
     for read_fn, basecall_subgroup in [
             (fn, bc_grp)for fn in files
@@ -40,28 +40,27 @@ def parse_fast5s(files, corrected_group, basecall_subgroups,
             # probably truncated file
             continue
 
-        if 'Analyses/' + corrected_group + '/' + basecall_subgroup \
-           not in read_data:
+        corr_slot = '/'.join((
+            '/Analyses', corrected_group, basecall_subgroup))
+        if corr_slot not in read_data:
             continue
-        corr_data = read_data[
-            'Analyses/' + corrected_group + '/' + basecall_subgroup]
+        corr_data = read_data[corr_slot]
 
-        align_data = corr_data['Alignment'].attrs
-        events_end = corr_data['Events']['start'][-1] + \
-                     corr_data['Events']['length'][-1]
-        segs = np.concatenate([corr_data['Events']['start'],
-                               [events_end,]])
+        align_data = dict(corr_data['Alignment'].attrs.items())
         read_start_rel_to_raw = corr_data['Events'].attrs[
             'read_start_rel_to_raw']
-        base_means = (corr_data['Events']['norm_mean']
-                      if get_means else None)
+        event_data = corr_data['Events'].value
+        events_end = event_data[-1]['start'] + event_data[-1]['length']
+        segs = np.concatenate([event_data['start'], [events_end,]])
+        base_means = event_data['norm_mean'] if get_means else None
+        base_stdevs = event_data['norm_stdev'] if get_stdevs else None
         raw_read_coverage[align_data['mapped_chrom']].append(
             readData(
                 align_data['mapped_start'],
                 align_data['mapped_start'] + len(segs) - 1,
                 segs, read_start_rel_to_raw,
-                align_data['mapped_strand'], base_means, read_fn,
-                corrected_group + '/' + basecall_subgroup))
+                align_data['mapped_strand'], base_means, base_stdevs,
+                read_fn, corrected_group + '/' + basecall_subgroup))
 
         read_data.close()
 
