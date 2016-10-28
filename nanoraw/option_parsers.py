@@ -134,7 +134,7 @@ regtype_opt=('--region-type', {
 
 # genome location plotting opts
 gnmloc_opt=('--genome-locations', {
-    'required':True, 'nargs':'*',
+    'required':True, 'nargs':'+',
     'help':'Plot genomic locations instead of regions selected ' +
     'by criterion (default is max coverage regions). Format ' +
     'locations as "chrm:position [chrm2:position2 ...]"'})
@@ -163,6 +163,12 @@ ovplttype_opt=('--overplot-type', {
     'choices':['Downsample', 'Boxplot', 'Quantile', 'Violin'],
     'help':'Plot type for regions with higher coverage. ' +
     'Choices: Downsample (default), Boxplot , Quantile, Violin'})
+
+# significance test type option
+testtype_opt=('--test-type', {
+    'default':'ttest', 'choices':['ttest', 'mw_utest'],
+    'help':'Type of significance test to apply. Choices are: ' +
+    'ttest (default), mw_utest (mann-whitney u-test).'})
 
 # write wiggle opts
 wigfn_opt=('--wiggle-filename', {
@@ -375,6 +381,9 @@ def get_signif_diff_parser():
     ovplt_args = parser.add_argument_group('Overplotting Arguments')
     ovplt_args.add_argument(ovpltthresh_opt[0], **ovpltthresh_opt[1])
     ovplt_args.add_argument(ovplttype_opt[0], **ovplttype_opt[1])
+
+    testt_args = parser.add_argument_group('Significance Test Argument')
+    testt_args.add_argument(testtype_opt[0], **testtype_opt[1])
 
     misc_args = parser.add_argument_group('Miscellaneous Arguments')
     misc_args.add_argument(numreg_opt[0], **numreg_opt[1])

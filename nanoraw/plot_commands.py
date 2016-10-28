@@ -881,15 +881,17 @@ def plot_single_sample(
         (sum(r_data.strand == '+' for r_data in reg_data[3]),
          sum(r_data.strand == '-' for r_data in reg_data[3]))
         for reg_data in all_reg_data]
-    plot_types = [
-        'Signal' if (max(covs) <= overplot_thresh or
-                     min(covs) < QUANT_MIN)
-        else overplot_type for covs in strand_cov]
-    dnspl_stars = [
-        ['*' if grp_r_ovr_cov > overplot_thresh and
-         p_type == 'Downsample' else ''
-         for grp_r_ovr_cov in r_cov] for r_cov, p_type in zip(
-                 strand_cov, plot_types)]
+    if overplot_type == "Downsample":
+        plot_types = ["Downsample" for covs in strand_cov]
+        dnspl_stars = [
+            ['*' if grp_r_ovr_cov > overplot_thresh else ''
+             for grp_r_ovr_cov in r_cov] for r_cov in strand_cov]
+    else:
+        plot_types = [
+            'Signal' if (max(covs) < overplot_thresh or
+                         min(covs) < QUANT_MIN)
+            else overplot_type for covs in strand_cov]
+        dnspl_stars = [['' for _ in r_cov] for r_cov in strand_cov]
     Titles = r.DataFrame({
         'Title':r.StrVector([
             chrm + " ::: Coverage: " +
@@ -966,15 +968,18 @@ def plot_two_samples(
          sum(r_data.strand == '+' for r_data in reg_data2[3]),
          sum(r_data.strand == '-' for r_data in reg_data2[3]))
         for reg_data1, reg_data2 in zip(all_reg_data1, all_reg_data2)]
-    plot_types = [
-        'Signal' if (max(covs) < overplot_thresh or
-                     min(covs) < QUANT_MIN)
-        else overplot_type for covs in strand_cov]
-    dnspl_stars = [
-        ['*' if grp_r_ovr_cov > overplot_thresh and
-         p_type == 'Downsample' else ''
-         for grp_r_ovr_cov in r_cov] for r_cov, p_type in zip(
-                 strand_cov, plot_types)]
+    # downsample can be plotted with any number of reads on either strand
+    if overplot_type == "Downsample":
+        plot_types = ["Downsample" for covs in strand_cov]
+        dnspl_stars = [
+            ['*' if grp_r_ovr_cov > overplot_thresh else ''
+             for grp_r_ovr_cov in r_cov] for r_cov in strand_cov]
+    else:
+        plot_types = [
+            'Signal' if (max(covs) < overplot_thresh or
+                         min(covs) < QUANT_MIN)
+            else overplot_type for covs in strand_cov]
+        dnspl_stars = [['' for _ in r_cov] for r_cov in strand_cov]
     Titles = r.DataFrame({
         'Title':r.StrVector([
             chrm + " ::: Group1 Coverage (Blue): " +
@@ -1276,9 +1281,30 @@ def plot_max_diff(
 
     return
 
+def mann_whitney_u_test(samp1, samp2):
+    s1_len = samp1.shape[0]
+    s2_len = samp2.shape[0]
+    tot_len = s1_len + s2_len
+
+    all_vals = np.concatenate([samp1, samp2])
+    ranks = np.empty(tot_len, int)
+    ranks[all_vals.argsort()] = np.arange(tot_len)
+    s1_ranks_sum = ranks[:s1_len].sum()
+    s2_ranks_sum = ranks[s1_len:].sum()
+
+    u1 = s1_ranks_sum - (s1_len * (s1_len + 1)) / 2
+    u2 = s2_ranks_sum - (s2_len * (s2_len + 1)) / 2
+
+    mu = s1_len * s2_len / 2
+    rhou = np.sqrt(s1_len * s2_len * (s1_len + s2_len + 1) / 12)
+
+    z = min(np.abs(u1 - mu), np.abs(u2 - mu)) / rhou
+
+    return z
+
 def plot_most_signif(
         files1, files2, num_regions, corrected_group, basecall_subgroups,
-        overplot_thresh, pdf_fn, num_bases, overplot_type):
+        overplot_thresh, pdf_fn, num_bases, overplot_type, test_type):
     if VERBOSE: sys.stderr.write('Parsing files.\n')
     raw_read_coverage1 = parse_fast5s(
         files1, corrected_group, basecall_subgroups, True)
@@ -1301,15 +1327,31 @@ def plot_most_signif(
     most_signif_indices = []
     for chrm_strand in set(base_events1).intersection(base_events2):
         chrm, strand = chrm_strand
-        chrm_pvals = [
-            (ttest_ind(base_events1[chrm_strand][pos],
-                       base_events2[chrm_strand][pos])[1], pos)
-            for pos in set(base_events1[chrm_strand]).intersection(
+        if test_type == 'ttest':
+            chrm_pvals = [
+                (ttest_ind(base_events1[chrm_strand][pos],
+                           base_events2[chrm_strand][pos])[1], pos)
+                for pos in set(base_events1[chrm_strand]).intersection(
                 base_events2[chrm_strand])
-            if base_events1[chrm_strand][pos].shape[0] >=
-            MIN_TEST_VALS and
-            base_events2[chrm_strand][pos].shape[0] >=
-            MIN_TEST_VALS]
+                if min(base_events1[chrm_strand][pos].shape[0],
+                       base_events2[chrm_strand][pos].shape[0])
+                >= MIN_TEST_VALS]
+        elif test_type == 'mw_utest':
+            # not actually p-values (positive z-values) so multiply by
+            # -1 to maintain sort order
+            chrm_pvals = [
+                (-1 * mann_whitney_u_test(
+                    base_events1[chrm_strand][pos],
+                    base_events2[chrm_strand][pos]), pos)
+                for pos in set(base_events1[chrm_strand]).intersection(
+                        base_events2[chrm_strand])
+                if min(base_events1[chrm_strand][pos].shape[0],
+                       base_events2[chrm_strand][pos].shape[0])
+                >= MIN_TEST_VALS]
+        else:
+            raise RuntimeError, ('Invalid significance test type ' +
+                                 'provided: ' + str(test_type))
+
         if len(chrm_pvals) == 0: continue
         most_signif_indices.extend((
             stat, max(pos - int(num_bases / 2.0), 0),
@@ -1448,7 +1490,8 @@ def signif_diff_main(args):
     plot_most_signif(
         files1, files2, args.num_regions, args.corrected_group,
         args.basecall_subgroups, args.overplot_threshold,
-        args.pdf_filename, args.num_bases, args.overplot_type)
+        args.pdf_filename, args.num_bases, args.overplot_type,
+        args.test_type)
 
     return
 
