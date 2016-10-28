@@ -170,6 +170,15 @@ testtype_opt=('--test-type', {
     'help':'Type of significance test to apply. Choices are: ' +
     'ttest (default), mw_utest (mann-whitney u-test).'})
 
+# filter reads plotted
+obsfilt_opt=('--obs-per-base-filter', {
+    'nargs':'+', 'default':[],
+    'help':'Filter reads for plotting baseed on threshold of ' +
+    'percentiles of the number of observations assigned to a ' +
+    'base (default no filter). Format thresholds as ' +
+    '"percentile:thresh [pctl2:thresh2 ...]" E.g. reads with 99th ' +
+    'pctl <200 obs and max <5k obs would be "99:200 100:5000".'})
+
 # write wiggle opts
 wigfn_opt=('--wiggle-filename', {
     'default':'Nanopore_read_coverage.wig',
@@ -253,6 +262,9 @@ def get_max_cov_parser():
     ovplt_args.add_argument(ovpltthresh_opt[0], **ovpltthresh_opt[1])
     ovplt_args.add_argument(ovplttype_opt[0], **ovplttype_opt[1])
 
+    filter_args = parser.add_argument_group('Read Filtering Arguments')
+    filter_args.add_argument(obsfilt_opt[0], **obsfilt_opt[1])
+
     misc_args = parser.add_argument_group('Miscellaneous Arguments')
     misc_args.add_argument(numreg_opt[0], **numreg_opt[1])
     misc_args.add_argument(numbases_opt[0], **numbases_opt[1])
@@ -284,6 +296,9 @@ def get_genome_loc_parser():
     ovplt_args = parser.add_argument_group('Overplotting Arguments')
     ovplt_args.add_argument(ovpltthresh_opt[0], **ovpltthresh_opt[1])
     ovplt_args.add_argument(ovplttype_opt[0], **ovplttype_opt[1])
+
+    filter_args = parser.add_argument_group('Read Filtering Arguments')
+    filter_args.add_argument(obsfilt_opt[0], **obsfilt_opt[1])
 
     misc_args = parser.add_argument_group('Miscellaneous Arguments')
     misc_args.add_argument(
@@ -319,6 +334,9 @@ def get_kmer_loc_parser():
     ovplt_args.add_argument(ovpltthresh_opt[0], **ovpltthresh_opt[1])
     ovplt_args.add_argument(ovplttype_opt[0], **ovplttype_opt[1])
 
+    filter_args = parser.add_argument_group('Read Filtering Arguments')
+    filter_args.add_argument(obsfilt_opt[0], **obsfilt_opt[1])
+
     misc_args = parser.add_argument_group('Miscellaneous Arguments')
     misc_args.add_argument(deepcov_opt[0], **deepcov_opt[1])
     misc_args.add_argument(numreg_opt[0], **numreg_opt[1])
@@ -351,6 +369,9 @@ def get_max_diff_parser():
     ovplt_args.add_argument(ovpltthresh_opt[0], **ovpltthresh_opt[1])
     ovplt_args.add_argument(ovplttype_opt[0], **ovplttype_opt[1])
 
+    filter_args = parser.add_argument_group('Read Filtering Arguments')
+    filter_args.add_argument(obsfilt_opt[0], **obsfilt_opt[1])
+
     misc_args = parser.add_argument_group('Miscellaneous Arguments')
     misc_args.add_argument(numreg_opt[0], **numreg_opt[1])
     misc_args.add_argument(numbases_opt[0], **numbases_opt[1])
@@ -381,6 +402,9 @@ def get_signif_diff_parser():
     ovplt_args = parser.add_argument_group('Overplotting Arguments')
     ovplt_args.add_argument(ovpltthresh_opt[0], **ovpltthresh_opt[1])
     ovplt_args.add_argument(ovplttype_opt[0], **ovplttype_opt[1])
+
+    filter_args = parser.add_argument_group('Read Filtering Arguments')
+    filter_args.add_argument(obsfilt_opt[0], **obsfilt_opt[1])
 
     testt_args = parser.add_argument_group('Significance Test Argument')
     testt_args.add_argument(testtype_opt[0], **testtype_opt[1])

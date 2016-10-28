@@ -1024,12 +1024,36 @@ def plot_two_samples(
 #### Plot processing methods ####
 #################################
 
+def filter_reads(raw_read_coverage, obs_filter):
+    if obs_filter is None:
+        return raw_read_coverage
+
+    num_reads = len([_ for chrm_reads in raw_read_coverage.values()
+                     for _ in chrm_reads])
+    filt_raw_read_cov = {}
+    for chrm, chrm_reads in raw_read_coverage.items():
+        filt_raw_read_cov[chrm] = [
+            r_data for r_data in chrm_reads if not any(
+                np.percentile(np.diff(r_data.segs), pctl) > thresh
+                for pctl, thresh in obs_filter)]
+    num_filt_reads = len([
+        _ for chrm_reads in raw_read_coverage.values()
+        for _ in chrm_reads])
+    if num_filt_reads < num_reads:
+        sys.stderr.write(
+            'Filtered ' + str(num_reads - num_filt_reads) +
+            ' reads due to observations per read filter from a ' +
+            'total of ' + str(num_reads) + ' reads.\n')
+
+    return filt_raw_read_cov
+
 def plot_max_coverage(
         files, files2, num_regions, corrected_group, basecall_subgroups,
-        overplot_thresh, pdf_fn, num_bases, overplot_type):
+        overplot_thresh, pdf_fn, num_bases, overplot_type, obs_filter):
     if VERBOSE: sys.stderr.write('Parsing files.\n')
     raw_read_coverage = parse_fast5s(
         files, corrected_group, basecall_subgroups)
+    raw_read_coverage = filter_reads(raw_read_coverage, obs_filter)
     read_coverage = get_coverage(raw_read_coverage)
 
     if files2 is None:
@@ -1054,6 +1078,8 @@ def plot_max_coverage(
     else:
         raw_read_coverage2 = parse_fast5s(
             files2, corrected_group, basecall_subgroups)
+        raw_read_coverage2 = filter_reads(
+            raw_read_coverage2, obs_filter)
         read_coverage2 = get_coverage(raw_read_coverage2)
         coverage_regions = []
         # only process chromosomes in both read groups
@@ -1095,7 +1121,7 @@ def plot_max_coverage(
 def plot_genome_locations(
         files, files2, corrected_group, basecall_subgroups,
         overplot_thresh, pdf_fn, num_bases, overplot_type,
-        genome_locations):
+        genome_locations, obs_filter):
     if VERBOSE: sys.stderr.write('Parsing genome locations.\n')
     genome_locations = [chrm_pos.split(':')
                         for chrm_pos in genome_locations]
@@ -1109,10 +1135,12 @@ def plot_genome_locations(
     if VERBOSE: sys.stderr.write('Parsing files.\n')
     raw_read_coverage = parse_fast5s(
         files, corrected_group, basecall_subgroups)
+    raw_read_coverage = filter_reads(raw_read_coverage, obs_filter)
 
     if files2 is not None:
         raw_read_coverage2 = parse_fast5s(
             files2, corrected_group, basecall_subgroups)
+        raw_read_coverage2 = filter_reads(raw_read_coverage2, obs_filter)
         plot_two_samples(
             plot_intervals, raw_read_coverage, raw_read_coverage2,
             num_bases, overplot_thresh, overplot_type, corrected_group,
@@ -1127,7 +1155,7 @@ def plot_genome_locations(
 def plot_kmer_centered(
         files, files2, num_regions, corrected_group, basecall_subgroups,
         overplot_thresh, pdf_fn, num_bases, overplot_type, kmer,
-        fasta_fn, deepest_coverage):
+        fasta_fn, deepest_coverage, obs_filter):
     if VERBOSE: sys.stderr.write(
             'Identifying genomic k-mer locations.\n')
     with open(fasta_fn) as fasta_fp:
@@ -1151,11 +1179,14 @@ def plot_kmer_centered(
     if VERBOSE: sys.stderr.write('Parsing files.\n')
     raw_read_coverage = parse_fast5s(
         files, corrected_group, basecall_subgroups)
+    raw_read_coverage = filter_reads(raw_read_coverage, obs_filter) 
     if deepest_coverage:
         read_coverage = get_coverage(raw_read_coverage)
     if files2 is not None:
         raw_read_coverage2 = parse_fast5s(
             files2, corrected_group, basecall_subgroups)
+        raw_read_coverage2 = filter_reads(
+            raw_read_coverage2, obs_filter)
         if deepest_coverage:
             read_coverage2 = get_coverage(raw_read_coverage2)
         if deepest_coverage:
@@ -1237,12 +1268,14 @@ def plot_kmer_centered(
 
 def plot_max_diff(
         files1, files2, num_regions, corrected_group, basecall_subgroups,
-        overplot_thresh, pdf_fn, num_bases, overplot_type):
+        overplot_thresh, pdf_fn, num_bases, overplot_type, obs_filter):
     if VERBOSE: sys.stderr.write('Parsing files.\n')
     raw_read_coverage1 = parse_fast5s(
         files1, corrected_group, basecall_subgroups, True)
+    raw_read_coverage1 = filter_reads(raw_read_coverage1, obs_filter)
     raw_read_coverage2 = parse_fast5s(
         files2, corrected_group, basecall_subgroups, True)
+    raw_read_coverage2 = filter_reads(raw_read_coverage2, obs_filter)
 
     chrm_sizes = dict((chrm, max(
         [r_data.end for r_data in raw_read_coverage1[chrm]] +
@@ -1304,12 +1337,15 @@ def mann_whitney_u_test(samp1, samp2):
 
 def plot_most_signif(
         files1, files2, num_regions, corrected_group, basecall_subgroups,
-        overplot_thresh, pdf_fn, num_bases, overplot_type, test_type):
+        overplot_thresh, pdf_fn, num_bases, overplot_type, test_type,
+        obs_filter):
     if VERBOSE: sys.stderr.write('Parsing files.\n')
     raw_read_coverage1 = parse_fast5s(
         files1, corrected_group, basecall_subgroups, True)
+    raw_read_coverage1 = filter_reads(raw_read_coverage1, obs_filter)
     raw_read_coverage2 = parse_fast5s(
         files2, corrected_group, basecall_subgroups, True)
+    raw_read_coverage2 = filter_reads(raw_read_coverage2, obs_filter)
 
     chrm_sizes = dict((chrm, max(
         [r_data.end for r_data in raw_read_coverage1[chrm]] +
@@ -1423,6 +1459,21 @@ def get_files_lists(basedirs1, basedirs2):
 
     return files1, files2
 
+def parse_obs_filter(obs_filter):
+    if obs_filter is None:
+        return None
+
+    # parse obs_filter
+    try:
+        obs_filter = [
+            (float(pctl_nobs.split(':')[0]),
+             int(pctl_nobs.split(':')[1]))
+            for pctl_nobs in obs_filter]
+    except:
+        raise RuntimeError, 'Invalid format for observation filter'
+
+    return obs_filter
+
 def max_cov_main(args):
     global VERBOSE
     VERBOSE = not args.quiet
@@ -1433,7 +1484,8 @@ def max_cov_main(args):
     plot_max_coverage(
         files1, files2, args.num_regions, args.corrected_group,
         args.basecall_subgroups, args.overplot_threshold,
-        args.pdf_filename, args.num_bases, args.overplot_type)
+        args.pdf_filename, args.num_bases, args.overplot_type,
+        parse_obs_filter(args.obs_per_base_filter))
 
     return
 
@@ -1447,7 +1499,8 @@ def genome_loc_main(args):
     plot_genome_locations(
         files1, files2, args.corrected_group, args.basecall_subgroups,
         args.overplot_threshold, args.pdf_filename,
-        args.num_bases, args.overplot_type, args.genome_locations)
+        args.num_bases, args.overplot_type, args.genome_locations,
+        parse_obs_filter(args.obs_per_base_filter))
 
     return
 
@@ -1462,7 +1515,8 @@ def kmer_loc_main(args):
         files1, files2, args.num_regions, args.corrected_group,
         args.basecall_subgroups, args.overplot_threshold,
         args.pdf_filename, args.num_bases, args.overplot_type,
-        args.kmer, args.genome_fasta, args.deepest_coverage)
+        args.kmer, args.genome_fasta, args.deepest_coverage,
+        parse_obs_filter(args.obs_per_base_filter))
 
     return
 
@@ -1476,7 +1530,8 @@ def max_diff_main(args):
     plot_max_diff(
         files1, files2, args.num_regions, args.corrected_group,
         args.basecall_subgroups, args.overplot_threshold,
-        args.pdf_filename, args.num_bases, args.overplot_type)
+        args.pdf_filename, args.num_bases, args.overplot_type,
+        parse_obs_filter(args.obs_per_base_filter))
 
     return
 
@@ -1491,7 +1546,7 @@ def signif_diff_main(args):
         files1, files2, args.num_regions, args.corrected_group,
         args.basecall_subgroups, args.overplot_threshold,
         args.pdf_filename, args.num_bases, args.overplot_type,
-        args.test_type)
+        args.test_type, parse_obs_filter(args.obs_per_base_filter))
 
     return
 
