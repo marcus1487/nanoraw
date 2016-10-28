@@ -1032,10 +1032,12 @@ def filter_reads(raw_read_coverage, obs_filter):
                      for _ in chrm_reads])
     filt_raw_read_cov = {}
     for chrm, chrm_reads in raw_read_coverage.items():
-        filt_raw_read_cov[chrm] = [
+        chrm_filt_reads = [
             r_data for r_data in chrm_reads if not any(
                 np.percentile(np.diff(r_data.segs), pctl) > thresh
                 for pctl, thresh in obs_filter)]
+        if len(chrm_filt_reads) > 0:
+            filt_raw_read_cov[chrm] = chrm_filt_reads
     num_filt_reads = len([
         _ for chrm_reads in raw_read_coverage.values()
         for _ in chrm_reads])
