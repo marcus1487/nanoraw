@@ -118,7 +118,7 @@ def write_new_fast5_group(
 
 def get_indel_groups(
         align_dat, align_segs, raw_signal, min_seg_len, timeout,
-        num_cpts_limit):
+        num_cpts_limit, use_r_cpts):
     def get_deletion_stats():
         read_seq = ''.join(zip(*align_dat['aligned'])[0])
         del_stats = []
@@ -202,20 +202,18 @@ def get_indel_groups(
                 method="BinSeg", Q=num_cpts, penalty="None",
             minseglen=min_seg_len).do_slot('cpts')
         return [int(x) for x in cpts[:-1]]
-    get_cpts = get_cpts_R if USE_R_CPTS else get_cpts_alt
+    get_cpts = get_cpts_R if use_r_cpts else get_cpts_alt
     def extend_for_cpts(group_start, group_stop, num_cpts, indel_group):
         cpts = get_cpts(group_start, group_stop, num_cpts)
         # There is a bug in the changepoint package that allows a zero
         # width first segment. If one is present extend the region and
         # find cpts again
-        # from rpy2 version
-        #while cpts[0] == 0:
-        while cpts is None:
+        while cpts is None or cpts[0] == 0:
             num_cpts += int(group_start > 0) + int(
                 group_stop < len(align_segs) - 1)
             group_start = max(0, group_start - 1)
             group_stop = min(len(align_segs) - 1, group_stop + 1)
-            if (len(indel_groups) > 0) and (
+            while (len(indel_groups) > 0) and (
                     group_start <= indel_groups[-1].end):
                 indel_group = indel_groups[-1].indels + indel_group
                 del indel_groups[-1]
@@ -521,7 +519,7 @@ def correct_raw_data_read(
     # group indels that are adjacent for re-segmentation
     indel_groups = get_indel_groups(
         align_dat, starts_rel_to_read, norm_signal, min_event_obs,
-        timeout, num_cpts_limit)
+        timeout, num_cpts_limit, USE_R_CPTS)
 
     new_segs = []
     prev_stop = 0
