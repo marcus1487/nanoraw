@@ -22,6 +22,9 @@ QUANT_MIN = 3
 
 MIN_TEST_VALS = 2
 
+# plotting names for strands
+FWD_STRAND = 'Forward Strand'
+REV_STRAND = 'Reverse Strand'
 
 
 ###################################
@@ -488,7 +491,8 @@ def get_event_data(
                     pos + interval_start, base_read_means.shape[0]))
                 Signal.extend(base_read_means)
                 Strand.extend(repeat(
-                    strand, base_read_means.shape[0]))
+                    FWD_STRAND if strand == '+' else REV_STRAND,
+                    base_read_means.shape[0]))
                 Region.extend(repeat(
                     region_i, base_read_means.shape[0]))
 
@@ -530,7 +534,8 @@ def get_boxplot_data(
                 SigMed.append(np.percentile(base_read_means, 50))
                 Sig75.append(np.percentile(base_read_means, 75))
                 SigMax.append(np.percentile(base_read_means, 100))
-                Strand.append(strand)
+                Strand.append(
+                    FWD_STRAND if strand == '+' else REV_STRAND)
                 Region.append(region_i)
 
     return r.DataFrame({
@@ -577,7 +582,9 @@ def get_quant_data(
                 Upper.extend(np.percentile(
                     base_read_means, upper_pcntls,
                     interpolation='nearest'))
-                Strand.extend(list(repeat(strand, len(pcntls))))
+                Strand.extend(
+                    list(repeat(FWD_STRAND if strand == '+' else
+                                REV_STRAND, len(pcntls))))
                 Region.extend(list(repeat(region_i, len(pcntls))))
 
     return r.DataFrame({
@@ -652,7 +659,9 @@ def get_signal_data(
                 Signal.extend(r_sig[start:stop])
                 Read.extend(list(repeat(
                     str(r_num) + '_' + group_num, stop - start)))
-                Strand.extend(list(repeat(r_strand, stop - start)))
+                Strand.extend(list(repeat(
+                    FWD_STRAND if r_strand == '+' else
+                    REV_STRAND, stop - start)))
                 Region.extend(list(repeat(region_i, stop - start)))
 
     return r.DataFrame({
@@ -1062,7 +1071,7 @@ def plot_max_coverage(
                 zip(*chrm_coverage_regions)[0],
                 np.cumsum(np.insert(
                     zip(*chrm_coverage_regions)[1], 0, 0)),
-                repeat(chrom), repeat(None)))
+                repeat(chrom), repeat('')))
 
             plot_intervals = zip(
                 ['{:03d}'.format(rn) for rn in range(num_regions)],
