@@ -673,6 +673,7 @@ def get_plot_types_data(plot_args, quant_offset=0):
 
 def get_reg_seq(all_reg_data, corrected_group, num_bases):
     BaseStart, Bases, BaseRegion = [], [], []
+    reg_seqs = []
     for region_i, interval_start, chrom, reg_reads in all_reg_data:
         # try to find first read to overlap whole region
         try:
@@ -713,6 +714,9 @@ def get_reg_seq(all_reg_data, corrected_group, num_bases):
                     end_overlap = read_data.end - interval_start
                     reg_base_data[:end_overlap] = seq[-end_overlap:]
 
+        # save sequence if they should be saved to a file
+        reg_seqs.append((region_i, reg_base_data))
+
         for i, base in enumerate(reg_base_data):
             BaseStart.append(str(i + interval_start))
             Bases.append(base)
@@ -721,7 +725,7 @@ def get_reg_seq(all_reg_data, corrected_group, num_bases):
     return r.DataFrame({
         'Position':r.FloatVector(BaseStart),
         'Base':r.StrVector(Bases),
-        'Region':r.StrVector(BaseRegion)})
+        'Region':r.StrVector(BaseRegion)}), reg_seqs
 
 def get_coverage(raw_read_coverage):
     if VERBOSE: sys.stderr.write('Calculating read coverage.\n')
@@ -739,7 +743,7 @@ def get_region_reads(
         plot_intervals, raw_read_coverage, num_bases,
         filter_no_cov=True):
     all_reg_data = []
-    for region_i, (chrm, interval_start, strand) in plot_intervals:
+    for region_i, (chrm, interval_start, strand, stat) in plot_intervals:
         # get all reads that overlap this interval
         # note that this includes partial overlaps as these contribute
         # to coverage and other statistics so can't really restrict to
@@ -895,15 +899,16 @@ def plot_single_sample(
         dnspl_stars = [['' for _ in r_cov] for r_cov in strand_cov]
     Titles = r.DataFrame({
         'Title':r.StrVector([
-            chrm + " ::: Coverage: " +
-            str(r_cov[0]) + r_ovp[0] + " + " +
+            chrm + ":" + strand + ' ' + stat +
+            " ::: Coverage: " + str(r_cov[0]) + r_ovp[0] + " + " +
             str(r_cov[1]) + r_ovp[1] + " -"
-            for chrm, r_cov, r_ovp in zip(
-                    zip(*zip(*plot_intervals)[1])[0], strand_cov,
+            for (chrm, i_start, strand, stat), r_cov, r_ovp in zip(
+                    zip(*plot_intervals)[1], strand_cov,
                     dnspl_stars)]),
         'Region':r.StrVector(zip(*plot_intervals)[0])})
 
-    BasesData = get_reg_seq(all_reg_data, corrected_group, num_bases)
+    BasesData, reg_seqs = get_reg_seq(
+        all_reg_data, corrected_group, num_bases)
     SignalData, QuantData, BoxData, EventData = get_plot_types_data(
         (all_reg_data, plot_types, num_bases, corrected_group,
          overplot_thresh, 'Group1'))
@@ -946,7 +951,7 @@ def filter_group_regs(plot_intervals, grps_reg_data, grps_no_cov):
 def plot_two_samples(
         plot_intervals, raw_read_coverage1, raw_read_coverage2,
         num_bases, overplot_thresh, overplot_type, corrected_group,
-        pdf_fn):
+        pdf_fn, seqs_fn=None):
     if VERBOSE: sys.stderr.write('Preparing plot data.\n')
     # get reads overlapping each region
     all_reg_data1, no_cov_regs1 = get_region_reads(
@@ -983,13 +988,14 @@ def plot_two_samples(
         dnspl_stars = [['' for _ in r_cov] for r_cov in strand_cov]
     Titles = r.DataFrame({
         'Title':r.StrVector([
-            chrm + " ::: Group1 Coverage (Blue): " +
+            chrm + ":" + strand + ' ' + stat +
+            " ::: Coverage: Group1 (Blue): " +
             str(r_cov[0]) + r_dnspl[0] + " + " +
-            str(r_cov[1]) + r_dnspl[1] + " -; Group2 Coverage (Red): " +
+            str(r_cov[1]) + r_dnspl[1] + " -; Group2 (Red): " +
             str(r_cov[2]) + r_dnspl[2] + " + " +
             str(r_cov[3]) + r_dnspl[3] + " -"
-            for chrm, r_cov, r_dnspl in zip(
-                    zip(*zip(*plot_intervals)[1])[0], strand_cov,
+            for (chrm, i_start, strand, stat), r_cov, r_dnspl in zip(
+                    zip(*plot_intervals)[1], strand_cov,
                     dnspl_stars)]),
         'Region':r.StrVector(zip(*plot_intervals)[0])})
 
@@ -998,7 +1004,8 @@ def plot_two_samples(
         (reg_id, start, chrm, reg_data1 + reg_data2)
         for (reg_id, start, chrm, reg_data1),
         (_, _, _, reg_data2) in  zip(all_reg_data1, all_reg_data2)]
-    BasesData = get_reg_seq(merged_reg_data, corrected_group, num_bases)
+    BasesData, reg_seqs = get_reg_seq(
+        merged_reg_data, corrected_group, num_bases)
 
     # get plotting data for either quantiles of raw signal
     SignalData1, QuantData1, BoxData1, EventData1 = get_plot_types_data(
@@ -1016,6 +1023,18 @@ def plot_two_samples(
                   r.DataFrame.rbind(EventData1, EventData2),
                   BasesData, Titles, 0.4)
     r.r('dev.off()')
+
+    if seqs_fn is not None:
+        if VERBOSE: sys.stderr.write('Outputting region seqeuences.\n')
+        with open(seqs_fn, 'w') as seqs_fp:
+            for reg_i, reg_seq in reg_seqs:
+                chrm, start, strand, stat = next(
+                    p_int for p_reg_i, p_int in plot_intervals
+                    if p_reg_i == reg_i)
+                if strand == '-':
+                    reg_seq = rev_comp(reg_seq)
+                seqs_fp.write('>{0}::{1:d}::{2} {3}\n{4}\n'.format(
+                    chrm, start, strand, stat, ''.join(reg_seq)))
 
     return
 
@@ -1047,7 +1066,8 @@ def plot_max_coverage(
 
             plot_intervals = zip(
                 ['{:03d}'.format(rn) for rn in range(num_regions)],
-                [(chrm, start, strand) for stat, start, chrm, strand in
+                [(chrm, start, strand, '')
+                 for stat, start, chrm, strand in
                  sorted(coverage_regions, reverse=True)[:num_regions]])
 
         plot_single_sample(
@@ -1086,7 +1106,8 @@ def plot_max_coverage(
 
             plot_intervals = zip(
                 ['{:03d}'.format(rn) for rn in range(num_regions)],
-                [(chrm, start, strand) for stat, start, chrm, strand in
+                [(chrm, start, strand, '')
+                 for stat, start, chrm, strand in
                  sorted(coverage_regions, reverse=True)[:num_regions]])
 
         plot_two_samples(
@@ -1108,7 +1129,8 @@ def plot_genome_locations(
     plot_intervals = [
         ('{:03d}'.format(i), (
             chrm, max(0, int(int(pos) - np.floor(num_bases / 2.0) - 1)),
-            None)) for i, (chrm, pos) in enumerate(genome_locations)]
+            '', '')) for i, (chrm, pos) in enumerate(
+                genome_locations)]
 
     if VERBOSE: sys.stderr.write('Parsing files.\n')
     raw_read_coverage = parse_fast5s(
@@ -1189,7 +1211,7 @@ def plot_kmer_centered(
             plot_intervals = zip(
                 ['{:03d}'.format(rn) for rn in range(num_regions)],
                 ((chrm, max(pos - int(
-                    (num_bases - len(kmer) + 1) / 2.0), 0), None)
+                    (num_bases - len(kmer) + 1) / 2.0), 0), '', '')
                  for cov, chrm, pos in kmer_locs_cov))
         else:
             # zip over iterator of regions that have at least a
@@ -1197,7 +1219,7 @@ def plot_kmer_centered(
             plot_intervals = zip(
                 ['{:03d}'.format(rn) for rn in range(num_regions)],
                 ((chrm, max(pos - int(
-                    (num_bases - len(kmer) + 1) / 2.0), 0), None)
+                    (num_bases - len(kmer) + 1) / 2.0), 0), '', '')
                  for chrm, pos in kmer_locs
                  if (any(r_data.start < pos < r_data.end
                          for r_data in raw_read_coverage[chrm]) and
@@ -1224,7 +1246,7 @@ def plot_kmer_centered(
             plot_intervals = zip(
                 ['{:03d}'.format(rn) for rn in range(num_regions)],
                 ((chrm, max(pos - int(
-                    (num_bases - len(kmer) + 1) / 2.0), 0), None)
+                    (num_bases - len(kmer) + 1) / 2.0), 0), '', '')
                  for cov, chrm, pos in sorted(
                          kmer_locs_cov, reverse=True)))
         else:
@@ -1233,7 +1255,7 @@ def plot_kmer_centered(
             plot_intervals = zip(
                 ['{:03d}'.format(rn) for rn in range(num_regions)],
                 ((chrm, max(pos - int(
-                    (num_bases - len(kmer) + 1) / 2.0), 0), None)
+                    (num_bases - len(kmer) + 1) / 2.0), 0), '', '')
                  for chrm, pos in kmer_locs
                  if any(r_data.start < pos < r_data.end
                         for r_data in raw_read_coverage[chrm])))
@@ -1246,7 +1268,8 @@ def plot_kmer_centered(
 
 def plot_max_diff(
         files1, files2, num_regions, corrected_group, basecall_subgroups,
-        overplot_thresh, pdf_fn, num_bases, overplot_type, obs_filter):
+        overplot_thresh, pdf_fn, seqs_fn, num_bases, overplot_type,
+        obs_filter):
     if VERBOSE: sys.stderr.write('Parsing files.\n')
     raw_read_coverage1 = parse_fast5s(
         files1, corrected_group, basecall_subgroups, True)
@@ -1282,13 +1305,14 @@ def plot_max_diff(
 
     plot_intervals = zip(
         ['{:03d}'.format(rn) for rn in range(num_regions)],
-        [(chrm, start, strand) for stat, start, chrm, strand in
+        [(chrm, start, strand, '(Mean diff: {:.2f})'.format(stat))
+         for stat, start, chrm, strand in
          sorted(largest_diff_indices, reverse=True)[:num_regions]])
 
     plot_two_samples(
         plot_intervals, raw_read_coverage1, raw_read_coverage2,
         num_bases, overplot_thresh, overplot_type, corrected_group,
-        pdf_fn)
+        pdf_fn, seqs_fn)
 
     return
 
@@ -1315,7 +1339,8 @@ def mann_whitney_u_test(samp1, samp2):
 
 def plot_most_signif(
         files1, files2, num_regions, corrected_group, basecall_subgroups,
-        overplot_thresh, pdf_fn, num_bases, overplot_type, test_type,
+        overplot_thresh, pdf_fn, seqs_fn, num_bases, overplot_type,
+        test_type,
         obs_filter):
     if VERBOSE: sys.stderr.write('Parsing files.\n')
     raw_read_coverage1 = parse_fast5s(
@@ -1343,18 +1368,18 @@ def plot_most_signif(
         chrm, strand = chrm_strand
         if test_type == 'ttest':
             chrm_pvals = [
-                (ttest_ind(base_events1[chrm_strand][pos],
-                           base_events2[chrm_strand][pos])[1], pos)
+                (np.abs(ttest_ind(
+                    base_events1[chrm_strand][pos],
+                    base_events2[chrm_strand][pos])[0]), pos)
                 for pos in set(base_events1[chrm_strand]).intersection(
                 base_events2[chrm_strand])
                 if min(base_events1[chrm_strand][pos].shape[0],
                        base_events2[chrm_strand][pos].shape[0])
                 >= MIN_TEST_VALS]
         elif test_type == 'mw_utest':
-            # not actually p-values (positive z-values) so multiply by
-            # -1 to maintain sort order
+            # store z-scores from u-test
             chrm_pvals = [
-                (-1 * mann_whitney_u_test(
+                (mann_whitney_u_test(
                     base_events1[chrm_strand][pos],
                     base_events2[chrm_strand][pos]), pos)
                 for pos in set(base_events1[chrm_strand]).intersection(
@@ -1369,8 +1394,8 @@ def plot_most_signif(
         if len(chrm_pvals) == 0: continue
         most_signif_indices.extend((
             stat, max(pos - int(num_bases / 2.0), 0),
-            chrm, strand) for stat, pos in sorted(
-                chrm_pvals)[:num_regions])
+            chrm, strand, stat) for stat, pos in sorted(
+                chrm_pvals, reverse=True)[:num_regions])
 
     if len(most_signif_indices) == 0:
         sys.stderr.write(
@@ -1380,13 +1405,15 @@ def plot_most_signif(
 
     plot_intervals = zip(
         ['{:03d}'.format(rn) for rn in range(num_regions)],
-        [(chrm, start, strand) for stat, start, chrm, strand in
+        [(chrm, start, strand, '({0}: {1:.2f})'.format(
+            'T-score:' if test_type == 'ttest' else 'Z-score', stat))
+         for stat, start, chrm, strand in
          sorted(most_signif_indices)[:num_regions]])
 
     plot_two_samples(
         plot_intervals, raw_read_coverage1, raw_read_coverage2,
         num_bases, overplot_thresh, overplot_type, corrected_group,
-        pdf_fn)
+        pdf_fn, seqs_fn)
 
     return
 
@@ -1493,8 +1520,8 @@ def max_diff_main(args):
     plot_max_diff(
         files1, files2, args.num_regions, args.corrected_group,
         args.basecall_subgroups, args.overplot_threshold,
-        args.pdf_filename, args.num_bases, args.overplot_type,
-        parse_obs_filter(args.obs_per_base_filter))
+        args.pdf_filename, args.sequences_filename, args.num_bases,
+        args.overplot_type, parse_obs_filter(args.obs_per_base_filter))
 
     return
 
@@ -1508,8 +1535,9 @@ def signif_diff_main(args):
     plot_most_signif(
         files1, files2, args.num_regions, args.corrected_group,
         args.basecall_subgroups, args.overplot_threshold,
-        args.pdf_filename, args.num_bases, args.overplot_type,
-        args.test_type, parse_obs_filter(args.obs_per_base_filter))
+        args.pdf_filename, args.sequences_filename, args.num_bases,
+        args.overplot_type, args.test_type,
+        parse_obs_filter(args.obs_per_base_filter))
 
     return
 

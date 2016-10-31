@@ -188,6 +188,10 @@ wigfn_opt=('--wiggle-filename', {
 # misc opts
 pdf_opt=('--pdf-filename', {
     'help':'PDF filename to store plot(s). Default: %(default)s'})
+seqs_opt=('--sequences-filename', {
+    'help':'Filename to store sequences for selected regions (e.g. ' +
+    'for PWM search). Sequences will be stored in FASTA format. ' +
+    'Default: Do not store sequences.'})
 quiet_opt=(('--quiet', '-q'), {
     'default':False, 'action':'store_true',
     'help':"Don't print status information."})
@@ -375,6 +379,7 @@ def get_max_diff_parser():
     misc_args = parser.add_argument_group('Miscellaneous Arguments')
     misc_args.add_argument(numreg_opt[0], **numreg_opt[1])
     misc_args.add_argument(numbases_opt[0], **numbases_opt[1])
+    misc_args.add_argument(seqs_opt[0], **seqs_opt[1])
     misc_args.add_argument(
         pdf_opt[0], default='Nanopore_read_coverage.max_difference.pdf',
         **pdf_opt[1])
@@ -412,6 +417,7 @@ def get_signif_diff_parser():
     misc_args = parser.add_argument_group('Miscellaneous Arguments')
     misc_args.add_argument(numreg_opt[0], **numreg_opt[1])
     misc_args.add_argument(numbases_opt[0], **numbases_opt[1])
+    misc_args.add_argument(seqs_opt[0], **seqs_opt[1])
     misc_args.add_argument(
         pdf_opt[0],
         default='Nanopore_read_coverage.significant_difference.pdf',
