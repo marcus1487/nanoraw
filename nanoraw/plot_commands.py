@@ -11,7 +11,8 @@ from collections import defaultdict
 from itertools import repeat, groupby
 
 from nanoraw_helper import (
-    normalize_raw_signal, parse_fast5s, parse_fasta, rev_comp)
+    normalize_raw_signal, parse_fast5s, parse_fasta, rev_comp,
+    parse_obs_filter, filter_reads)
 
 VERBOSE = False
 
@@ -1024,31 +1025,6 @@ def plot_two_samples(
 #### Plot processing methods ####
 #################################
 
-def filter_reads(raw_read_coverage, obs_filter):
-    if obs_filter is None:
-        return raw_read_coverage
-
-    num_reads = len([None for chrm_reads in raw_read_coverage.values()
-                     for _ in chrm_reads])
-    filt_raw_read_cov = {}
-    for chrm, chrm_reads in raw_read_coverage.items():
-        chrm_filt_reads = [
-            r_data for r_data in chrm_reads if not any(
-                np.percentile(np.diff(r_data.segs), pctl) > thresh
-                for pctl, thresh in obs_filter)]
-        if len(chrm_filt_reads) > 0:
-            filt_raw_read_cov[chrm] = chrm_filt_reads
-    num_filt_reads = len([
-        None for chrm_reads in filt_raw_read_cov.values()
-        for _ in chrm_reads])
-    if num_filt_reads < num_reads:
-        sys.stderr.write(
-            'Filtered ' + str(num_reads - num_filt_reads) +
-            ' reads due to observations per read filter from a ' +
-            'total of ' + str(num_reads) + ' reads.\n')
-
-    return filt_raw_read_cov
-
 def plot_max_coverage(
         files, files2, num_regions, corrected_group, basecall_subgroups,
         overplot_thresh, pdf_fn, num_bases, overplot_type, obs_filter):
@@ -1460,21 +1436,6 @@ def get_files_lists(basedirs1, basedirs2):
     files2 = get_files_list(basedirs2) if basedirs2 else None
 
     return files1, files2
-
-def parse_obs_filter(obs_filter):
-    if obs_filter is None:
-        return None
-
-    # parse obs_filter
-    try:
-        obs_filter = [
-            (float(pctl_nobs.split(':')[0]),
-             int(pctl_nobs.split(':')[1]))
-            for pctl_nobs in obs_filter]
-    except:
-        raise RuntimeError, 'Invalid format for observation filter'
-
-    return obs_filter
 
 def max_cov_main(args):
     global VERBOSE

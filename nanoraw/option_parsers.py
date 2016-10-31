@@ -438,6 +438,9 @@ def get_wiggle_parser():
     bcsub_args.add_argument(bcsubgrps_opt[0], **bcsubgrps_opt[1])
     bcsub_args.add_argument(twod_opt[0], **twod_opt[1])
 
+    filter_args = parser.add_argument_group('Read Filtering Arguments')
+    filter_args.add_argument(obsfilt_opt[0], **obsfilt_opt[1])
+
     misc_args = parser.add_argument_group('Miscellaneous Arguments')
     misc_args.add_argument(*quiet_opt[0], **quiet_opt[1])
     misc_args.add_argument(*help_opt[0], **help_opt[1])

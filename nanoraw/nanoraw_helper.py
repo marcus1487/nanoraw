@@ -1,3 +1,5 @@
+import sys, os
+
 import h5py
 
 import numpy as np
@@ -26,6 +28,46 @@ def comp_base(base):
         return 'N'
 def rev_comp(seq):
     return ''.join(comp_base(b) for b in seq[::-1])
+
+def parse_obs_filter(obs_filter):
+    if obs_filter is None:
+        return None
+
+    # parse obs_filter
+    try:
+        obs_filter = [
+            (float(pctl_nobs.split(':')[0]),
+             int(pctl_nobs.split(':')[1]))
+            for pctl_nobs in obs_filter]
+    except:
+        raise RuntimeError, 'Invalid format for observation filter'
+
+    return obs_filter
+
+def filter_reads(raw_read_coverage, obs_filter):
+    if obs_filter is None:
+        return raw_read_coverage
+
+    num_reads = len([None for chrm_reads in raw_read_coverage.values()
+                     for _ in chrm_reads])
+    filt_raw_read_cov = {}
+    for chrm, chrm_reads in raw_read_coverage.items():
+        chrm_filt_reads = [
+            r_data for r_data in chrm_reads if not any(
+                np.percentile(np.diff(r_data.segs), pctl) > thresh
+                for pctl, thresh in obs_filter)]
+        if len(chrm_filt_reads) > 0:
+            filt_raw_read_cov[chrm] = chrm_filt_reads
+    num_filt_reads = len([
+        None for chrm_reads in filt_raw_read_cov.values()
+        for _ in chrm_reads])
+    if num_filt_reads < num_reads:
+        sys.stderr.write(
+            'Filtered ' + str(num_reads - num_filt_reads) +
+            ' reads due to observations per read filter from a ' +
+            'total of ' + str(num_reads) + ' reads.\n')
+
+    return filt_raw_read_cov
 
 
 def parse_fast5s(files, corrected_group, basecall_subgroups,

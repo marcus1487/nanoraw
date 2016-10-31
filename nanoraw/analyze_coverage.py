@@ -2,14 +2,17 @@ import sys, os
 
 import numpy as np
 
-from nanoraw_helper import parse_fast5s
+from nanoraw_helper import (
+    parse_fast5s, parse_obs_filter, filter_reads)
 
 VERBOSE = False
 
-def write_wiggle(files, corrected_group, wiggle_fn, basecall_subgroups):
+def write_wiggle(files, corrected_group, wiggle_fn, basecall_subgroups,
+                 obs_filter):
     if VERBOSE: sys.stderr.write('Parsing files.\n')
     raw_read_coverage = parse_fast5s(
         files, corrected_group, basecall_subgroups)
+    raw_read_coverage = filter_reads(raw_read_coverage, obs_filter)
 
     if VERBOSE: sys.stderr.write('Calculating read coverage.\n')
     wiggle_cov = []
@@ -43,7 +46,8 @@ def wiggle_main(args):
              for base_dir in args.fast5_basedirs
              for fn in os.listdir(base_dir)]
     write_wiggle(files, args.corrected_group, args.wiggle_filename,
-                 args.basecall_subgroups)
+                 args.basecall_subgroups,
+                 parse_obs_filter(args.obs_per_base_filter))
 
     return
 
