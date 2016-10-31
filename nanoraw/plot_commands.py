@@ -1111,7 +1111,7 @@ def plot_max_coverage(
                 zip(*chrm_coverage_regions)[0],
                 np.cumsum(np.insert(
                     zip(*chrm_coverage_regions)[1], 0, 0)),
-                repeat(chrom), repeat(None)))
+                repeat(chrom), repeat('')))
 
             plot_intervals = zip(
                 ['{:03d}'.format(rn) for rn in range(num_regions)],
@@ -1403,7 +1403,7 @@ def plot_most_signif(
         if len(chrm_pvals) == 0: continue
         most_signif_indices.extend((
             stat, max(pos - int(num_bases / 2.0), 0),
-            chrm, strand, stat) for stat, pos in sorted(
+            chrm, strand) for stat, pos in sorted(
                 chrm_pvals, reverse=True)[:num_regions])
 
     if len(most_signif_indices) == 0:
@@ -1417,7 +1417,7 @@ def plot_most_signif(
         [(chrm, start, strand, '({0}: {1:.2f})'.format(
             'T-score:' if test_type == 'ttest' else 'Z-score', stat))
          for stat, start, chrm, strand in
-         sorted(most_signif_indices)[:num_regions]])
+         sorted(most_signif_indices, reverse=True)[:num_regions]])
 
     plot_two_samples(
         plot_intervals, raw_read_coverage1, raw_read_coverage2,
