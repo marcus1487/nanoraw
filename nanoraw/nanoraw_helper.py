@@ -13,6 +13,9 @@ readData = namedtuple('readData', (
 channelInfo = namedtuple(
     'channelInfo',
     ('offset', 'range', 'digitisation', 'number', 'sampling_rate'))
+scaleValues = namedtuple(
+    'scaleValues',
+    ('shift', 'scale', 'lower_lim', 'upper_lim'))
 
 NORM_TYPES = ('none', 'ont', 'median', 'robust_median')
 
@@ -124,8 +127,8 @@ def get_channel_info(fast5_data):
 
 def normalize_raw_signal(
         all_raw_signal, read_start_rel_to_raw, read_obs_len,
-        norm_type, channel_info, outlier_threshold,
-        shift=None, scale=None):
+        norm_type=None, channel_info=None, outlier_thresh=None,
+        shift=None, scale=None, lower_lim=None, upper_lim=None):
     if norm_type not in NORM_TYPES and (shift is None or scale is None):
         raise NotImplementedError, (
             'Normalization type ' + norm_type + ' is not a valid ' +
@@ -154,11 +157,13 @@ def normalize_raw_signal(
 
     raw_signal = (raw_signal - shift) / scale
 
-    if outlier_threshold is not None:
-        read_med = np.median(raw_signal)
-        read_mad = np.median(np.abs(raw_signal - read_med))
-        lower_lim = read_med - (read_mad * outlier_threshold)
-        upper_lim = read_med + (read_mad * outlier_threshold)
+    if outlier_thresh is not None or (
+            lower_lim is not None and upper_lim is not None):
+        if outlier_thresh is not None:
+            read_med = np.median(raw_signal)
+            read_mad = np.median(np.abs(raw_signal - read_med))
+            lower_lim = read_med - (read_mad * outlier_thresh)
+            upper_lim = read_med + (read_mad * outlier_thresh)
         raw_signal = np.array([
             upper_lim if outlier_high else
             (lower_lim if outlier_low else x)
@@ -166,7 +171,7 @@ def normalize_raw_signal(
                     raw_signal, raw_signal > upper_lim,
                     raw_signal < lower_lim)])
 
-    return raw_signal, shift, scale
+    return raw_signal, scaleValues(shift, scale, lower_lim, upper_lim)
 
 def parse_fasta(fasta_fp):
     fasta_records = {}

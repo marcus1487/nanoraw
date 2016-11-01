@@ -359,11 +359,12 @@ def get_read_correction_data(
     # TODO: calculate moving window difference to plot
     shift = corr_data.attrs['shift']
     scale = corr_data.attrs['scale']
-    outlier_thresh = corr_data.attrs['outlier_threshold']
-    norm_signal, scale, shift = normalize_raw_signal(
-        raw_data['Signal'].value, raw_offset, events_end, None, None,
-        outlier_thresh, shift, scale)
-    norm_reg_signal = norm_signal[reg_start:reg_start + reg_width]
+    lower_lim = corr_data.attrs['lower_lim']
+    upper_lim = corr_data.attrs['upper_lim']
+    norm_reg_signal, scale_values = normalize_raw_signal(
+        raw_data['Signal'].value, raw_offset + reg_start, reg_width,
+        shift=shift, scale=scale, lower_lim=lower_lim,
+        upper_lim=upper_lim)
 
     old_segs = corr_data['Alignment/read_segments'].value
     old_segs_in_reg = np.where(np.logical_and(
@@ -598,14 +599,15 @@ def get_quant_data(
 def get_signal(read_fn, read_start_rel_to_raw, num_obs, corrected_group):
     with h5py.File(read_fn) as fast5_data:
         # retrieve shift and scale computed in correction script
-        corr_subgrp = fast5_data['Analyses/' + corrected_group]
+        corr_subgrp = fast5_data['/Analyses/' + corrected_group]
         shift = corr_subgrp.attrs['shift']
         scale = corr_subgrp.attrs['scale']
-        outlier_thresh = corr_subgrp.attrs['outlier_threshold']
-        r_sig, shift, scale = normalize_raw_signal(
-            fast5_data['Raw/Reads'].values()[0]['Signal'],
-            read_start_rel_to_raw, num_obs, None, None,
-            outlier_thresh, shift, scale)
+        lower_lim = corr_subgrp.attrs['lower_lim']
+        upper_lim = corr_subgrp.attrs['upper_lim']
+        r_sig, scale_values = normalize_raw_signal(
+            fast5_data['/Raw/Reads'].values()[0]['Signal'],
+            read_start_rel_to_raw, num_obs, shift=shift, scale=scale,
+            lower_lim=lower_lim, upper_lim=upper_lim)
 
     return r_sig
 
@@ -634,12 +636,8 @@ def get_signal_data(
             r_strand = r_data.strand
 
             segs = r_data.segs
-            r_sig = get_signal(
-                r_data.fn, r_data.read_start_rel_to_raw, segs[-1],
-                r_data.corr_group)
             if r_strand == "-":
                 segs = (segs[::-1] * -1) + segs[-1]
-                r_sig = r_sig[::-1]
 
             if interval_start < r_data.start:
                 # handle reads that start in the middle of the interval
@@ -651,12 +649,28 @@ def get_signal_data(
                 overlap_seg_data = segs[
                     skipped_bases:skipped_bases + num_bases + 1]
 
+            num_reg_obs = overlap_seg_data[-1] - overlap_seg_data[0]
+            if r_strand == "+":
+                reg_start_rel_raw = (r_data.read_start_rel_to_raw +
+                                     overlap_seg_data[0])
+                r_sig = get_signal(
+                    r_data.fn, reg_start_rel_raw, num_reg_obs,
+                    r_data.corr_group)
+            else:
+                reg_start_rel_raw = (r_data.read_start_rel_to_raw +
+                                     segs[-1] - overlap_seg_data[-1])
+                r_sig = get_signal(
+                    r_data.fn, reg_start_rel_raw, num_reg_obs,
+                    r_data.corr_group)
+                r_sig = r_sig[::-1]
+
             for base_i, (start, stop) in enumerate(zip(
                     overlap_seg_data[:-1], overlap_seg_data[1:])):
                 Position.extend(
                     interval_start + base_i + start_offset +
                     np.linspace(0, 1, stop - start, endpoint=False))
-                Signal.extend(r_sig[start:stop])
+                Signal.extend(r_sig[start-overlap_seg_data[0]:
+                                    stop-overlap_seg_data[0]])
                 Read.extend(list(repeat(
                     str(r_num) + '_' + group_num, stop - start)))
                 Strand.extend(list(repeat(

@@ -62,15 +62,17 @@ GRAPHMAP_FIELDS = (
 def write_new_fast5_group(
         filename, genome_location, read_info,
         read_start_rel_to_raw, new_segs, align_seq, alignVals,
-        old_segs, norm_signal, shift, scale, corrected_group,
+        old_segs, norm_signal, scale_values, corrected_group,
         basecall_subgroup, norm_type, outlier_thresh):
     # save new events as new hdf5 Group
     read_data = h5py.File(filename, 'r+')
     corr_grp = read_data['Analyses/' + corrected_group]
     # add subgroup matching subgroup from original basecalls
     corr_subgrp = corr_grp.create_group(basecall_subgroup)
-    corr_subgrp.attrs['shift'] = shift
-    corr_subgrp.attrs['scale'] = scale
+    corr_subgrp.attrs['shift'] = scale_values.shift
+    corr_subgrp.attrs['scale'] = scale_values.scale
+    corr_subgrp.attrs['lower_lim'] = scale_values.lower_lim
+    corr_subgrp.attrs['upper_lim'] = scale_values.upper_lim
     corr_subgrp.attrs['norm_type'] = norm_type
     corr_subgrp.attrs['outlier_threshold'] = outlier_thresh
 
@@ -501,7 +503,7 @@ def correct_raw_data_read(
             if rb != '-' and gb != '-'))
 
     # normalize signal
-    norm_signal, shift, scale = normalize_raw_signal(
+    norm_signal, scale_values = normalize_raw_signal(
         all_raw_signal, read_start_rel_to_raw, starts_rel_to_read[-1],
         norm_type, channel_info, outlier_thresh)
 
@@ -542,7 +544,7 @@ def correct_raw_data_read(
         write_new_fast5_group(
             filename, genome_location, read_info,
             read_start_rel_to_raw, new_segs, align_seq, alignVals,
-            starts_rel_to_read, norm_signal, shift, scale,
+            starts_rel_to_read, norm_signal, scale_values,
             corrected_group, basecall_subgroup, norm_type,
             outlier_thresh)
     else:
