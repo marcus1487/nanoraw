@@ -423,14 +423,17 @@ def get_read_data(
 
     try:
         called_dat = fast5_data[
-            'Analyses/' + basecall_group + '/' + basecall_subgroup +
+            '/Analyses/' + basecall_group + '/' + basecall_subgroup +
             '/Events']
+        called_attrs = dict(called_dat.attrs.items())
+        called_dat = called_dat.value
     except:
         raise RuntimeError, (
-            'No events in file. Likely a segmentation error or ' +
-            'mis-specified basecall-subgroups (--2d?).')
+            'No events or corrupted events in file. Likely a ' +
+            'segmentation error or mis-specified basecall-' +
+            'subgroups (--2d?).')
     try:
-        raw_dat = fast5_data['Raw/Reads/'].values()[0]
+        raw_dat = fast5_data['/Raw/Reads/'].values()[0]
     except:
         raise RuntimeError, (
             'Raw data is not stored in Raw/Reads/Read_[read#] so ' +
@@ -441,7 +444,7 @@ def get_read_data(
     all_raw_signal = raw_dat['Signal'].value
     read_id = raw_dat.attrs['read_id']
 
-    abs_event_start = int(called_dat.attrs['start_time'] *
+    abs_event_start = int(called_attrs['start_time'] *
                           channel_info.sampling_rate)
     read_start_rel_to_raw = int(
         abs_event_start - raw_dat.attrs['start_time'])
