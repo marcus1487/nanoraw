@@ -208,6 +208,42 @@ try:
     plotReadCorr = r.globalenv['plotReadCorr']
 
     r.r('''
+    plotMultiReadCorr <- function(OldSegDat, NewSegDat, SigDat){
+    for(regId in unique(OldSegDat$Region)){
+        rOldSegDat <- OldSegDat[OldSegDat$Region == regId,]
+        rNewSegDat <- NewSegDat[NewSegDat$Region == regId,]
+        rSigDat <- SigDat[SigDat$Region == regId,]
+
+        sig_max <- max(rSigDat$Signal)
+        sig_min <- min(rSigDat$Signal)
+        sig_range <- sig_max - sig_min
+        print(ggplot(rSigDat) +
+              geom_line(aes(x=Position, y=Signal), size=0.2) +
+              geom_segment(
+                  data=rOldSegDat,
+                  aes(x=Position, xend=Position, y=sig_max,
+                      yend=sig_max - (sig_range * 0.3), color=IsDel)) +
+              geom_text(
+                  data=rOldSegDat,
+                  aes(x=Position, y=sig_max, label=Base, color=IsMismatch),
+                  hjust=0, vjust=1, size=5) +
+              geom_segment(
+                  data=rNewSegDat,
+                  aes(x=Position, xend=Position, y=sig_min,
+                      yend=sig_min + (sig_range * 0.3), color=IsIns)) +
+              geom_text(
+                  data=rNewSegDat,
+                  aes(x=Position, y=sig_min, label=Base),
+                  hjust=0, vjust=0, size=5) +
+              facet_grid(Read ~ .) +
+              scale_color_manual(
+                  values=c('FALSE'='black', 'TRUE'='red')) +
+              theme_bw() + theme(legend.position='none'))
+    }}
+''')
+    plotMultiReadCorr = r.globalenv['plotMultiReadCorr']
+
+    r.r('''
     plotKmerDist <- function(dat){
     print(ggplot(dat) +
         geom_boxplot(aes(x=Trimer, y=Signal, color=Base)) +
@@ -329,15 +365,13 @@ def plot_kmer_dist(files, corrected_group, basecall_subgroups,
 ########################################
 
 def get_read_correction_data(
-        filename, reg_type, reg_width, corrected_group,
-        basecall_subgroup):
+        filename, reg_type, reg_width, corr_basecall_group,
+        region_name=None, start_at_zero=False):
     fast5_data = h5py.File(filename, 'r')
-    raw_data = fast5_data['Raw/Reads'].values()[0]
-    if ( 'Analyses/' + corrected_group + '/' +
-         basecall_subgroup) not in fast5_data:
+    raw_data = fast5_data['/Raw/Reads'].values()[0]
+    if ( '/Analyses/' + corr_basecall_group) not in fast5_data:
         return None, None, None
-    corr_data = fast5_data[
-        'Analyses/' + corrected_group + '/' + basecall_subgroup]
+    corr_data = fast5_data['/Analyses/' + corr_basecall_group]
 
     read_id = raw_data.attrs['read_id']
 
@@ -366,6 +400,10 @@ def get_read_correction_data(
         shift=shift, scale=scale, lower_lim=lower_lim,
         upper_lim=upper_lim)
 
+    # note that I need to check that both new and old segments are
+    # in the region as the start of the same genomic position can
+    # shift in raw space (i.e. only the old or new position could be
+    # in the region of interest)
     old_segs = corr_data['Alignment/read_segments'].value
     old_segs_in_reg = np.where(np.logical_and(
             reg_start <= old_segs, old_segs < reg_start + reg_width))[0]
@@ -392,6 +430,7 @@ def get_read_correction_data(
 
     # summarize alignment for old and new segments
     old_is_del, old_is_mismatch, new_is_ins = [], [], []
+    last_was_del = False
     for (old_b, old_pos, old_in_reg), (
             new_b, new_pos, new_in_reg) in reg_align_vals:
         if old_b == '-' and new_in_reg:
@@ -399,38 +438,60 @@ def get_read_correction_data(
         elif new_b == '-' and old_in_reg:
             old_is_del.append(True)
             old_is_mismatch.append(False)
+            last_was_del = True
         else:
             if new_in_reg:
                 new_is_ins.append(False)
             if old_in_reg:
-                old_is_del.append(False)
+                if last_was_del:
+                    old_is_del.append(True)
+                    last_was_del = False
+                else:
+                    old_is_del.append(False)
                 old_is_mismatch.append(old_b != new_b)
+
+    # bring positions to zero start if aligning multiple sequences
+    sig_range = range(reg_start, reg_start + reg_width)
+    if start_at_zero:
+        old_reg_segs = [
+            old_seg_pos - reg_start for old_seg_pos in old_reg_segs]
+        new_reg_segs = [
+            new_seg_pos - reg_start for new_seg_pos in new_reg_segs]
+        sig_range = range(0, reg_width)
 
     old_bases = [
         b for b, pos, in_reg in zip(*reg_align_vals)[0] if in_reg]
     new_bases = [
         b for b, pos, in_reg in zip(*reg_align_vals)[1] if in_reg]
 
-    old_dat = r.DataFrame({
+    old_dat = {
         'Position':r.FloatVector(old_reg_segs),
         'Base':r.StrVector(old_bases),
         'IsDel':r.BoolVector(old_is_del),
         'IsMismatch':r.BoolVector(old_is_mismatch),
-        'Read':r.StrVector([read_id for _ in range(len(old_bases))])})
-
-    # now find indels and create appropriate plotting data.frame
-    new_dat = r.DataFrame({
+        'Read':r.StrVector([read_id for _ in range(len(old_bases))])}
+    new_dat = {
         'Position':r.FloatVector(new_reg_segs),
         'Base':r.StrVector(new_bases),
         'IsIns':r.BoolVector(new_is_ins),
-        'Read':r.StrVector([read_id for _ in range(len(new_bases))])})
-
-    sig_dat = r.DataFrame({
+        'Read':r.StrVector([read_id for _ in range(len(new_bases))])}
+    sig_dat = {
         'Signal':r.FloatVector(norm_reg_signal),
-        'Position':r.FloatVector(range(
-            reg_start, reg_start + reg_width)),
+        'Position':r.FloatVector(sig_range),
         'Read':r.StrVector([
-            read_id for _ in range(len(norm_reg_signal))])})
+            read_id for _ in range(len(norm_reg_signal))])}
+    # add region is applicable
+    if region_name is not None:
+        old_dat['Region'] = r.StrVector([
+            region_name for _ in range(len(old_bases))])
+        new_dat['Region'] = r.StrVector([
+            region_name for _ in range(len(new_bases))])
+        sig_dat['Region'] = r.StrVector([
+            region_name for _ in range(len(norm_reg_signal))])
+
+    old_dat = r.DataFrame(old_dat)
+    new_dat = r.DataFrame(new_dat)
+    sig_dat = r.DataFrame(sig_dat)
 
     return old_dat, new_dat, sig_dat
 
@@ -762,6 +823,24 @@ def get_coverage(raw_read_coverage):
 
     return read_coverage
 
+def get_strand_coverage(raw_read_coverage):
+    if VERBOSE: sys.stderr.write('Calculating read coverage.\n')
+    read_coverage = {}
+    for chrom, reads_data in raw_read_coverage.items():
+        max_end = max(r_data.end for r_data in reads_data)
+        plus_chrom_coverage = np.zeros(max_end, dtype=np.int_)
+        minus_chrom_coverage = np.zeros(max_end, dtype=np.int_)
+        for r_data in reads_data:
+            if r_data.strand == '+':
+                plus_chrom_coverage[r_data.start:r_data.end] += 1
+            else:
+                minus_chrom_coverage[r_data.start:r_data.end] += 1
+
+        read_coverage[(chrom, '+')] = plus_chrom_coverage
+        read_coverage[(chrom, '-')] = minus_chrom_coverage
+
+    return read_coverage
+
 def get_region_reads(
         plot_intervals, raw_read_coverage, num_bases,
         filter_no_cov=True):
@@ -866,7 +945,7 @@ def plot_corrections(
     OldSegDat, NewSegDat, SigDat = [], [], []
     for read_fn, reg_type in plot_intervals:
         old_dat, new_dat, signal_dat = get_read_correction_data(
-            read_fn, reg_type, reg_width, corrected_group,
+            read_fn, reg_type, reg_width, corrected_group + '/' +
             basecall_subgroup)
         if old_dat is None:
             # skip reads that don't have correction slots b/c they
@@ -889,6 +968,87 @@ def plot_corrections(
     if VERBOSE: sys.stderr.write('Plotting.\n')
     r.r('pdf("' + pdf_fn + '", height=5, width=11)')
     plotReadCorr(OldSegDat, NewSegDat, SigDat)
+    r.r('dev.off()')
+
+    return
+
+def plot_multi_corrections(
+        files, num_reads_per_plot, num_regions, reg_width,
+        corrected_group, basecall_subgroups, pdf_fn):
+    raw_read_coverage = parse_fast5s(
+        files, corrected_group, basecall_subgroups)
+    read_coverage = get_strand_coverage(raw_read_coverage)
+    coverage_regions = []
+    for chrom_strand, chrom_coverage in read_coverage.items():
+        chrm_coverage_regions = [
+            (x, len(list(y))) for x, y in groupby(chrom_coverage)]
+        chrm_reg_starts = np.cumsum(np.insert(
+            zip(*chrm_coverage_regions)[1], 0, 0))
+        coverage_regions.extend(zip(
+            zip(*chrm_coverage_regions)[0],
+            [start + (reg_len / 2) for start, reg_len in
+             zip(chrm_reg_starts, zip(*chrm_coverage_regions)[1])],
+            repeat(chrom_strand[0]), repeat(chrom_strand[1])))
+
+    # randomly select regions with at least num_reads_to_plot regions
+    coverage_regions = [
+        (chrm, reg_center, strand) for stat, reg_center, chrm, strand in
+        coverage_regions if stat >= num_reads_per_plot]
+    np.random.shuffle(coverage_regions)
+    plot_intervals = zip(
+        ['{:03d}'.format(rn) for rn in range(num_regions)],
+        coverage_regions[:num_regions])
+
+    if len(plot_intervals) == 0:
+        sys.stderr.write(
+            '*' * 60 + '\nERROR: No reads contain minimum ' +
+            'number of reads.\n' + '*' * 60 + '\n')
+        sys.exit()
+    elif len(plot_intervals) < num_regions:
+        sys.stderr.write(
+            '*' * 60 + '\Warning: Fewer regions contain minimum ' +
+            'number of reads than requested.\n' + '*' * 60 + '\n')
+
+    if VERBOSE: sys.stderr.write('Preparing plot data.\n')
+    OldSegDat, NewSegDat, SigDat = [], [], []
+    for reg_i, (chrm, reg_center, strand) in plot_intervals:
+        reg_num_reads = 0
+        ## get num_reads_per_region reads from this region
+        reg_reads = [r_data for r_data in raw_read_coverage[chrm]
+                     if r_data.start <= reg_center and
+                     r_data.end > reg_center and r_data.strand == strand]
+        for r_data in reg_reads:
+            # calculate raw position start
+            if strand == '+':
+                raw_start = int(r_data.segs[reg_center - r_data.start]
+                                - (reg_width / 2))
+            else:
+                raw_start = int((r_data.segs[
+                    len(r_data.segs) - (reg_center - r_data.start) - 1]
+                                 - reg_width - 1) + (reg_width / 2))
+            old_dat, new_dat, signal_dat = get_read_correction_data(
+                r_data.fn, raw_start, reg_width, r_data.corr_group,
+                reg_i, True)
+            if old_dat is None:
+                # skip reads that don't have correction slots b/c they
+                # couldn't be corrected
+                continue
+            OldSegDat.append(old_dat)
+            NewSegDat.append(new_dat)
+            SigDat.append(signal_dat)
+            reg_num_reads += 1
+            if reg_num_reads >= num_reads_per_plot:
+                break
+        if reg_num_reads < num_reads_per_plot:
+            # TODO: figure out if we should warn here
+            pass
+    OldSegDat = r.DataFrame.rbind(*OldSegDat)
+    NewSegDat = r.DataFrame.rbind(*NewSegDat)
+    SigDat = r.DataFrame.rbind(*SigDat)
+
+    if VERBOSE: sys.stderr.write('Plotting.\n')
+    r.r('pdf("' + pdf_fn + '", height=5, width=11)')
+    plotMultiReadCorr(OldSegDat, NewSegDat, SigDat)
     r.r('dev.off()')
 
     return
@@ -1460,6 +1620,17 @@ def plot_correction_main(args):
     plot_corrections(
         plot_intervals, args.num_obs, args.num_reads,
         args.corrected_group, args.basecall_subgroup, args.pdf_filename)
+
+    return
+
+def plot_multi_correction_main(args):
+    global VERBOSE
+    VERBOSE = not args.quiet
+
+    files = get_files_list(args.fast5_basedirs)
+    plot_multi_corrections(
+        files, args.num_reads_per_plot, args.num_regions, args.num_obs,
+        args.corrected_group, args.basecall_subgroups, args.pdf_filename)
 
     return
 

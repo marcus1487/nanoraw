@@ -115,6 +115,10 @@ numreads_opt=('--num-reads', {
     'type':int, 'default':10,
     'help':'Number of reads to plot (one region per read). ' +
     'Default: %(default)d'})
+numreadspplot_opt=('--num-reads-per-plot', {
+    'type':int, 'default':5,
+    'help':'Number of reads to plot per genomic region. ' +
+    'Default: %(default)d'})
 numobs_opt=('--num-obs', {
     'type':int, 'default':500,
     'help':'Number of observations to plot in each region. ' +
@@ -474,6 +478,31 @@ def get_correction_parser():
     misc_args.add_argument(numobs_opt[0], **numobs_opt[1])
     misc_args.add_argument(
         pdf_opt[0], default='Nanopore_genome_correction.pdf',
+        **pdf_opt[1])
+    misc_args.add_argument(*quiet_opt[0], **quiet_opt[1])
+    misc_args.add_argument(*help_opt[0], **help_opt[1])
+
+    return parser
+
+def get_multi_correction_parser():
+    parser = argparse.ArgumentParser(
+        description='Plot segments from before and after ' +
+        'genome-guided re-segmentation for multiple reads anchored ' +
+        'at a genomic location. Regions will be randomly selected.',
+        add_help=False)
+    req_args = parser.add_argument_group('Required Argument')
+    req_args.add_argument(fast5dir_opt[0], **fast5dir_opt[1])
+
+    fast5_args = parser.add_argument_group('FAST5 Data Arguments')
+    fast5_args.add_argument(corrgrp_opt[0], **corrgrp_opt[1])
+    fast5_args.add_argument(bcsubgrps_opt[0], **bcsubgrps_opt[1])
+
+    misc_args = parser.add_argument_group('Miscellaneous Arguments')
+    misc_args.add_argument(numreadspplot_opt[0], **numreadspplot_opt[1])
+    misc_args.add_argument(numreg_opt[0], **numreg_opt[1])
+    misc_args.add_argument(numobs_opt[0], **numobs_opt[1])
+    misc_args.add_argument(
+        pdf_opt[0], default='Nanopore_genome_multiread_correction.pdf',
         **pdf_opt[1])
     misc_args.add_argument(*quiet_opt[0], **quiet_opt[1])
     misc_args.add_argument(*help_opt[0], **help_opt[1])

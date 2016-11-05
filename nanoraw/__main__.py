@@ -46,7 +46,11 @@ def main(args=None):
             ('plot_correction',
              'Plot segmentation before and after correction.',
              option_parsers.get_correction_parser(),
-             plot_commands.plot_correction_main)]),
+             plot_commands.plot_correction_main),
+            ('plot_multi_correction',
+             'Plot multiple raw signals anchored by genomic location.',
+             option_parsers.get_multi_correction_parser(),
+             plot_commands.plot_multi_correction_main)]),
         ('Other Plotting Command:', [
             ('plot_kmer','Plot signal quantiles acorss kmers.',
              option_parsers.get_kmer_dist_parser(),
