@@ -755,9 +755,8 @@ def get_plot_types_data(plot_args, quant_offset=0):
 
     return SignalData, QuantData, BoxData, EventData
 
-def get_reg_seq(all_reg_data, corrected_group, num_bases):
-    BaseStart, Bases, BaseRegion = [], [], []
-    reg_seqs = []
+def get_reg_base_data(all_reg_data, corrected_group, num_bases):
+    all_reg_base_data = []
     for region_i, interval_start, chrom, reg_reads in all_reg_data:
         # try to find first read to overlap whole region
         try:
@@ -798,9 +797,15 @@ def get_reg_seq(all_reg_data, corrected_group, num_bases):
                     end_overlap = read_data.end - interval_start
                     reg_base_data[:end_overlap] = seq[-end_overlap:]
 
-        # save sequence if they should be saved to a file
-        reg_seqs.append((region_i, reg_base_data))
+        all_reg_base_data.append(reg_base_dat)
 
+    return all_reg_base_data
+
+def get_base_r_data(all_reg_data, all_reg_base_data):
+    BaseStart, Bases, BaseRegion = [], [], []
+    for (region_i, interval_start, chrom, reg_reads
+    ), reg_base_dat in zip(
+        all_reg_data, all_reg_base_data):
         for i, base in enumerate(reg_base_data):
             BaseStart.append(str(i + interval_start))
             Bases.append(base)
@@ -809,7 +814,16 @@ def get_reg_seq(all_reg_data, corrected_group, num_bases):
     return r.DataFrame({
         'Position':r.FloatVector(BaseStart),
         'Base':r.StrVector(Bases),
-        'Region':r.StrVector(BaseRegion)}), reg_seqs
+        'Region':r.StrVector(BaseRegion)})
+
+def get_reg_seqs(all_reg_data, all_reg_base_data):
+    reg_seqs = []
+    for region_i, reg_base_dat in zip(
+            zip(*all_reg_data)[0], all_reg_base_data):
+        # save sequence if they should be saved to a file
+        reg_seqs.append((region_i, reg_base_data))
+
+    return reg_seqs
 
 def get_coverage(raw_read_coverage):
     if VERBOSE: sys.stderr.write('Calculating read coverage.\n')
@@ -1090,8 +1104,9 @@ def plot_single_sample(
                     dnspl_stars)]),
         'Region':r.StrVector(zip(*plot_intervals)[0])})
 
-    BasesData, reg_seqs = get_reg_seq(
+    all_reg_base_data = get_reg_base_data(
         all_reg_data, corrected_group, num_bases)
+    BasesData = get_base_r_data(all_reg_data, all_reg_base_data)
     SignalData, QuantData, BoxData, EventData = get_plot_types_data(
         (all_reg_data, plot_types, num_bases, corrected_group,
          overplot_thresh, 'Group1'))
@@ -1187,8 +1202,9 @@ def plot_two_samples(
         (reg_id, start, chrm, reg_data1 + reg_data2)
         for (reg_id, start, chrm, reg_data1),
         (_, _, _, reg_data2) in  zip(all_reg_data1, all_reg_data2)]
-    BasesData, reg_seqs = get_reg_seq(
-        merged_reg_data, corrected_group, num_bases)
+    all_reg_base_data = get_reg_base_data(
+        zip(all_reg_data1, all_reg_data2), corrected_group, num_bases)
+    BasesData = get_base_r_data(all_reg_data, all_reg_base_data)
 
     # get plotting data for either quantiles of raw signal
     SignalData1, QuantData1, BoxData1, EventData1 = get_plot_types_data(
@@ -1209,6 +1225,8 @@ def plot_two_samples(
 
     if seqs_fn is not None:
         if VERBOSE: sys.stderr.write('Outputting region seqeuences.\n')
+        reg_seqs = get_reg_seqs(
+            zip(all_reg_data1, all_reg_data2), all_reg_base_data)
         with open(seqs_fn, 'w') as seqs_fp:
             for reg_i, reg_seq in reg_seqs:
                 chrm, start, strand, stat = next(
@@ -1520,28 +1538,8 @@ def mann_whitney_u_test(samp1, samp2):
 
     return z
 
-def plot_most_signif(
-        files1, files2, num_regions, corrected_group, basecall_subgroups,
-        overplot_thresh, pdf_fn, seqs_fn, num_bases, overplot_type,
-        test_type,
-        obs_filter):
-    if VERBOSE: sys.stderr.write('Parsing files.\n')
-    raw_read_coverage1 = parse_fast5s(
-        files1, corrected_group, basecall_subgroups, True)
-    raw_read_coverage1 = filter_reads(raw_read_coverage1, obs_filter)
-    raw_read_coverage2 = parse_fast5s(
-        files2, corrected_group, basecall_subgroups, True)
-    raw_read_coverage2 = filter_reads(raw_read_coverage2, obs_filter)
-
-    chrm_sizes = dict((chrm, max(
-        [r_data.end for r_data in raw_read_coverage1[chrm]] +
-        [r_data.end for r_data in raw_read_coverage2[chrm]]))
-                       for chrm in raw_read_coverage1)
-
-    if VERBOSE: sys.stderr.write('Getting base signal.\n')
-    base_events1 = get_base_events(raw_read_coverage1, chrm_sizes)
-    base_events2 = get_base_events(raw_read_coverage2, chrm_sizes)
-
+def get_most_signif_regions(
+        base_events1, base_events2, test_type, num_bases, num_regions):
     if VERBOSE: sys.stderr.write(
             'Test significance of difference in base signal.\n')
     # get num_region most significantly different regions from
@@ -1593,10 +1591,84 @@ def plot_most_signif(
          for stat, start, chrm, strand in
          sorted(most_signif_indices, reverse=True)[:num_regions]])
 
+    return plot_intervals
+
+def plot_most_signif(
+        files1, files2, num_regions, corrected_group, basecall_subgroups,
+        overplot_thresh, pdf_fn, seqs_fn, num_bases, overplot_type,
+        test_type, obs_filter):
+    if VERBOSE: sys.stderr.write('Parsing files.\n')
+    raw_read_coverage1 = parse_fast5s(
+        files1, corrected_group, basecall_subgroups, True)
+    raw_read_coverage1 = filter_reads(raw_read_coverage1, obs_filter)
+    raw_read_coverage2 = parse_fast5s(
+        files2, corrected_group, basecall_subgroups, True)
+    raw_read_coverage2 = filter_reads(raw_read_coverage2, obs_filter)
+
+    chrm_sizes = dict((chrm, max(
+        [r_data.end for r_data in raw_read_coverage1[chrm]] +
+        [r_data.end for r_data in raw_read_coverage2[chrm]]))
+                       for chrm in raw_read_coverage1)
+
+    if VERBOSE: sys.stderr.write('Getting base signal.\n')
+    base_events1 = get_base_events(raw_read_coverage1, chrm_sizes)
+    base_events2 = get_base_events(raw_read_coverage2, chrm_sizes)
+
+    most_signif_indices = get_most_signif_regions(
+        base_events1, base_events2, test_type, num_bases, num_regions)
+
     plot_two_samples(
         plot_intervals, raw_read_coverage1, raw_read_coverage2,
         num_bases, overplot_thresh, overplot_type, corrected_group,
         pdf_fn, seqs_fn)
+
+    return
+
+def write_most_signif(
+        files1, files2, num_regions, corrected_group, basecall_subgroups,
+        seqs_fn, num_bases, test_type, obs_filter):
+    if VERBOSE: sys.stderr.write('Parsing files.\n')
+    raw_read_coverage1 = parse_fast5s(
+        files1, corrected_group, basecall_subgroups, True)
+    raw_read_coverage1 = filter_reads(raw_read_coverage1, obs_filter)
+    raw_read_coverage2 = parse_fast5s(
+        files2, corrected_group, basecall_subgroups, True)
+    raw_read_coverage2 = filter_reads(raw_read_coverage2, obs_filter)
+
+    chrm_sizes = dict((chrm, max(
+        [r_data.end for r_data in raw_read_coverage1[chrm]] +
+        [r_data.end for r_data in raw_read_coverage2[chrm]]))
+                       for chrm in raw_read_coverage1)
+
+    if VERBOSE: sys.stderr.write('Getting base signal.\n')
+    base_events1 = get_base_events(raw_read_coverage1, chrm_sizes)
+    base_events2 = get_base_events(raw_read_coverage2, chrm_sizes)
+
+    most_signif_indices = get_most_signif_regions(
+        base_events1, base_events2, test_type, num_bases, num_regions)
+
+    # get reads overlapping each region
+    all_reg_data1, no_cov_regs1 = get_region_reads(
+        plot_intervals, raw_read_coverage1, num_bases,
+        filter_no_cov=False)
+    all_reg_data2, no_cov_regs2 = get_region_reads(
+        plot_intervals, raw_read_coverage2, num_bases,
+        filter_no_cov=False)
+    all_reg_base_data = get_reg_base_data(
+        zip(all_reg_data1, all_reg_data2), corrected_group, num_bases)
+
+    if VERBOSE: sys.stderr.write('Outputting region seqeuences.\n')
+    reg_seqs = get_reg_seqs(
+        zip(all_reg_data1, all_reg_data2), all_reg_base_data)
+    with open(seqs_fn, 'w') as seqs_fp:
+        for reg_i, reg_seq in reg_seqs:
+            chrm, start, strand, stat = next(
+                p_int for p_reg_i, p_int in plot_intervals
+                if p_reg_i == reg_i)
+            if strand == '-':
+                reg_seq = rev_comp(reg_seq)
+            seqs_fp.write('>{0}::{1:d}::{2} {3}\n{4}\n'.format(
+                chrm, start, strand, stat, ''.join(reg_seq)))
 
     return
 
@@ -1731,6 +1803,21 @@ def signif_diff_main(args):
         args.basecall_subgroups, args.overplot_threshold,
         args.pdf_filename, args.sequences_filename, args.num_bases,
         args.overplot_type, args.test_type,
+        parse_obs_filter(args.obs_per_base_filter))
+
+    return
+
+def write_signif_diff_main(args):
+    global VERBOSE
+    VERBOSE = not args.quiet
+
+    files1, files2 = get_files_lists(
+        args.fast5_basedirs, args.fast5_basedirs2)
+
+    write_most_signif(
+        files1, files2, args.num_regions, args.corrected_group,
+        args.basecall_subgroups, args.sequences_filename,
+        args.num_bases, args.test_type,
         parse_obs_filter(args.obs_per_base_filter))
 
     return

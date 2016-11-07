@@ -195,7 +195,7 @@ pdf_opt=('--pdf-filename', {
 seqs_opt=('--sequences-filename', {
     'help':'Filename to store sequences for selected regions (e.g. ' +
     'for PWM search). Sequences will be stored in FASTA format. ' +
-    'Default: Do not store sequences.'})
+    'Default: %(default)s.'})
 quiet_opt=(('--quiet', '-q'), {
     'default':False, 'action':'store_true',
     'help':"Don't print status information."})
@@ -274,11 +274,11 @@ def get_max_cov_parser():
     filter_args.add_argument(obsfilt_opt[0], **obsfilt_opt[1])
 
     misc_args = parser.add_argument_group('Miscellaneous Arguments')
-    misc_args.add_argument(numreg_opt[0], **numreg_opt[1])
-    misc_args.add_argument(numbases_opt[0], **numbases_opt[1])
     misc_args.add_argument(
         pdf_opt[0], default='Nanopore_read_coverage.max_coverage.pdf',
         **pdf_opt[1])
+    misc_args.add_argument(numreg_opt[0], **numreg_opt[1])
+    misc_args.add_argument(numbases_opt[0], **numbases_opt[1])
     misc_args.add_argument(*quiet_opt[0], **quiet_opt[1])
     misc_args.add_argument(*help_opt[0], **help_opt[1])
 
@@ -347,11 +347,11 @@ def get_kmer_loc_parser():
 
     misc_args = parser.add_argument_group('Miscellaneous Arguments')
     misc_args.add_argument(deepcov_opt[0], **deepcov_opt[1])
-    misc_args.add_argument(numreg_opt[0], **numreg_opt[1])
-    misc_args.add_argument(numbases_opt[0], **numbases_opt[1])
     misc_args.add_argument(
         pdf_opt[0], default='Nanopore_read_coverage.kmer_centered.pdf',
         **pdf_opt[1])
+    misc_args.add_argument(numreg_opt[0], **numreg_opt[1])
+    misc_args.add_argument(numbases_opt[0], **numbases_opt[1])
     misc_args.add_argument(*quiet_opt[0], **quiet_opt[1])
     misc_args.add_argument(*help_opt[0], **help_opt[1])
 
@@ -381,12 +381,12 @@ def get_max_diff_parser():
     filter_args.add_argument(obsfilt_opt[0], **obsfilt_opt[1])
 
     misc_args = parser.add_argument_group('Miscellaneous Arguments')
-    misc_args.add_argument(numreg_opt[0], **numreg_opt[1])
-    misc_args.add_argument(numbases_opt[0], **numbases_opt[1])
-    misc_args.add_argument(seqs_opt[0], **seqs_opt[1])
     misc_args.add_argument(
         pdf_opt[0], default='Nanopore_read_coverage.max_difference.pdf',
         **pdf_opt[1])
+    misc_args.add_argument(seqs_opt[0], **seqs_opt[1])
+    misc_args.add_argument(numreg_opt[0], **numreg_opt[1])
+    misc_args.add_argument(numbases_opt[0], **numbases_opt[1])
     misc_args.add_argument(*quiet_opt[0], **quiet_opt[1])
     misc_args.add_argument(*help_opt[0], **help_opt[1])
 
@@ -419,13 +419,47 @@ def get_signif_diff_parser():
     testt_args.add_argument(testtype_opt[0], **testtype_opt[1])
 
     misc_args = parser.add_argument_group('Miscellaneous Arguments')
-    misc_args.add_argument(numreg_opt[0], **numreg_opt[1])
-    misc_args.add_argument(numbases_opt[0], **numbases_opt[1])
-    misc_args.add_argument(seqs_opt[0], **seqs_opt[1])
     misc_args.add_argument(
         pdf_opt[0],
         default='Nanopore_read_coverage.significant_difference.pdf',
         **pdf_opt[1])
+    misc_args.add_argument(seqs_opt[0], **seqs_opt[1])
+    misc_args.add_argument(numreg_opt[0], **numreg_opt[1])
+    misc_args.add_argument(numbases_opt[0], **numbases_opt[1])
+    misc_args.add_argument(*quiet_opt[0], **quiet_opt[1])
+    misc_args.add_argument(*help_opt[0], **help_opt[1])
+
+    return parser
+
+def get_write_signif_diff_parser():
+    parser = argparse.ArgumentParser(
+        description='Write FASTA file with genomic sequence ' +
+        'surrounding bases with most significant difference in ' +
+        'signal values between two groups of reads.',
+        add_help=False)
+    req_args = parser.add_argument_group('Required Argument')
+    req_args.add_argument(fast5dir_opt[0], **fast5dir_opt[1])
+    req_args.add_argument(altfast5dir_opt[0], required=True,
+                          **altfast5dir_opt[1])
+
+    fast5_args = parser.add_argument_group('FAST5 Data Arguments')
+    fast5_args.add_argument(corrgrp_opt[0], **corrgrp_opt[1])
+    bcsub_args = fast5_args.add_mutually_exclusive_group()
+    bcsub_args.add_argument(bcsubgrps_opt[0], **bcsubgrps_opt[1])
+    bcsub_args.add_argument(twod_opt[0], **twod_opt[1])
+
+    filter_args = parser.add_argument_group('Read Filtering Arguments')
+    filter_args.add_argument(obsfilt_opt[0], **obsfilt_opt[1])
+
+    testt_args = parser.add_argument_group('Significance Test Argument')
+    testt_args.add_argument(testtype_opt[0], **testtype_opt[1])
+
+    misc_args = parser.add_argument_group('Miscellaneous Arguments')
+    misc_args.add_argument(
+        seqs_opt[0], default='Nanopore_most_significant_regions.fasta',
+        **seqs_opt[1])
+    misc_args.add_argument(numreg_opt[0], **numreg_opt[1])
+    misc_args.add_argument(numbases_opt[0], **numbases_opt[1])
     misc_args.add_argument(*quiet_opt[0], **quiet_opt[1])
     misc_args.add_argument(*help_opt[0], **help_opt[1])
 
@@ -474,11 +508,11 @@ def get_correction_parser():
     fast5_args.add_argument(bcsubgrp_opt[0], **bcsubgrp_opt[1])
 
     misc_args = parser.add_argument_group('Miscellaneous Arguments')
-    misc_args.add_argument(numreads_opt[0], **numreads_opt[1])
-    misc_args.add_argument(numobs_opt[0], **numobs_opt[1])
     misc_args.add_argument(
         pdf_opt[0], default='Nanopore_genome_correction.pdf',
         **pdf_opt[1])
+    misc_args.add_argument(numreads_opt[0], **numreads_opt[1])
+    misc_args.add_argument(numobs_opt[0], **numobs_opt[1])
     misc_args.add_argument(*quiet_opt[0], **quiet_opt[1])
     misc_args.add_argument(*help_opt[0], **help_opt[1])
 
@@ -498,12 +532,12 @@ def get_multi_correction_parser():
     fast5_args.add_argument(bcsubgrps_opt[0], **bcsubgrps_opt[1])
 
     misc_args = parser.add_argument_group('Miscellaneous Arguments')
-    misc_args.add_argument(numreadspplot_opt[0], **numreadspplot_opt[1])
-    misc_args.add_argument(numreg_opt[0], **numreg_opt[1])
-    misc_args.add_argument(numobs_opt[0], **numobs_opt[1])
     misc_args.add_argument(
         pdf_opt[0], default='Nanopore_genome_multiread_correction.pdf',
         **pdf_opt[1])
+    misc_args.add_argument(numreadspplot_opt[0], **numreadspplot_opt[1])
+    misc_args.add_argument(numreg_opt[0], **numreg_opt[1])
+    misc_args.add_argument(numobs_opt[0], **numobs_opt[1])
     misc_args.add_argument(*quiet_opt[0], **quiet_opt[1])
     misc_args.add_argument(*help_opt[0], **help_opt[1])
 

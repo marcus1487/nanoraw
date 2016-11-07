@@ -67,7 +67,7 @@ def filter_reads(raw_read_coverage, obs_filter):
     if num_filt_reads < num_reads:
         sys.stderr.write(
             'Filtered ' + str(num_reads - num_filt_reads) +
-            ' reads due to observations per read filter from a ' +
+            ' reads due to observations per base filter from a ' +
             'total of ' + str(num_reads) + ' reads.\n')
 
     return filt_raw_read_cov

@@ -55,7 +55,12 @@ def main(args=None):
             ('plot_kmer','Plot signal quantiles acorss kmers.',
              option_parsers.get_kmer_dist_parser(),
              plot_commands.kmer_dist_main),]),
-        ('Auxiliary Command:',[
+        ('Auxiliary Commands:',[
+            ('write_most_significant',
+             'Write sequence where signal differs the most ' +
+             'significantly between two groups.',
+             option_parsers.get_write_signif_diff_parser(),
+             plot_commands.write_signif_diff_main),
             ('write_wiggle','Write wiggle file of genome coverage ' +
              'from genome_resquiggle mappings.',
              option_parsers.get_wiggle_parser(),
