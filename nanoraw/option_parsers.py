@@ -126,6 +126,11 @@ numobs_opt=('--num-obs', {
 numreg_opt=('--num-regions', {
     'type':int, 'default':10,
     'help':'Number of regions to plot. Default: %(default)d'})
+testthresh_opt=('--test-score-threshold', {
+    'type':float,
+    'help':'Choose the number of regions to select by the test ' +
+    'score (t-score or z-score). Note that --num-regions will ' +
+    'be ignored if this option is set.'})
 numbases_opt=('--num-bases', {
     'type':int, 'default':51,
     'help':'Number of bases to plot from region. Default: %(default)d'})
@@ -462,6 +467,7 @@ def get_write_signif_diff_parser():
         seqs_opt[0], default='Nanopore_most_significant_regions.fasta',
         **seqs_opt[1])
     misc_args.add_argument(numreg_opt[0], **numreg_opt[1])
+    misc_args.add_argument(testthresh_opt[0], **testthresh_opt[1])
     misc_args.add_argument(numbases_opt[0], **numbases_opt[1])
     misc_args.add_argument(*quiet_opt[0], **quiet_opt[1])
     misc_args.add_argument(*help_opt[0], **help_opt[1])

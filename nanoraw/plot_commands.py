@@ -831,14 +831,14 @@ def get_reg_base_data(all_reg_data, corrected_group, num_bases):
                     end_overlap = read_data.end - interval_start
                     reg_base_data[:end_overlap] = seq[-end_overlap:]
 
-        all_reg_base_data.append(reg_base_dat)
+        all_reg_base_data.append(reg_base_data)
 
     return all_reg_base_data
 
 def get_base_r_data(all_reg_data, all_reg_base_data):
     BaseStart, Bases, BaseRegion = [], [], []
     for (region_i, interval_start, chrom, reg_reads
-    ), reg_base_dat in zip(
+    ), reg_base_data in zip(
         all_reg_data, all_reg_base_data):
         for i, base in enumerate(reg_base_data):
             BaseStart.append(str(i + interval_start))
@@ -852,7 +852,7 @@ def get_base_r_data(all_reg_data, all_reg_base_data):
 
 def get_reg_seqs(all_reg_data, all_reg_base_data):
     reg_seqs = []
-    for region_i, reg_base_dat in zip(
+    for region_i, reg_base_data in zip(
             zip(*all_reg_data)[0], all_reg_base_data):
         # save sequence if they should be saved to a file
         reg_seqs.append((region_i, reg_base_data))
@@ -1049,7 +1049,7 @@ def plot_multi_corrections(
 
     if len(plot_intervals) == 0:
         sys.stderr.write(
-            '*' * 60 + '\nERROR: No reads contain minimum ' +
+            '*' * 60 + '\nERROR: No regions contain minimum ' +
             'number of reads.\n' + '*' * 60 + '\n')
         sys.exit()
     elif len(plot_intervals) < num_regions:
@@ -1240,8 +1240,8 @@ def plot_two_samples(
         for (reg_id, start, chrm, reg_data1),
         (_, _, _, reg_data2) in  zip(all_reg_data1, all_reg_data2)]
     all_reg_base_data = get_reg_base_data(
-        zip(all_reg_data1, all_reg_data2), corrected_group, num_bases)
-    BasesData = get_base_r_data(all_reg_data, all_reg_base_data)
+        merged_reg_data, corrected_group, num_bases)
+    BasesData = get_base_r_data(merged_reg_data, all_reg_base_data)
 
     # get plotting data for either quantiles of raw signal
     SignalData1, QuantData1, BoxData1, EventData1 = get_plot_types_data(
@@ -1262,8 +1262,7 @@ def plot_two_samples(
 
     if seqs_fn is not None:
         if VERBOSE: sys.stderr.write('Outputting region seqeuences.\n')
-        reg_seqs = get_reg_seqs(
-            zip(all_reg_data1, all_reg_data2), all_reg_base_data)
+        reg_seqs = get_reg_seqs(merged_reg_data, all_reg_base_data)
         with open(seqs_fn, 'w') as seqs_fp:
             for reg_i, reg_seq in reg_seqs:
                 chrm, start, strand, stat = next(
@@ -1576,7 +1575,8 @@ def mann_whitney_u_test(samp1, samp2):
     return z
 
 def get_most_signif_regions(
-        base_events1, base_events2, test_type, num_bases, num_regions):
+        base_events1, base_events2, test_type, num_bases, num_regions,
+        test_score_thresh=None):
     if VERBOSE: sys.stderr.write(
             'Test significance of difference in base signal.\n')
     # get num_region most significantly different regions from
@@ -1585,7 +1585,7 @@ def get_most_signif_regions(
     for chrm_strand in set(base_events1).intersection(base_events2):
         chrm, strand = chrm_strand
         if test_type == 'ttest':
-            chrm_pvals = [
+            chrm_scores = [
                 (np.abs(ttest_ind(
                     base_events1[chrm_strand][pos],
                     base_events2[chrm_strand][pos])[0]), pos)
@@ -1596,7 +1596,7 @@ def get_most_signif_regions(
                 >= MIN_TEST_VALS]
         elif test_type == 'mw_utest':
             # store z-scores from u-test
-            chrm_pvals = [
+            chrm_scores = [
                 (mann_whitney_u_test(
                     base_events1[chrm_strand][pos],
                     base_events2[chrm_strand][pos]), pos)
@@ -1609,18 +1609,26 @@ def get_most_signif_regions(
             raise RuntimeError, ('Invalid significance test type ' +
                                  'provided: ' + str(test_type))
 
-        if len(chrm_pvals) == 0: continue
+        if len(chrm_scores) == 0: continue
+        chrm_scores = sorted(chrm_scores, reverse=True)
+        if test_score_thresh is not None:
+            num_regions = np.argmax(
+                [pos_score < test_score_thresh
+                 for pos_score in zip(*chrm_scores)[0]])
         most_signif_indices.extend((
             stat, max(pos - int(num_bases / 2.0), 0),
-            chrm, strand) for stat, pos in sorted(
-                chrm_pvals, reverse=True)[:num_regions])
+            chrm, strand) for stat, pos in chrm_scores[:num_regions])
 
     if len(most_signif_indices) == 0:
         sys.stderr.write(
-            '*' * 60 + '\nERROR: No reads contain minimum ' +
+            '*' * 60 + '\nERROR: No regions contain minimum ' +
             'number of reads.\n' + '*' * 60 + '\n')
         sys.exit()
 
+    # applied threshold for scores on each chromosome, so now
+    # we include all here
+    if test_score_thresh is not None:
+        num_regions = len(most_signif_indices)
     plot_intervals = zip(
         ['{:03d}'.format(rn) for rn in range(num_regions)],
         [(chrm, start, strand, '({0}: {1:.2f})'.format(
@@ -1651,7 +1659,7 @@ def plot_most_signif(
     base_events1 = get_base_events(raw_read_coverage1, chrm_sizes)
     base_events2 = get_base_events(raw_read_coverage2, chrm_sizes)
 
-    most_signif_indices = get_most_signif_regions(
+    plot_intervals = get_most_signif_regions(
         base_events1, base_events2, test_type, num_bases, num_regions)
 
     plot_two_samples(
@@ -1662,8 +1670,8 @@ def plot_most_signif(
     return
 
 def write_most_signif(
-        files1, files2, num_regions, corrected_group, basecall_subgroups,
-        seqs_fn, num_bases, test_type, obs_filter):
+        files1, files2, num_regions, test_score_thresh, corrected_group,
+        basecall_subgroups, seqs_fn, num_bases, test_type, obs_filter):
     if VERBOSE: sys.stderr.write('Parsing files.\n')
     raw_read_coverage1 = parse_fast5s(
         files1, corrected_group, basecall_subgroups, True)
@@ -1681,8 +1689,9 @@ def write_most_signif(
     base_events1 = get_base_events(raw_read_coverage1, chrm_sizes)
     base_events2 = get_base_events(raw_read_coverage2, chrm_sizes)
 
-    most_signif_indices = get_most_signif_regions(
-        base_events1, base_events2, test_type, num_bases, num_regions)
+    plot_intervals = get_most_signif_regions(
+        base_events1, base_events2, test_type, num_bases, num_regions,
+        test_score_thresh)
 
     # get reads overlapping each region
     all_reg_data1, no_cov_regs1 = get_region_reads(
@@ -1691,12 +1700,15 @@ def write_most_signif(
     all_reg_data2, no_cov_regs2 = get_region_reads(
         plot_intervals, raw_read_coverage2, num_bases,
         filter_no_cov=False)
+    merged_reg_data = [
+        (reg_id, start, chrm, reg_data1 + reg_data2)
+        for (reg_id, start, chrm, reg_data1),
+        (_, _, _, reg_data2) in  zip(all_reg_data1, all_reg_data2)]
     all_reg_base_data = get_reg_base_data(
-        zip(all_reg_data1, all_reg_data2), corrected_group, num_bases)
+        merged_reg_data, corrected_group, num_bases)
 
     if VERBOSE: sys.stderr.write('Outputting region seqeuences.\n')
-    reg_seqs = get_reg_seqs(
-        zip(all_reg_data1, all_reg_data2), all_reg_base_data)
+    reg_seqs = get_reg_seqs(merged_reg_data, all_reg_base_data)
     with open(seqs_fn, 'w') as seqs_fp:
         for reg_i, reg_seq in reg_seqs:
             chrm, start, strand, stat = next(
@@ -1856,9 +1868,9 @@ def write_signif_diff_main(args):
         args.fast5_basedirs, args.fast5_basedirs2)
 
     write_most_signif(
-        files1, files2, args.num_regions, args.corrected_group,
-        args.basecall_subgroups, args.sequences_filename,
-        args.num_bases, args.test_type,
+        files1, files2, args.num_regions, args.test_score_threshold,
+        args.corrected_group, args.basecall_subgroups,
+        args.sequences_filename, args.num_bases, args.test_type,
         parse_obs_filter(args.obs_per_base_filter))
 
     return
