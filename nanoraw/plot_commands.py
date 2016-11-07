@@ -214,19 +214,21 @@ try:
         rNewSegDat <- NewSegDat[NewSegDat$Region == regId,]
         rSigDat <- SigDat[SigDat$Region == regId,]
 
+        regCenter <- median(SigDat$Position) + 1
         sig_max <- max(rSigDat$Signal)
         sig_min <- min(rSigDat$Signal)
         sig_range <- sig_max - sig_min
         print(ggplot(rSigDat) +
               geom_line(aes(x=Position, y=Signal), size=0.2) +
+              geom_vline(aes(xintercept=regCenter), color='red') +
               geom_segment(
                   data=rOldSegDat,
                   aes(x=Position, xend=Position, y=sig_max,
                       yend=sig_max - (sig_range * 0.3), color=IsDel)) +
               geom_text(
                   data=rOldSegDat,
-                  aes(x=Position, y=sig_max, label=Base, color=IsMismatch),
-                  hjust=0, vjust=1, size=5) +
+                  aes(x=Position, y=sig_max, label=Base,
+                      color=IsMismatch), hjust=0, vjust=1, size=5) +
               geom_segment(
                   data=rNewSegDat,
                   aes(x=Position, xend=Position, y=sig_min,
@@ -242,6 +244,38 @@ try:
     }}
 ''')
     plotMultiReadCorr = r.globalenv['plotMultiReadCorr']
+
+    r.r('''
+    plotMultiReadCorrNoOrig <- function(NewSegDat, SigDat){
+    for(regId in unique(NewSegDat$Region)){
+        rNewSegDat <- NewSegDat[NewSegDat$Region == regId,]
+        rSigDat <- SigDat[SigDat$Region == regId,]
+
+        regCenter <- median(SigDat$Position) + 1
+        sig_max <- max(rSigDat$Signal)
+        sig_min <- min(rSigDat$Signal)
+        sig_range <- sig_max - sig_min
+        print(ggplot(rSigDat) +
+              geom_line(aes(x=Position, y=Signal), size=0.2) +
+              geom_vline(aes(xintercept=regCenter), color='red') +
+              geom_segment(
+                  data=rNewSegDat,
+                  aes(x=Position, xend=Position, y=sig_min,
+                      yend=sig_min + (sig_range * 0.3), color=IsIns)) +
+              geom_text(
+                  data=rNewSegDat,
+                  aes(x=Position, y=sig_min, label=Base, color=Base),
+                  hjust=0, vjust=0, size=5) +
+              facet_grid(Read ~ .) +
+              scale_color_manual(
+                  values=c(
+                      'A'='#00CC00', 'C'='#0000CC', 'G'='#FFB300',
+                      'T'='#CC0000', '-'='black', 'N'='black',
+                      'FALSE'='black', 'TRUE'='red')) +
+              theme_bw() + theme(legend.position='none'))
+    }}
+''')
+    plotMultiReadCorrNoOrig = r.globalenv['plotMultiReadCorrNoOrig']
 
     r.r('''
     plotKmerDist <- function(dat){
@@ -988,7 +1022,7 @@ def plot_corrections(
 
 def plot_multi_corrections(
         files, num_reads_per_plot, num_regions, reg_width,
-        corrected_group, basecall_subgroups, pdf_fn):
+        corrected_group, basecall_subgroups, pdf_fn, include_orig_bcs):
     raw_read_coverage = parse_fast5s(
         files, corrected_group, basecall_subgroups)
     read_coverage = get_strand_coverage(raw_read_coverage)
@@ -1020,7 +1054,7 @@ def plot_multi_corrections(
         sys.exit()
     elif len(plot_intervals) < num_regions:
         sys.stderr.write(
-            '*' * 60 + '\Warning: Fewer regions contain minimum ' +
+            '*' * 60 + '\nWarning: Fewer regions contain minimum ' +
             'number of reads than requested.\n' + '*' * 60 + '\n')
 
     if VERBOSE: sys.stderr.write('Preparing plot data.\n')
@@ -1035,11 +1069,11 @@ def plot_multi_corrections(
             # calculate raw position start
             if strand == '+':
                 raw_start = int(r_data.segs[reg_center - r_data.start]
-                                - (reg_width / 2))
+                                - (reg_width / 2) - 1)
             else:
                 raw_start = int((r_data.segs[
                     len(r_data.segs) - (reg_center - r_data.start) - 1]
-                                 - reg_width - 1) + (reg_width / 2))
+                                 - reg_width) + (reg_width / 2))
             old_dat, new_dat, signal_dat = get_read_correction_data(
                 r_data.fn, raw_start, reg_width, r_data.corr_group,
                 reg_i, True)
@@ -1062,7 +1096,10 @@ def plot_multi_corrections(
 
     if VERBOSE: sys.stderr.write('Plotting.\n')
     r.r('pdf("' + pdf_fn + '", height=5, width=11)')
-    plotMultiReadCorr(OldSegDat, NewSegDat, SigDat)
+    if include_orig_bcs:
+        plotMultiReadCorr(OldSegDat, NewSegDat, SigDat)
+    else:
+        plotMultiReadCorrNoOrig(NewSegDat, SigDat)
     r.r('dev.off()')
 
     return
@@ -1474,9 +1511,9 @@ def plot_max_diff(
     if VERBOSE: sys.stderr.write('Parsing files.\n')
     raw_read_coverage1 = parse_fast5s(
         files1, corrected_group, basecall_subgroups, True)
-    raw_read_coverage1 = filter_reads(raw_read_coverage1, obs_filter)
     raw_read_coverage2 = parse_fast5s(
         files2, corrected_group, basecall_subgroups, True)
+    raw_read_coverage1 = filter_reads(raw_read_coverage1, obs_filter)
     raw_read_coverage2 = filter_reads(raw_read_coverage2, obs_filter)
 
     chrm_sizes = dict((chrm, max(
@@ -1600,9 +1637,9 @@ def plot_most_signif(
     if VERBOSE: sys.stderr.write('Parsing files.\n')
     raw_read_coverage1 = parse_fast5s(
         files1, corrected_group, basecall_subgroups, True)
-    raw_read_coverage1 = filter_reads(raw_read_coverage1, obs_filter)
     raw_read_coverage2 = parse_fast5s(
         files2, corrected_group, basecall_subgroups, True)
+    raw_read_coverage1 = filter_reads(raw_read_coverage1, obs_filter)
     raw_read_coverage2 = filter_reads(raw_read_coverage2, obs_filter)
 
     chrm_sizes = dict((chrm, max(
@@ -1630,9 +1667,9 @@ def write_most_signif(
     if VERBOSE: sys.stderr.write('Parsing files.\n')
     raw_read_coverage1 = parse_fast5s(
         files1, corrected_group, basecall_subgroups, True)
-    raw_read_coverage1 = filter_reads(raw_read_coverage1, obs_filter)
     raw_read_coverage2 = parse_fast5s(
         files2, corrected_group, basecall_subgroups, True)
+    raw_read_coverage1 = filter_reads(raw_read_coverage1, obs_filter)
     raw_read_coverage2 = filter_reads(raw_read_coverage2, obs_filter)
 
     chrm_sizes = dict((chrm, max(
@@ -1699,10 +1736,14 @@ def plot_multi_correction_main(args):
     global VERBOSE
     VERBOSE = not args.quiet
 
+    # make sure the signal is an odd for region centering
+    num_regions = args.num_regions if args.num_regions % 2 == 0 else \
+                  args.num_regions + 1
     files = get_files_list(args.fast5_basedirs)
     plot_multi_corrections(
-        files, args.num_reads_per_plot, args.num_regions, args.num_obs,
-        args.corrected_group, args.basecall_subgroups, args.pdf_filename)
+        files, args.num_reads_per_plot, num_regions, args.num_obs,
+        args.corrected_group, args.basecall_subgroups, args.pdf_filename,
+        args.include_original_basecalls)
 
     return
 

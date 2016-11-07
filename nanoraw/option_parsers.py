@@ -196,6 +196,9 @@ seqs_opt=('--sequences-filename', {
     'help':'Filename to store sequences for selected regions (e.g. ' +
     'for PWM search). Sequences will be stored in FASTA format. ' +
     'Default: %(default)s.'})
+origbcs_opt=('--include-original-basecalls', {
+    'default':False, 'action':'store_true',
+    'help':"Iclude original basecalls in plots."})
 quiet_opt=(('--quiet', '-q'), {
     'default':False, 'action':'store_true',
     'help':"Don't print status information."})
@@ -535,6 +538,7 @@ def get_multi_correction_parser():
     misc_args.add_argument(
         pdf_opt[0], default='Nanopore_genome_multiread_correction.pdf',
         **pdf_opt[1])
+    misc_args.add_argument(origbcs_opt[0], **origbcs_opt[1])
     misc_args.add_argument(numreadspplot_opt[0], **numreadspplot_opt[1])
     misc_args.add_argument(numreg_opt[0], **numreg_opt[1])
     misc_args.add_argument(numobs_opt[0], **numobs_opt[1])
