@@ -695,12 +695,19 @@ def resquiggle_main(args):
     USE_R_CPTS = args.use_r_cpts and USE_R_CPTS
 
     if VERBOSE: sys.stderr.write('Getting file list.\n')
-    if args.fast5_pattern:
-        files = glob(os.path.join(
-            args.fast5_basedir, args.fast5_pattern))
-    else:
-        files = [os.path.join(args.fast5_basedir, fn)
-                 for fn in os.listdir(args.fast5_basedir)]
+    try:
+        if args.fast5_pattern:
+            files = glob(os.path.join(
+                args.fast5_basedir, args.fast5_pattern))
+        else:
+            files = [os.path.join(args.fast5_basedir, fn)
+                     for fn in os.listdir(args.fast5_basedir)]
+    except OSError:
+        sys.stderr.write(
+            '*' * 60 + '\nERROR: One of the directories does not ' +
+            'appear to be accessible. Check directory permissions.\n' +
+            '*' * 60 + '\n')
+        sys.exit()
 
     outlier_thresh = args.outlier_threshold if (
         args.outlier_threshold > 0) else None
