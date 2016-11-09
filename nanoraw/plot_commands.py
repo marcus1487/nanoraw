@@ -1518,7 +1518,8 @@ def plot_max_diff(
     chrm_sizes = dict((chrm, max(
         [r_data.end for r_data in raw_read_coverage1[chrm]] +
         [r_data.end for r_data in raw_read_coverage2[chrm]]))
-                       for chrm in raw_read_coverage1)
+                      for chrm in set(raw_read_coverage1).intersection(
+                          raw_read_coverage2))
 
     if VERBOSE: sys.stderr.write('Getting base signal.\n')
     base_means1 = get_base_means(raw_read_coverage1, chrm_sizes)
@@ -1653,8 +1654,8 @@ def plot_most_signif(
     chrm_sizes = dict((chrm, max(
         [r_data.end for r_data in raw_read_coverage1[chrm]] +
         [r_data.end for r_data in raw_read_coverage2[chrm]]))
-                       for chrm in set(raw_read_coverage1).intersection(
-                               raw_read_coverage2))
+                      for chrm in set(raw_read_coverage1).intersection(
+                          raw_read_coverage2))
 
     if VERBOSE: sys.stderr.write('Getting base signal.\n')
     base_events1 = get_base_events(raw_read_coverage1, chrm_sizes)
@@ -1684,7 +1685,8 @@ def write_most_signif(
     chrm_sizes = dict((chrm, max(
         [r_data.end for r_data in raw_read_coverage1[chrm]] +
         [r_data.end for r_data in raw_read_coverage2[chrm]]))
-                       for chrm in raw_read_coverage1)
+                      for chrm in set(raw_read_coverage1).intersection(
+                          raw_read_coverage2))
 
     if VERBOSE: sys.stderr.write('Getting base signal.\n')
     base_events1 = get_base_events(raw_read_coverage1, chrm_sizes)
