@@ -112,7 +112,7 @@ readmean_opt=('--read-mean', {
 
 # misc number of item opts
 numreads_opt=('--num-reads', {
-    'type':int, 'default':10,
+    'type':int,
     'help':'Number of reads to plot (one region per read). ' +
     'Default: %(default)d'})
 numreadspplot_opt=('--num-reads-per-plot', {
@@ -520,7 +520,8 @@ def get_correction_parser():
     misc_args.add_argument(
         pdf_opt[0], default='Nanopore_genome_correction.pdf',
         **pdf_opt[1])
-    misc_args.add_argument(numreads_opt[0], **numreads_opt[1])
+    misc_args.add_argument(
+        numreads_opt[0], default=10, **numreads_opt[1])
     misc_args.add_argument(numobs_opt[0], **numobs_opt[1])
     misc_args.add_argument(*quiet_opt[0], **quiet_opt[1])
     misc_args.add_argument(*help_opt[0], **help_opt[1])
@@ -575,6 +576,8 @@ def get_kmer_dist_parser():
     misc_args.add_argument(
         pdf_opt[0], default='Nanopore_kmer_distribution.pdf',
         **pdf_opt[1])
+    misc_args.add_argument(
+        numreads_opt[0], default=500, **numreads_opt[1])
     misc_args.add_argument(*quiet_opt[0], **quiet_opt[1])
     misc_args.add_argument(*help_opt[0], **help_opt[1])
 

@@ -66,7 +66,7 @@ def write_new_fast5_group(
         basecall_subgroup, norm_type, outlier_thresh):
     # save new events as new hdf5 Group
     read_data = h5py.File(filename, 'r+')
-    corr_grp = read_data['Analyses/' + corrected_group]
+    corr_grp = read_data['/Analyses/' + corrected_group]
     # add subgroup matching subgroup from original basecalls
     corr_subgrp = corr_grp.create_group(basecall_subgroup)
     corr_subgrp.attrs['shift'] = scale_values.shift
@@ -571,7 +571,7 @@ def correct_raw_data(
         return [('FAST5 file is not writable.', filename),]
     try:
         read_data = h5py.File(filename, 'r+')
-        if 'Analyses/' + basecall_group not in read_data:
+        if '/Analyses/' + basecall_group not in read_data:
             return [('FAST5 basecall or Analyses group does not ' +
                      'exist. Likely a mux scan file.', filename),]
         read_data.close()
@@ -580,7 +580,7 @@ def correct_raw_data(
                  filename),]
     if not overwrite:
         read_data = h5py.File(filename, 'r')
-        if 'Analyses/' + corrected_group in read_data:
+        if '/Analyses/' + corrected_group in read_data:
             return [(
                 "Raw genome corrected data exists for " +
                 "this read and --overwrite is not set.", filename),]
@@ -588,14 +588,14 @@ def correct_raw_data(
 
     # create group to store data
     with h5py.File(filename, 'r+') as read_data:
-        analyses_grp = read_data['Analyses']
+        analyses_grp = read_data['/Analyses']
         # check for previously created correction group and
         # delete if it exists
         if corrected_group in analyses_grp:
             del analyses_grp[corrected_group]
 
         corr_grp = analyses_grp.create_group(corrected_group)
-        corr_grp.attrs['version'] = NANORAW_VERSION
+        corr_grp.attrs['nanoraw_version'] = NANORAW_VERSION
         corr_grp.attrs['basecall_group'] = basecall_group
 
     file_failed_reads = []
