@@ -31,12 +31,14 @@ nanoraw [command] [options]
 
 #### Sequencing Time Anchored Plotting Command:
      plot_correction               Plot segmentation before and after correction.
+     plot_multi_correction         Plot multiple raw signals anchored by genomic location.
 
 #### Other Plotting Command:
      plot_kmer                     Plot signal quantiles acorss kmers.
 
 #### Auxiliary Command:
-    write_wiggle                  Write wiggle file of genome coverage from genome_resquiggle mappings.
+     write_most_significant        Write sequence where signal differs the most significantly between two groups.
+     write_wiggle                  Write wiggle file of genome coverage from genome_resquiggle mappings.
 
 > Get additional help for subcommands with `nanoraw [command] -h`
 
