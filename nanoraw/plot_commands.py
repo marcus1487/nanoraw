@@ -6,7 +6,7 @@ import h5py
 import numpy as np
 
 from copy import copy
-from scipy.stats import ttest_ind
+from scipy import stats
 from collections import defaultdict
 from itertools import repeat, groupby
 
@@ -1554,6 +1554,23 @@ def plot_max_diff(
 
     return
 
+def correct_multiple_testing(pvals):
+    """ Use FDR Benjamini-Hochberg multiple testing correction
+    """
+    pvals = np.asarray(pvals)
+
+    pvals_sortind = np.argsort(pvals)
+    pvals_sorted = pvals[pvals_sortind]
+    sortrevind = pvals_sortind.argsort()
+
+    pvals_corrected_raw = pvals_sorted / (np.arange(
+        1,len(pvals)+1)/float(len(pvals)))
+    pvals_corrected = np.minimum.accumulate(
+        pvals_corrected_raw[::-1])[::-1]
+    pvals_corrected[pvals_corrected>1] = 1
+
+    return pvals_corrected[sortrevind]
+
 def mann_whitney_u_test(samp1, samp2):
     s1_len = samp1.shape[0]
     s2_len = samp2.shape[0]
@@ -1573,23 +1590,25 @@ def mann_whitney_u_test(samp1, samp2):
 
     z = min(np.abs(u1 - mu), np.abs(u2 - mu)) / rhou
 
-    return z
+    pval = stats.norm.cdf(-z) * 2.0
+
+    return pval
 
 def get_most_signif_regions(
         base_events1, base_events2, test_type, num_bases, num_regions,
-        test_score_thresh=None):
+        qval_thresh=None):
     if VERBOSE: sys.stderr.write(
             'Test significance of difference in base signal.\n')
     # get num_region most significantly different regions from
     # each chrm then find global most signif after
-    most_signif_indices = []
+    position_pvals = []
     for chrm_strand in set(base_events1).intersection(base_events2):
         chrm, strand = chrm_strand
         if test_type == 'ttest':
-            chrm_scores = [
-                (np.abs(ttest_ind(
+            chrm_pvals = [
+                (np.abs(stats.ttest_ind(
                     base_events1[chrm_strand][pos],
-                    base_events2[chrm_strand][pos])[0]), pos)
+                    base_events2[chrm_strand][pos])[1]), pos)
                 for pos in set(base_events1[chrm_strand]).intersection(
                 base_events2[chrm_strand])
                 if min(base_events1[chrm_strand][pos].shape[0],
@@ -1597,7 +1616,7 @@ def get_most_signif_regions(
                 >= MIN_TEST_VALS]
         elif test_type == 'mw_utest':
             # store z-scores from u-test
-            chrm_scores = [
+            chrm_pvals = [
                 (mann_whitney_u_test(
                     base_events1[chrm_strand][pos],
                     base_events2[chrm_strand][pos]), pos)
@@ -1610,39 +1629,44 @@ def get_most_signif_regions(
             raise RuntimeError, ('Invalid significance test type ' +
                                  'provided: ' + str(test_type))
 
-        if len(chrm_scores) == 0: continue
-        chrm_scores = sorted(chrm_scores, reverse=True)
-        if test_score_thresh is not None:
-            num_regions = np.argmax(
-                [pos_score < test_score_thresh
-                 for pos_score in zip(*chrm_scores)[0]])
-        most_signif_indices.extend((
-            stat, max(pos - int(num_bases / 2.0), 0),
-            chrm, strand) for stat, pos in chrm_scores[:num_regions])
+        if len(chrm_pvals) == 0: continue
+        position_pvals.extend((
+            pval, max(pos - int(num_bases / 2.0), 0),
+            chrm, strand) for pval, pos in chrm_pvals)
 
-    if len(most_signif_indices) == 0:
+    if len(position_pvals) == 0:
         sys.stderr.write(
             '*' * 60 + '\nERROR: No regions contain minimum ' +
             'number of reads.\n' + '*' * 60 + '\n')
         sys.exit()
 
+    position_pvals = sorted(position_pvals)
+    all_pvals = zip(*position_pvals)[0]
+    fdr_corr_pvals = correct_multiple_testing(all_pvals)
     # applied threshold for scores on each chromosome, so now
     # we include all here
-    if test_score_thresh is not None:
-        num_regions = len(most_signif_indices)
+    if qval_thresh is not None:
+        num_regions = np.argmax(fdr_corr_pvals > qval_thresh)
+        if num_regions == 0:
+            sys.stderr.write(
+                '*' * 60 + '\nERROR: No regions identified q-value ' +
+                'below thresh. Minumum q-value: {:.2g}\n'.format(
+                    fdr_corr_pvals.min()) + '*' * 60 + '\n')
+            sys.exit()
     plot_intervals = zip(
         ['{:03d}'.format(rn) for rn in range(num_regions)],
-        [(chrm, start, strand, '({0}: {1:.2f})'.format(
-            'T-score:' if test_type == 'ttest' else 'Z-score', stat))
-         for stat, start, chrm, strand in
-         sorted(most_signif_indices, reverse=True)[:num_regions]])
+        [(chrm, start, strand,
+          '(q-value:{0:.2g} p-value:{1:.2g})'.format(qval, pval))
+         for qval, (pval, start, chrm, strand) in
+         zip(fdr_corr_pvals[:num_regions],
+             position_pvals[:num_regions])])
 
     return plot_intervals
 
 def plot_most_signif(
         files1, files2, num_regions, corrected_group, basecall_subgroups,
         overplot_thresh, pdf_fn, seqs_fn, num_bases, overplot_type,
-        test_type, obs_filter):
+        test_type, obs_filter, qval_thresh=None):
     if VERBOSE: sys.stderr.write('Parsing files.\n')
     raw_read_coverage1 = parse_fast5s(
         files1, corrected_group, basecall_subgroups, True)
@@ -1662,7 +1686,8 @@ def plot_most_signif(
     base_events2 = get_base_events(raw_read_coverage2, chrm_sizes)
 
     plot_intervals = get_most_signif_regions(
-        base_events1, base_events2, test_type, num_bases, num_regions)
+        base_events1, base_events2, test_type, num_bases, num_regions,
+        qval_thresh)
 
     plot_two_samples(
         plot_intervals, raw_read_coverage1, raw_read_coverage2,
@@ -1672,7 +1697,7 @@ def plot_most_signif(
     return
 
 def write_most_signif(
-        files1, files2, num_regions, test_score_thresh, corrected_group,
+        files1, files2, num_regions, qval_thresh, corrected_group,
         basecall_subgroups, seqs_fn, num_bases, test_type, obs_filter):
     if VERBOSE: sys.stderr.write('Parsing files.\n')
     raw_read_coverage1 = parse_fast5s(
@@ -1694,7 +1719,7 @@ def write_most_signif(
 
     plot_intervals = get_most_signif_regions(
         base_events1, base_events2, test_type, num_bases, num_regions,
-        test_score_thresh)
+        qval_thresh)
 
     # get reads overlapping each region
     all_reg_data1, no_cov_regs1 = get_region_reads(
@@ -1859,7 +1884,8 @@ def signif_diff_main(args):
         args.basecall_subgroups, args.overplot_threshold,
         args.pdf_filename, args.sequences_filename, args.num_bases,
         args.overplot_type, args.test_type,
-        parse_obs_filter(args.obs_per_base_filter))
+        parse_obs_filter(args.obs_per_base_filter),
+        args.q_value_threshold)
 
     return
 
@@ -1871,7 +1897,7 @@ def write_signif_diff_main(args):
         args.fast5_basedirs, args.fast5_basedirs2)
 
     write_most_signif(
-        files1, files2, args.num_regions, args.test_score_threshold,
+        files1, files2, args.num_regions, args.q_value_threshold,
         args.corrected_group, args.basecall_subgroups,
         args.sequences_filename, args.num_bases, args.test_type,
         parse_obs_filter(args.obs_per_base_filter))
