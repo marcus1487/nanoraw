@@ -297,7 +297,7 @@ try:
         scale_color_manual(
             values=c('#00CC00', '#0000CC', '#FFB300', '#CC0000')))
     print(ggplot(dat) +
-        geom_path(aes(x=Trimer, y=Signal, group=Read), alpha=0.1) +
+        geom_path(aes(x=Trimer, y=Signal, group=Read), alpha=0.05) +
         theme_bw() +
         theme(axis.text.x=element_text(angle=60, hjust=1, size=8)) +
         scale_color_manual(
@@ -319,24 +319,24 @@ except:
 ############################################
 
 def plot_kmer_dist(files, corrected_group, basecall_subgroups,
-                   read_mean, kmer_len, kmer_thresh, pdf_fn):
-    if VERBOSE: sys.stderr.write('Parsing files.\n')
-    all_raw_data = []
+                   read_mean, kmer_len, kmer_thresh, num_reads, pdf_fn):
+    if VERBOSE: sys.stderr.write(
+            'Parsing files and tabulating k-mers.\n')
+    reads_added = 0
+    all_trimers = defaultdict(list)
+    # randomly pick files instead of ordered from listing
+    np.random.shuffle(files)
     for fn, basecall_subgroup in [(fn, bc_grp) for fn in files
                                   for bc_grp in basecall_subgroups]:
         read_data = h5py.File(fn)
-        if ('Analyses/' + corrected_group + '/' +
-            basecall_subgroup) not in read_data:
+        if ('/Analyses/' + corrected_group + '/' +
+            basecall_subgroup + '/Events') not in read_data:
             continue
-        corr_data = read_data[
-            'Analyses/' + corrected_group + '/' + basecall_subgroup]
-        seq = ''.join(corr_data['Events']['base'])
-        means = np.array(corr_data['Events']['norm_mean'])
-        all_raw_data.append((seq, means))
-
-    if VERBOSE: sys.stderr.write('Tabulating k-mers.\n')
-    all_trimers = defaultdict(list)
-    for read_i, (seq, means) in enumerate(all_raw_data):
+        event_data = read_data[
+            '/Analyses/' + corrected_group + '/' + basecall_subgroup +
+            '/Events'].value
+        seq = event_data['base']
+        means = event_data['norm_mean']
         read_trimers = defaultdict(list)
         for trimer, event_mean in zip(
                 [''.join(bs) for bs in zip(*[
@@ -344,13 +344,17 @@ def plot_kmer_dist(files, corrected_group, basecall_subgroups,
                 means[kmer_len - 1:]):
             read_trimers[trimer].append(event_mean)
         if min(len(x) for x in read_trimers.values()) > kmer_thresh:
+            reads_added += 1
             for trimer, trimer_means in read_trimers.items():
                 if read_mean:
                     all_trimers[trimer].append((
-                        np.mean(trimer_means), read_i))
+                        np.mean(trimer_means), reads_added))
                 else:
                     all_trimers[trimer].extend(
-                        zip(trimer_means, repeat(read_i)))
+                        zip(trimer_means, repeat(reads_added)))
+
+        if reads_added >= num_reads:
+            break
 
     if VERBOSE: sys.stderr.write('Preparing plot data.\n')
     kmer_levels = [kmer for means, kmer in sorted([
@@ -1795,7 +1799,7 @@ def kmer_dist_main(args):
     plot_kmer_dist(
         files, args.corrected_group, args.basecall_subgroups,
         args.read_mean, args.kmer_length, args.num_trimer_threshold,
-        args.pdf_filename)
+        args.num_reads, args.pdf_filename)
 
     return
 
