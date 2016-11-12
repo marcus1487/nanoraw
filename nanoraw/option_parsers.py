@@ -134,6 +134,11 @@ qvalthresh_opt=('--q-value-threshold', {
 numbases_opt=('--num-bases', {
     'type':int, 'default':51,
     'help':'Number of bases to plot from region. Default: %(default)d'})
+minreads_opt=('--minimum-test-reads', {
+    'type':int, 'default':5,
+    'help':'Number of reads required from both samples to test for ' +
+    'significant difference in signal level. ' +
+    'Default: %(default)d'})
 
 # correction process plotting opts
 regtype_opt=('--region-type', {
@@ -432,6 +437,7 @@ def get_signif_diff_parser():
         default='Nanopore_read_coverage.significant_difference.pdf',
         **pdf_opt[1])
     misc_args.add_argument(qvalthresh_opt[0], **qvalthresh_opt[1])
+    misc_args.add_argument(minreads_opt[0], **minreads_opt[1])
     misc_args.add_argument(seqs_opt[0], **seqs_opt[1])
     misc_args.add_argument(numreg_opt[0], **numreg_opt[1])
     misc_args.add_argument(numbases_opt[0], **numbases_opt[1])
@@ -469,6 +475,7 @@ def get_write_signif_diff_parser():
         **seqs_opt[1])
     misc_args.add_argument(numreg_opt[0], **numreg_opt[1])
     misc_args.add_argument(qvalthresh_opt[0], **qvalthresh_opt[1])
+    misc_args.add_argument(minreads_opt[0], **minreads_opt[1])
     misc_args.add_argument(numbases_opt[0], **numbases_opt[1])
     misc_args.add_argument(*quiet_opt[0], **quiet_opt[1])
     misc_args.add_argument(*help_opt[0], **help_opt[1])

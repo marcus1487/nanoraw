@@ -20,8 +20,6 @@ VERBOSE = False
 # to be meaningful
 QUANT_MIN = 3
 
-MIN_TEST_VALS = 2
-
 # plotting names for strands
 FWD_STRAND = 'Forward Strand'
 REV_STRAND = 'Reverse Strand'
@@ -1600,7 +1598,7 @@ def mann_whitney_u_test(samp1, samp2):
 
 def get_most_signif_regions(
         base_events1, base_events2, test_type, num_bases, num_regions,
-        qval_thresh=None):
+        qval_thresh=None, min_test_vals=2):
     if VERBOSE: sys.stderr.write(
             'Test significance of difference in base signal.\n')
     # get num_region most significantly different regions from
@@ -1617,7 +1615,7 @@ def get_most_signif_regions(
                 base_events2[chrm_strand])
                 if min(base_events1[chrm_strand][pos].shape[0],
                        base_events2[chrm_strand][pos].shape[0])
-                >= MIN_TEST_VALS]
+                >= min_test_vals]
         elif test_type == 'mw_utest':
             # store z-scores from u-test
             chrm_pvals = [
@@ -1628,7 +1626,7 @@ def get_most_signif_regions(
                         base_events2[chrm_strand])
                 if min(base_events1[chrm_strand][pos].shape[0],
                        base_events2[chrm_strand][pos].shape[0])
-                >= MIN_TEST_VALS]
+                >= min_test_vals]
         else:
             raise RuntimeError, ('Invalid significance test type ' +
                                  'provided: ' + str(test_type))
@@ -1670,7 +1668,7 @@ def get_most_signif_regions(
 def plot_most_signif(
         files1, files2, num_regions, corrected_group, basecall_subgroups,
         overplot_thresh, pdf_fn, seqs_fn, num_bases, overplot_type,
-        test_type, obs_filter, qval_thresh=None):
+        test_type, obs_filter, qval_thresh, min_test_vals):
     if VERBOSE: sys.stderr.write('Parsing files.\n')
     raw_read_coverage1 = parse_fast5s(
         files1, corrected_group, basecall_subgroups, True)
@@ -1691,7 +1689,7 @@ def plot_most_signif(
 
     plot_intervals = get_most_signif_regions(
         base_events1, base_events2, test_type, num_bases, num_regions,
-        qval_thresh)
+        qval_thresh, min_test_vals)
 
     plot_two_samples(
         plot_intervals, raw_read_coverage1, raw_read_coverage2,
@@ -1702,7 +1700,8 @@ def plot_most_signif(
 
 def write_most_signif(
         files1, files2, num_regions, qval_thresh, corrected_group,
-        basecall_subgroups, seqs_fn, num_bases, test_type, obs_filter):
+        basecall_subgroups, seqs_fn, num_bases, test_type, obs_filter,
+        min_test_vals):
     if VERBOSE: sys.stderr.write('Parsing files.\n')
     raw_read_coverage1 = parse_fast5s(
         files1, corrected_group, basecall_subgroups, True)
@@ -1723,7 +1722,7 @@ def write_most_signif(
 
     plot_intervals = get_most_signif_regions(
         base_events1, base_events2, test_type, num_bases, num_regions,
-        qval_thresh)
+        qval_thresh, min_test_vals)
 
     # get reads overlapping each region
     all_reg_data1, no_cov_regs1 = get_region_reads(
@@ -1889,7 +1888,7 @@ def signif_diff_main(args):
         args.pdf_filename, args.sequences_filename, args.num_bases,
         args.overplot_type, args.test_type,
         parse_obs_filter(args.obs_per_base_filter),
-        args.q_value_threshold)
+        args.q_value_threshold, args.minimum_test_reads)
 
     return
 
@@ -1904,7 +1903,8 @@ def write_signif_diff_main(args):
         files1, files2, args.num_regions, args.q_value_threshold,
         args.corrected_group, args.basecall_subgroups,
         args.sequences_filename, args.num_bases, args.test_type,
-        parse_obs_filter(args.obs_per_base_filter))
+        parse_obs_filter(args.obs_per_base_filter),
+        args.minimum_test_reads)
 
     return
 
