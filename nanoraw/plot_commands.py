@@ -1580,17 +1580,17 @@ def mann_whitney_u_test(samp1, samp2):
 
     all_vals = np.concatenate([samp1, samp2])
     ranks = np.empty(tot_len, int)
-    ranks[all_vals.argsort()] = np.arange(tot_len)
+    ranks[all_vals.argsort()] = np.arange(1, tot_len + 1)
     s1_ranks_sum = ranks[:s1_len].sum()
-    s2_ranks_sum = ranks[s1_len:].sum()
+    #s2_ranks_sum = ranks[s1_len:].sum()
 
     u1 = s1_ranks_sum - (s1_len * (s1_len + 1)) / 2
-    u2 = s2_ranks_sum - (s2_len * (s2_len + 1)) / 2
+    #u2 = s2_ranks_sum - (s2_len * (s2_len + 1)) / 2
 
     mu = s1_len * s2_len / 2
     rhou = np.sqrt(s1_len * s2_len * (s1_len + s2_len + 1) / 12)
 
-    z = min(np.abs(u1 - mu), np.abs(u2 - mu)) / rhou
+    z = np.abs(u1 - mu) / rhou
 
     pval = stats.norm.cdf(-z) * 2.0
 

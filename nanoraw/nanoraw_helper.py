@@ -91,14 +91,20 @@ def parse_fast5s(files, corrected_group, basecall_subgroups,
             continue
         corr_data = read_data[corr_slot]
 
-        align_data = dict(corr_data['Alignment'].attrs.items())
-        read_start_rel_to_raw = corr_data['Events'].attrs[
-            'read_start_rel_to_raw']
-        event_data = corr_data['Events'].value
-        events_end = event_data[-1]['start'] + event_data[-1]['length']
-        segs = np.concatenate([event_data['start'], [events_end,]])
-        base_means = event_data['norm_mean'] if get_means else None
-        base_stdevs = event_data['norm_stdev'] if get_stdevs else None
+        try:
+            align_data = dict(corr_data['Alignment'].attrs.items())
+            read_start_rel_to_raw = corr_data['Events'].attrs[
+                'read_start_rel_to_raw']
+            event_data = corr_data['Events'].value
+            events_end = event_data[-1]['start'] + event_data[-1]['length']
+            segs = np.concatenate([event_data['start'], [events_end,]])
+            base_means = event_data['norm_mean'] if get_means else None
+            base_stdevs = event_data['norm_stdev'] if get_stdevs else None
+        except:
+            sys.stderr.write(
+                '********** WARNING: Corrupted corrected events in ' +
+                read_fn + '. ********\n')
+            continue
         raw_read_coverage[align_data['mapped_chrom']].append(
             readData(
                 align_data['mapped_start'],
