@@ -172,16 +172,23 @@ try:
     plotGroupComp = r.globalenv['plotGroupComp']
 
     r.r('''
-    plotReadCorr <- function(OldSegDat, NewSegDat, SigDat){
+    plotReadCorr <- function(OldSegDat, NewSegDat, SigDat, DiffDat){
+    OldSegDat <- cbind.data.frame(OldSegDat, Type='Signal')
+    NewSegDat <- cbind.data.frame(NewSegDat, Type='Signal')
+
     for(readId in unique(OldSegDat$Read)){
     rOldSegDat <- OldSegDat[OldSegDat$Read == readId,]
     rNewSegDat <- NewSegDat[NewSegDat$Read == readId,]
     rSigDat <- SigDat[SigDat$Read == readId,]
+    rDiffDat <- DiffDat[DiffDat$Read == readId,]
+    rSigDiffDat <- rbind.data.frame(
+        cbind.data.frame(rSigDat, Type='Signal'),
+        cbind.data.frame(rDiffDat, Type='Running Difference'))
 
     sig_max <- max(rSigDat$Signal)
     sig_min <- min(rSigDat$Signal)
     sig_range <- sig_max - sig_min
-    print(ggplot(rSigDat) +
+    print(ggplot(rSigDiffDat) +
         geom_line(aes(x=Position, y=Signal), size=0.2) +
         geom_segment(
             data=rOldSegDat,
@@ -199,8 +206,10 @@ try:
             data=rNewSegDat,
             aes(x=Position, y=sig_min, label=Base),
             hjust=0, vjust=0, size=5) +
+        facet_grid(Type ~ ., scales='free') +
         scale_color_manual(values=c('FALSE'='black', 'TRUE'='red')) +
-        theme_bw() + theme(legend.position='none'))
+        theme_bw() + theme(legend.position='none',
+                           axis.title.y=element_blank()))
 }}
 ''')
     plotReadCorr = r.globalenv['plotReadCorr']
@@ -426,7 +435,6 @@ def get_read_correction_data(
         reg_start = reg_type
 
     raw_offset = corr_data['Events'].attrs['read_start_rel_to_raw']
-    # TODO: calculate moving window difference to plot
     shift = corr_data.attrs['shift']
     scale = corr_data.attrs['scale']
     lower_lim = corr_data.attrs['lower_lim']
@@ -435,6 +443,13 @@ def get_read_correction_data(
         raw_data['Signal'].value, raw_offset + reg_start, reg_width,
         shift=shift, scale=scale, lower_lim=lower_lim,
         upper_lim=upper_lim)
+
+    # calculate running difference
+    min_seg_len = 4
+    sig_cs = np.cumsum(np.insert(norm_reg_signal, 0, 0))
+    running_diffs = np.abs((2 * sig_cs[min_seg_len:-min_seg_len]) -
+                           sig_cs[:-2*min_seg_len] -
+                           sig_cs[2*min_seg_len:])
 
     # note that I need to check that both new and old segments are
     # in the region as the start of the same genomic position can
@@ -486,6 +501,13 @@ def get_read_correction_data(
                     old_is_del.append(False)
                 old_is_mismatch.append(old_b != new_b)
 
+    old_bases, old_reg_segs = zip(*[
+        (b, pos) for b, pos, in_reg in zip(*reg_align_vals)[0]
+        if in_reg]) if len(reg_align_vals) > 0 else ([], [])
+    new_bases, new_reg_segs = zip(*[
+        (b, pos) for b, pos, in_reg in zip(*reg_align_vals)[1]
+        if in_reg]) if len(reg_align_vals) > 0 else ([], [])
+
     # bring positions to zero start if aligning multiple sequences
     sig_range = range(reg_start, reg_start + reg_width)
     if start_at_zero:
@@ -494,11 +516,6 @@ def get_read_correction_data(
         new_reg_segs = [
             new_seg_pos - reg_start for new_seg_pos in new_reg_segs]
         sig_range = range(0, reg_width)
-
-    old_bases = [
-        b for b, pos, in_reg in zip(*reg_align_vals)[0] if in_reg]
-    new_bases = [
-        b for b, pos, in_reg in zip(*reg_align_vals)[1] if in_reg]
 
     old_dat = {
         'Position':r.FloatVector(old_reg_segs),
@@ -516,6 +533,12 @@ def get_read_correction_data(
         'Position':r.FloatVector(sig_range),
         'Read':r.StrVector([
             read_id for _ in range(len(norm_reg_signal))])}
+    diff_dat = {
+        'Signal':r.FloatVector(running_diffs),
+        'Position':r.FloatVector(sig_range[
+            min_seg_len - 1:len(running_diffs) + min_seg_len - 1]),
+        'Read':r.StrVector([
+            read_id for _ in range(len(running_diffs))])}
     # add region is applicable
     if region_name is not None:
         old_dat['Region'] = r.StrVector([
@@ -524,12 +547,15 @@ def get_read_correction_data(
             region_name for _ in range(len(new_bases))])
         sig_dat['Region'] = r.StrVector([
             region_name for _ in range(len(norm_reg_signal))])
+        diff_dat['Region'] = r.StrVector([
+            region_name for _ in range(len(running_diffs))])
 
     old_dat = r.DataFrame(old_dat)
     new_dat = r.DataFrame(new_dat)
     sig_dat = r.DataFrame(sig_dat)
+    diff_dat = r.DataFrame(diff_dat)
 
-    return old_dat, new_dat, sig_dat
+    return old_dat, new_dat, sig_dat, diff_dat
 
 def get_reg_events(r_data, interval_start, num_bases):
     if r_data.means is None:
@@ -992,11 +1018,12 @@ def plot_corrections(
         plot_intervals, reg_width, num_reads,
         corrected_group, basecall_subgroup, pdf_fn):
     if VERBOSE: sys.stderr.write('Preparing plot data.\n')
-    OldSegDat, NewSegDat, SigDat = [], [], []
+    OldSegDat, NewSegDat, SigDat, DiffDat = [], [], [], []
     for read_fn, reg_type in plot_intervals:
-        old_dat, new_dat, signal_dat = get_read_correction_data(
-            read_fn, reg_type, reg_width, corrected_group + '/' +
-            basecall_subgroup)
+        old_dat, new_dat, signal_dat, diff_dat \
+            = get_read_correction_data(
+                read_fn, reg_type, reg_width, corrected_group + '/' +
+                basecall_subgroup)
         if old_dat is None:
             # skip reads that don't have correction slots b/c they
             # couldn't be corrected
@@ -1004,6 +1031,7 @@ def plot_corrections(
         OldSegDat.append(old_dat)
         NewSegDat.append(new_dat)
         SigDat.append(signal_dat)
+        DiffDat.append(diff_dat)
         if len(OldSegDat) >= num_reads:
             break
     if VERBOSE and len(OldSegDat) < num_reads:
@@ -1014,10 +1042,11 @@ def plot_corrections(
     OldSegDat = r.DataFrame.rbind(*OldSegDat)
     NewSegDat = r.DataFrame.rbind(*NewSegDat)
     SigDat = r.DataFrame.rbind(*SigDat)
+    DiffDat = r.DataFrame.rbind(*DiffDat)
 
     if VERBOSE: sys.stderr.write('Plotting.\n')
-    r.r('pdf("' + pdf_fn + '", height=5, width=11)')
-    plotReadCorr(OldSegDat, NewSegDat, SigDat)
+    r.r('pdf("' + pdf_fn + '", height=7, width=11)')
+    plotReadCorr(OldSegDat, NewSegDat, SigDat, DiffDat)
     r.r('dev.off()')
 
     return
@@ -1064,9 +1093,11 @@ def plot_multi_corrections(
     for reg_i, (chrm, reg_center, strand) in plot_intervals:
         reg_num_reads = 0
         ## get num_reads_per_region reads from this region
-        reg_reads = [r_data for r_data in raw_read_coverage[chrm]
-                     if r_data.start <= reg_center and
-                     r_data.end > reg_center and r_data.strand == strand]
+        reg_reads = [
+            r_data for r_data in raw_read_coverage[chrm]
+            if r_data.start <= reg_center - (reg_width / 2.0) and
+            r_data.end > reg_center + (reg_width / 2.0) and
+            r_data.strand == strand]
         for r_data in reg_reads:
             # calculate raw position start
             if strand == '+':
@@ -1076,9 +1107,10 @@ def plot_multi_corrections(
                 raw_start = int((r_data.segs[
                     len(r_data.segs) - (reg_center - r_data.start) - 1]
                                  - reg_width) + (reg_width / 2))
-            old_dat, new_dat, signal_dat = get_read_correction_data(
-                r_data.fn, raw_start, reg_width, r_data.corr_group,
-                reg_i, True)
+            old_dat, new_dat, signal_dat, diff_dat \
+                = get_read_correction_data(
+                    r_data.fn, raw_start, reg_width, r_data.corr_group,
+                    reg_i, True)
             if old_dat is None:
                 # skip reads that don't have correction slots b/c they
                 # couldn't be corrected

@@ -96,7 +96,8 @@ def parse_fast5s(files, corrected_group, basecall_subgroups,
             read_start_rel_to_raw = corr_data['Events'].attrs[
                 'read_start_rel_to_raw']
             event_data = corr_data['Events'].value
-            events_end = event_data[-1]['start'] + event_data[-1]['length']
+            events_end = event_data[-1]['start'] + event_data[-1][
+                'length']
             segs = np.concatenate([event_data['start'], [events_end,]])
             base_means = event_data['norm_mean'] if get_means else None
             base_stdevs = event_data['norm_stdev'] if get_stdevs else None
