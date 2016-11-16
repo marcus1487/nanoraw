@@ -1797,10 +1797,10 @@ def write_most_signif(
     return
 
 def sliding_window_dist(sig_diffs1, sig_diffs2, num_bases):
-    return min(np.sqrt(np.sum(np.square(sig_diffs1[i1:i1+num_bases] -
-                                        sig_diffs2[i2:i2+num_bases])))
-               for i1 in range(len(sig_diffs1) - num_bases)
-               for i2 in range(len(sig_diffs2) - num_bases))
+    return np.sqrt(min(np.sum(np.square(
+        sig_diffs1[i1:i1+num_bases] - sig_diffs2[i2:i2+num_bases]))
+                       for i1 in range(len(sig_diffs1) - num_bases)
+                       for i2 in range(len(sig_diffs2) - num_bases)))
 
 def cluster_most_signif(
         files1, files2, num_regions, qval_thresh, corrected_group,
@@ -1827,6 +1827,14 @@ def cluster_most_signif(
     plot_intervals = get_most_signif_regions(
         base_events1, base_events2, test_type, (num_bases * 2) - 1,
         num_regions, qval_thresh, min_test_vals)
+    uniq_p_intervals = []
+    used_intervals = defaultdict(set)
+    for p_int, (chrm, start, strand, reg_name) in plot_intervals:
+        if start not in used_intervals[(chrm, strand)]:
+            uniq_p_intervals.append(
+                (p_int, (chrm, start, strand, reg_name)))
+            used_intervals[(chrm, strand)].update(range(
+                start, start + (num_bases * 2) - 1))
 
     if VERBOSE: sys.stderr.write('Getting region signal difference.\n')
     reg_sig_diffs = [
@@ -1834,7 +1842,7 @@ def cluster_most_signif(
             np.median(base_events1[(chrm, strand)][pos]) -
             np.median(base_events2[(chrm, strand)][pos])
             for pos in range(start, start + (num_bases * 2) - 1)])
-        for chrm, start, strand, _ in zip(*plot_intervals)[1]]
+        for chrm, start, strand, _ in zip(*uniq_p_intervals)[1]]
 
     if VERBOSE: sys.stderr.write('Getting region distances.\n')
     reg_sig_diff_dists = [
@@ -1851,10 +1859,10 @@ def cluster_most_signif(
     if r_struct_fn is not None:
         if VERBOSE: sys.stderr.write('Getting sequences.\n')
         all_reg_data1, no_cov_regs1 = get_region_reads(
-            plot_intervals, raw_read_coverage1, (num_bases * 2) - 1,
+            uniq_p_intervals, raw_read_coverage1, (num_bases * 2) - 1,
             filter_no_cov=False)
         all_reg_data2, no_cov_regs2 = get_region_reads(
-            plot_intervals, raw_read_coverage2, (num_bases * 2) - 1,
+            uniq_p_intervals, raw_read_coverage2, (num_bases * 2) - 1,
             filter_no_cov=False)
         merged_reg_data = [
             (reg_id, start, chrm, reg_data1 + reg_data2)
