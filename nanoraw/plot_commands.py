@@ -1746,8 +1746,8 @@ def plot_most_signif(
     return
 
 def get_region_sequences(
-        plot_intervals, raw_read_coverage1, raw_read_coverage2, num_bases,
-        filter_no_cov, corrected_group):
+        plot_intervals, raw_read_coverage1, raw_read_coverage2,
+        num_bases, corrected_group):
     all_reg_data1, no_cov_regs1 = get_region_reads(
         plot_intervals, raw_read_coverage1, num_bases,
         filter_no_cov=False)
@@ -1791,7 +1791,7 @@ def write_most_signif(
 
     reg_seqs = get_region_sequences(
         plot_intervals, raw_read_coverage1, raw_read_coverage2,
-        num_bases, filter_no_cov, corrected_group)
+        num_bases, corrected_group)
 
     # get reads overlapping each region
     if VERBOSE: sys.stderr.write('Outputting region seqeuences.\n')
@@ -1813,6 +1813,9 @@ def sliding_window_dist(sig_diffs1, sig_diffs2, num_bases):
                        for i1 in range(len(sig_diffs1) - num_bases)
                        for i2 in range(len(sig_diffs2) - num_bases)))
 
+def euclidian_dist(sig_diffs1, sig_diffs2):
+    return np.sqrt(np.sum(np.square(sig_diffs1 - sig_diffs2)))
+
 def get_pairwise_dists(reg_sig_diffs, index_q, dists_q, num_bases):
     while not index_q.empty():
         try:
@@ -1821,8 +1824,7 @@ def get_pairwise_dists(reg_sig_diffs, index_q, dists_q, num_bases):
             break
 
         row_dists = np.array(
-            [sliding_window_dist(
-                reg_sig_diffs[index], reg_sig_diffs[j], num_bases)
+            [euclidian_dist(reg_sig_diffs[index], reg_sig_diffs[j])
              for j in range(0,index+1)] +
             [0 for _ in range(index+1, len(reg_sig_diffs))])
         dists_q.put((index, row_dists))
@@ -1850,6 +1852,10 @@ def cluster_most_signif(
     if VERBOSE: sys.stderr.write('Getting base signal.\n')
     base_events1 = get_base_events(raw_read_coverage1, chrm_sizes)
     base_events2 = get_base_events(raw_read_coverage2, chrm_sizes)
+    covered_poss = dict(
+        (chrm_strand, set(base_events1[chrm_strand]).intersection(
+            base_events2[chrm_strand]))
+        for chrm_strand in set(base_events1).intersection(base_events2))
 
     plot_intervals = get_most_signif_regions(
         base_events1, base_events2, test_type, (num_bases * 2) - 1,
@@ -1857,11 +1863,15 @@ def cluster_most_signif(
     uniq_p_intervals = []
     used_intervals = defaultdict(set)
     for p_int, (chrm, start, strand, reg_name) in plot_intervals:
-        if start not in used_intervals[(chrm, strand)]:
+        # could have significant region immediately next to
+        # beginning/end of reads
+        interval_poss = range(start, start + (num_bases * 2) - 1)
+        if start not in used_intervals[(chrm, strand)] and all(
+                pos in covered_poss[(chrm, strand)]
+                for pos in interval_poss):
             uniq_p_intervals.append(
                 (p_int, (chrm, start, strand, reg_name)))
-            used_intervals[(chrm, strand)].update(range(
-                start, start + (num_bases * 2) - 1))
+            used_intervals[(chrm, strand)].update(interval_poss)
 
     if VERBOSE: sys.stderr.write('Getting region signal difference.\n')
     reg_sig_diffs = [
@@ -1910,7 +1920,7 @@ def cluster_most_signif(
         # add region sequences to column names for saved dist matrix
         reg_seqs = get_region_sequences(
             uniq_p_intervals, raw_read_coverage1, raw_read_coverage2,
-            (num_bases * 2) - 1, filter_no_cov, corrected_group)
+            (num_bases * 2) - 1, corrected_group)
         reg_sig_diff_dists.colnames = r.StrVector(
             [str(i) + "." + seq for i, seq in
              enumerate(zip(*reg_seqs)[1])])
