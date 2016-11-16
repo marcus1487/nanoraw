@@ -2,10 +2,13 @@ import os, sys
 
 import re
 import h5py
+import Queue
 
 import numpy as np
+import multiprocessing as mp
 
 from copy import copy
+from time import sleep
 from scipy import stats
 from collections import defaultdict
 from itertools import repeat, groupby
@@ -178,7 +181,7 @@ try:
     gdat <- as.data.frame(fit$points)
     colnames(gdat) <- c('Coordinate1', 'Coordinate2')
     print(ggplot(gdat, aes(x=Coordinate1, y=Coordinate2)) +
-          geom_point(alpha=0.3, size=0.5) + stat_ellipse() + theme_bw())
+          geom_point(alpha=0.3, size=0.5) + theme_bw())
 }
 ''')
     plotSigMDS = r.globalenv['plotSigMDS']
@@ -1742,6 +1745,24 @@ def plot_most_signif(
 
     return
 
+def get_region_sequences(
+        plot_intervals, raw_read_coverage1, raw_read_coverage2, num_bases,
+        filter_no_cov, corrected_group):
+    all_reg_data1, no_cov_regs1 = get_region_reads(
+        plot_intervals, raw_read_coverage1, num_bases,
+        filter_no_cov=False)
+    all_reg_data2, no_cov_regs2 = get_region_reads(
+        plot_intervals, raw_read_coverage2, num_bases,
+        filter_no_cov=False)
+    merged_reg_data = [
+        (reg_id, start, chrm, reg_data1 + reg_data2)
+        for (reg_id, start, chrm, reg_data1),
+        (_, _, _, reg_data2) in  zip(all_reg_data1, all_reg_data2)]
+    all_reg_base_data = get_reg_base_data(
+        merged_reg_data, corrected_group, num_bases)
+
+    return get_reg_seqs(merged_reg_data, all_reg_base_data)
+
 def write_most_signif(
         files1, files2, num_regions, qval_thresh, corrected_group,
         basecall_subgroups, seqs_fn, num_bases, test_type, obs_filter,
@@ -1768,22 +1789,12 @@ def write_most_signif(
         base_events1, base_events2, test_type, num_bases, num_regions,
         qval_thresh, min_test_vals)
 
-    # get reads overlapping each region
-    all_reg_data1, no_cov_regs1 = get_region_reads(
-        plot_intervals, raw_read_coverage1, num_bases,
-        filter_no_cov=False)
-    all_reg_data2, no_cov_regs2 = get_region_reads(
-        plot_intervals, raw_read_coverage2, num_bases,
-        filter_no_cov=False)
-    merged_reg_data = [
-        (reg_id, start, chrm, reg_data1 + reg_data2)
-        for (reg_id, start, chrm, reg_data1),
-        (_, _, _, reg_data2) in  zip(all_reg_data1, all_reg_data2)]
-    all_reg_base_data = get_reg_base_data(
-        merged_reg_data, corrected_group, num_bases)
+    reg_seqs = get_region_sequences(
+        plot_intervals, raw_read_coverage1, raw_read_coverage2,
+        num_bases, filter_no_cov, corrected_group)
 
+    # get reads overlapping each region
     if VERBOSE: sys.stderr.write('Outputting region seqeuences.\n')
-    reg_seqs = get_reg_seqs(merged_reg_data, all_reg_base_data)
     with open(seqs_fn, 'w') as seqs_fp:
         for reg_i, reg_seq in reg_seqs:
             chrm, start, strand, stat = next(
@@ -1802,10 +1813,26 @@ def sliding_window_dist(sig_diffs1, sig_diffs2, num_bases):
                        for i1 in range(len(sig_diffs1) - num_bases)
                        for i2 in range(len(sig_diffs2) - num_bases)))
 
+def get_pairwise_dists(reg_sig_diffs, index_q, dists_q, num_bases):
+    while not index_q.empty():
+        try:
+            index = index_q.get(block=False)
+        except Queue.Empty:
+            break
+
+        row_dists = np.array(
+            [sliding_window_dist(
+                reg_sig_diffs[index], reg_sig_diffs[j], num_bases)
+             for j in range(0,index+1)] +
+            [0 for _ in range(index+1, len(reg_sig_diffs))])
+        dists_q.put((index, row_dists))
+
+    return
+
 def cluster_most_signif(
         files1, files2, num_regions, qval_thresh, corrected_group,
         basecall_subgroups, pdf_fn, num_bases, test_type, obs_filter,
-        min_test_vals, r_struct_fn):
+        min_test_vals, r_struct_fn, num_processes):
     if VERBOSE: sys.stderr.write('Parsing files.\n')
     raw_read_coverage1 = parse_fast5s(
         files1, corrected_group, basecall_subgroups, True)
@@ -1845,12 +1872,34 @@ def cluster_most_signif(
         for chrm, start, strand, _ in zip(*uniq_p_intervals)[1]]
 
     if VERBOSE: sys.stderr.write('Getting region distances.\n')
-    reg_sig_diff_dists = [
-        np.array([sliding_window_dist(
-            reg_sig_diffs[i], reg_sig_diffs[j], num_bases)
-         for j in range(0,i+1)] +
-        [0 for _ in range(i+1, len(reg_sig_diffs))])
-        for i in range(0,len(reg_sig_diffs))]
+    manager = mp.Manager()
+    index_q = manager.Queue()
+    dists_q = manager.Queue()
+
+    for i in range(len(reg_sig_diffs)):
+        index_q.put(i)
+
+    args = (reg_sig_diffs, index_q, dists_q, num_bases)
+    processes = []
+    for p_id in xrange(num_processes):
+        p = mp.Process(target=get_pairwise_dists, args=args)
+        p.start()
+        processes.append(p)
+
+    reg_sig_diff_dists = []
+    while any(p.is_alive() for p in processes):
+        try:
+            row_dists = dists_q.get(block=False)
+            reg_sig_diff_dists.append(row_dists)
+        except Queue.Empty:
+            sleep(1)
+            continue
+    # empty any entries left in queue after processes have finished
+    while not dists_q.empty():
+        row_dists = dists_q.get(block=False)
+        reg_sig_diff_dists.append(row_dists)
+
+    reg_sig_diff_dists = zip(*sorted(reg_sig_diff_dists))[1]
 
     reg_sig_diff_dists = r.r.matrix(
         r.FloatVector(np.concatenate(reg_sig_diff_dists)),
@@ -1858,19 +1907,10 @@ def cluster_most_signif(
 
     if r_struct_fn is not None:
         if VERBOSE: sys.stderr.write('Getting sequences.\n')
-        all_reg_data1, no_cov_regs1 = get_region_reads(
-            uniq_p_intervals, raw_read_coverage1, (num_bases * 2) - 1,
-            filter_no_cov=False)
-        all_reg_data2, no_cov_regs2 = get_region_reads(
-            uniq_p_intervals, raw_read_coverage2, (num_bases * 2) - 1,
-            filter_no_cov=False)
-        merged_reg_data = [
-            (reg_id, start, chrm, reg_data1 + reg_data2)
-            for (reg_id, start, chrm, reg_data1),
-            (_, _, _, reg_data2) in  zip(all_reg_data1, all_reg_data2)]
-        all_reg_base_data = get_reg_base_data(
-            merged_reg_data, corrected_group, (num_bases * 2) - 1)
-        reg_seqs = get_reg_seqs(merged_reg_data, all_reg_base_data)
+        # add region sequences to column names for saved dist matrix
+        reg_seqs = get_region_sequences(
+            uniq_p_intervals, raw_read_coverage1, raw_read_coverage2,
+            (num_bases * 2) - 1, filter_no_cov, corrected_group)
         reg_sig_diff_dists.colnames = r.StrVector(
             [str(i) + "." + seq for i, seq in
              enumerate(zip(*reg_seqs)[1])])
@@ -2053,7 +2093,7 @@ def cluster_signif_diff_main(args):
         args.corrected_group, args.basecall_subgroups,
         args.pdf_filename, args.num_bases, args.test_type,
         parse_obs_filter(args.obs_per_base_filter),
-        args.minimum_test_reads, args.r_data_filename)
+        args.minimum_test_reads, args.r_data_filename, args.processes)
 
     return
 

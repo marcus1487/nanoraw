@@ -132,7 +132,7 @@ qvalthresh_opt=('--q-value-threshold', {
     'corrected p-values. Note that --num-regions will be ignored ' +
     'if this option is set.'})
 numbases_opt=('--num-bases', {
-    'type':int, 'default':51,
+    'type':int,
     'help':'Number of bases to plot from region. Default: %(default)d'})
 minreads_opt=('--minimum-test-reads', {
     'type':int, 'default':5,
@@ -293,7 +293,7 @@ def get_max_cov_parser():
         pdf_opt[0], default='Nanopore_read_coverage.max_coverage.pdf',
         **pdf_opt[1])
     misc_args.add_argument(numreg_opt[0], **numreg_opt[1])
-    misc_args.add_argument(numbases_opt[0], **numbases_opt[1])
+    misc_args.add_argument(numbases_opt[0], default=51, **numbases_opt[1])
     misc_args.add_argument(*quiet_opt[0], **quiet_opt[1])
     misc_args.add_argument(*help_opt[0], **help_opt[1])
 
@@ -328,7 +328,7 @@ def get_genome_loc_parser():
         pdf_opt[0],
         default='Nanopore_read_coverage.genome_locations.pdf',
         **pdf_opt[1])
-    misc_args.add_argument(numbases_opt[0], **numbases_opt[1])
+    misc_args.add_argument(numbases_opt[0], default=51, **numbases_opt[1])
     misc_args.add_argument(*quiet_opt[0], **quiet_opt[1])
     misc_args.add_argument(*help_opt[0], **help_opt[1])
 
@@ -366,7 +366,7 @@ def get_kmer_loc_parser():
         pdf_opt[0], default='Nanopore_read_coverage.kmer_centered.pdf',
         **pdf_opt[1])
     misc_args.add_argument(numreg_opt[0], **numreg_opt[1])
-    misc_args.add_argument(numbases_opt[0], **numbases_opt[1])
+    misc_args.add_argument(numbases_opt[0], default=51, **numbases_opt[1])
     misc_args.add_argument(*quiet_opt[0], **quiet_opt[1])
     misc_args.add_argument(*help_opt[0], **help_opt[1])
 
@@ -401,7 +401,7 @@ def get_max_diff_parser():
         **pdf_opt[1])
     misc_args.add_argument(seqs_opt[0], **seqs_opt[1])
     misc_args.add_argument(numreg_opt[0], **numreg_opt[1])
-    misc_args.add_argument(numbases_opt[0], **numbases_opt[1])
+    misc_args.add_argument(numbases_opt[0], default=51, **numbases_opt[1])
     misc_args.add_argument(*quiet_opt[0], **quiet_opt[1])
     misc_args.add_argument(*help_opt[0], **help_opt[1])
 
@@ -442,7 +442,7 @@ def get_signif_diff_parser():
     misc_args.add_argument(minreads_opt[0], **minreads_opt[1])
     misc_args.add_argument(seqs_opt[0], **seqs_opt[1])
     misc_args.add_argument(numreg_opt[0], **numreg_opt[1])
-    misc_args.add_argument(numbases_opt[0], **numbases_opt[1])
+    misc_args.add_argument(numbases_opt[0], default=51, **numbases_opt[1])
     misc_args.add_argument(*quiet_opt[0], **quiet_opt[1])
     misc_args.add_argument(*help_opt[0], **help_opt[1])
 
@@ -478,7 +478,7 @@ def get_write_signif_diff_parser():
     misc_args.add_argument(numreg_opt[0], **numreg_opt[1])
     misc_args.add_argument(qvalthresh_opt[0], **qvalthresh_opt[1])
     misc_args.add_argument(minreads_opt[0], **minreads_opt[1])
-    misc_args.add_argument(numbases_opt[0], **numbases_opt[1])
+    misc_args.add_argument(numbases_opt[0], default=51, **numbases_opt[1])
     misc_args.add_argument(*quiet_opt[0], **quiet_opt[1])
     misc_args.add_argument(*help_opt[0], **help_opt[1])
 
@@ -506,6 +506,9 @@ def get_cluster_signif_diff_parser():
     testt_args = parser.add_argument_group('Significance Test Argument')
     testt_args.add_argument(testtype_opt[0], **testtype_opt[1])
 
+    multi_args = parser.add_argument_group('Multiprocessing Argument')
+    multi_args.add_argument(proc_opt[0], **proc_opt[1])
+
     misc_args = parser.add_argument_group('Miscellaneous Arguments')
     misc_args.add_argument(
         pdf_opt[0], default='Nanopore_most_significant_clustering.pdf',
@@ -514,7 +517,7 @@ def get_cluster_signif_diff_parser():
     misc_args.add_argument(numreg_opt[0], **numreg_opt[1])
     misc_args.add_argument(qvalthresh_opt[0], **qvalthresh_opt[1])
     misc_args.add_argument(minreads_opt[0], **minreads_opt[1])
-    misc_args.add_argument(numbases_opt[0], **numbases_opt[1])
+    misc_args.add_argument(numbases_opt[0], default=5, **numbases_opt[1])
     misc_args.add_argument(*quiet_opt[0], **quiet_opt[1])
     misc_args.add_argument(*help_opt[0], **help_opt[1])
 
