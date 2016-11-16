@@ -177,8 +177,8 @@ try:
     fit <- cmdscale(as.dist(sigDiffDists), eig=TRUE, k=2)
     gdat <- as.data.frame(fit$points)
     colnames(gdat) <- c('Coordinate1', 'Coordinate2')
-    print(ggplot(gdat, aes(x=Coordinate1, y=Coordinate2)) + geom_point() +
-          stat_ellipse() + theme_bw())
+    print(ggplot(gdat, aes(x=Coordinate1, y=Coordinate2)) +
+          geom_point(alpha=0.3, size=0.5) + stat_ellipse() + theme_bw())
 }
 ''')
     plotSigMDS = r.globalenv['plotSigMDS']
@@ -548,7 +548,7 @@ def get_read_correction_data(
     diff_dat = {
         'Signal':r.FloatVector(running_diffs),
         'Position':r.FloatVector(sig_range[
-            min_seg_len - 1:len(running_diffs) + min_seg_len - 1]),
+            min_seg_len:len(running_diffs) + min_seg_len]),
         'Read':r.StrVector([
             read_id for _ in range(len(running_diffs))])}
     # add region is applicable
@@ -1825,44 +1825,43 @@ def cluster_most_signif(
     base_events2 = get_base_events(raw_read_coverage2, chrm_sizes)
 
     plot_intervals = get_most_signif_regions(
-        base_events1, base_events2, test_type, (num_bases * 2) + 1,
+        base_events1, base_events2, test_type, (num_bases * 2) - 1,
         num_regions, qval_thresh, min_test_vals)
 
-    reg_sig_diffs = []
-    for chrm, start, strand, _ in zip(*plot_intervals)[1]:
-        reg_sig_meds1 = np.array([
-            np.median(base_events1[(chrm, strand)][pos])
-            for pos in range(start, start + (num_bases * 2) + 1)])
-        reg_sig_meds2 = np.array([
+    if VERBOSE: sys.stderr.write('Getting region signal difference.\n')
+    reg_sig_diffs = [
+        np.array([
+            np.median(base_events1[(chrm, strand)][pos]) -
             np.median(base_events2[(chrm, strand)][pos])
-            for pos in range(start, start + (num_bases * 2) + 1)])
-        reg_sig_diffs.append(reg_sig_meds1 - reg_sig_meds2)
+            for pos in range(start, start + (num_bases * 2) - 1)])
+        for chrm, start, strand, _ in zip(*plot_intervals)[1]]
 
-    reg_sig_diff_dists = [np.zeros(len(reg_sig_diffs)),]
-    for i in range(1,len(reg_sig_diffs)):
-        reg_i_dists = np.zeros(len(reg_sig_diffs))
-        for j in range(0,i+1):
-            reg_i_dists[j] = sliding_window_dist(
-                reg_sig_diffs[i], reg_sig_diffs[j], num_bases)
-        reg_sig_diff_dists.append(reg_i_dists)
+    if VERBOSE: sys.stderr.write('Getting region distances.\n')
+    reg_sig_diff_dists = [
+        np.array([sliding_window_dist(
+            reg_sig_diffs[i], reg_sig_diffs[j], num_bases)
+         for j in range(0,i+1)] +
+        [0 for _ in range(i+1, len(reg_sig_diffs))])
+        for i in range(0,len(reg_sig_diffs))]
 
     reg_sig_diff_dists = r.r.matrix(
         r.FloatVector(np.concatenate(reg_sig_diff_dists)),
         ncol=len(reg_sig_diffs), byrow=True)
 
     if r_struct_fn is not None:
+        if VERBOSE: sys.stderr.write('Getting sequences.\n')
         all_reg_data1, no_cov_regs1 = get_region_reads(
-            plot_intervals, raw_read_coverage1, (num_bases * 2) + 1,
+            plot_intervals, raw_read_coverage1, (num_bases * 2) - 1,
             filter_no_cov=False)
         all_reg_data2, no_cov_regs2 = get_region_reads(
-            plot_intervals, raw_read_coverage2, (num_bases * 2) + 1,
+            plot_intervals, raw_read_coverage2, (num_bases * 2) - 1,
             filter_no_cov=False)
         merged_reg_data = [
             (reg_id, start, chrm, reg_data1 + reg_data2)
             for (reg_id, start, chrm, reg_data1),
             (_, _, _, reg_data2) in  zip(all_reg_data1, all_reg_data2)]
         all_reg_base_data = get_reg_base_data(
-            merged_reg_data, corrected_group, (num_bases * 2) + 1)
+            merged_reg_data, corrected_group, (num_bases * 2) - 1)
         reg_seqs = get_reg_seqs(merged_reg_data, all_reg_base_data)
         reg_sig_diff_dists.colnames = r.StrVector(
             [str(i) + "." + seq for i, seq in
@@ -1871,6 +1870,7 @@ def cluster_most_signif(
     else:
         r_struct_fn = r.NA_Character
 
+    if VERBOSE: sys.stderr.write('Plotting and saving data.\n')
     r.r('pdf("' + pdf_fn + '", height=7, width=7)')
     plotSigMDS(reg_sig_diff_dists, r_struct_fn)
     r.r('dev.off()')

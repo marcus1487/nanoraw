@@ -52,7 +52,7 @@ def main(args=None):
              option_parsers.get_multi_correction_parser(),
              plot_commands.plot_multi_correction_main)]),
         ('Other Plotting Commands:', [
-            ('cluster_signif',
+            ('cluster_most_significant',
              'Clustering traces at bases with significant differences.',
              option_parsers.get_cluster_signif_diff_parser(),
              plot_commands.cluster_signif_diff_main),
