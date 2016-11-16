@@ -51,10 +51,14 @@ def main(args=None):
              'Plot multiple raw signals anchored by genomic location.',
              option_parsers.get_multi_correction_parser(),
              plot_commands.plot_multi_correction_main)]),
-        ('Other Plotting Command:', [
+        ('Other Plotting Commands:', [
+            ('cluster_signif',
+             'Clustering traces at bases with significant differences.',
+             option_parsers.get_cluster_signif_diff_parser(),
+             plot_commands.cluster_signif_diff_main),
             ('plot_kmer','Plot signal quantiles acorss kmers.',
              option_parsers.get_kmer_dist_parser(),
-             plot_commands.kmer_dist_main),]),
+             plot_commands.kmer_dist_main)]),
         ('Auxiliary Commands:',[
             ('write_most_significant',
              'Write sequence where signal differs the most ' +

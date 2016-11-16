@@ -172,6 +172,18 @@ try:
     plotGroupComp = r.globalenv['plotGroupComp']
 
     r.r('''
+    plotSigMDS <- function(sigDiffDists, matFn){
+    if(!is.na(matFn)){ save(sigDiffDists, file=matFn) }
+    fit <- cmdscale(as.dist(sigDiffDists), eig=TRUE, k=2)
+    gdat <- as.data.frame(fit$points)
+    colnames(gdat) <- c('Coordinate1', 'Coordinate2')
+    print(ggplot(gdat, aes(x=Coordinate1, y=Coordinate2)) + geom_point() +
+          stat_ellipse() + theme_bw())
+}
+''')
+    plotSigMDS = r.globalenv['plotSigMDS']
+
+    r.r('''
     plotReadCorr <- function(OldSegDat, NewSegDat, SigDat, DiffDat){
     OldSegDat <- cbind.data.frame(OldSegDat, Type='Signal')
     NewSegDat <- cbind.data.frame(NewSegDat, Type='Signal')
@@ -1784,6 +1796,87 @@ def write_most_signif(
 
     return
 
+def sliding_window_dist(sig_diffs1, sig_diffs2, num_bases):
+    return min(np.sqrt(np.sum(np.square(sig_diffs1[i1:i1+num_bases] -
+                                        sig_diffs2[i2:i2+num_bases])))
+               for i1 in range(len(sig_diffs1) - num_bases)
+               for i2 in range(len(sig_diffs2) - num_bases))
+
+def cluster_most_signif(
+        files1, files2, num_regions, qval_thresh, corrected_group,
+        basecall_subgroups, pdf_fn, num_bases, test_type, obs_filter,
+        min_test_vals, r_struct_fn):
+    if VERBOSE: sys.stderr.write('Parsing files.\n')
+    raw_read_coverage1 = parse_fast5s(
+        files1, corrected_group, basecall_subgroups, True)
+    raw_read_coverage2 = parse_fast5s(
+        files2, corrected_group, basecall_subgroups, True)
+    raw_read_coverage1 = filter_reads(raw_read_coverage1, obs_filter)
+    raw_read_coverage2 = filter_reads(raw_read_coverage2, obs_filter)
+
+    chrm_sizes = dict((chrm, max(
+        [r_data.end for r_data in raw_read_coverage1[chrm]] +
+        [r_data.end for r_data in raw_read_coverage2[chrm]]))
+                      for chrm in set(raw_read_coverage1).intersection(
+                          raw_read_coverage2))
+
+    if VERBOSE: sys.stderr.write('Getting base signal.\n')
+    base_events1 = get_base_events(raw_read_coverage1, chrm_sizes)
+    base_events2 = get_base_events(raw_read_coverage2, chrm_sizes)
+
+    plot_intervals = get_most_signif_regions(
+        base_events1, base_events2, test_type, (num_bases * 2) + 1,
+        num_regions, qval_thresh, min_test_vals)
+
+    reg_sig_diffs = []
+    for chrm, start, strand, _ in zip(*plot_intervals)[1]:
+        reg_sig_meds1 = np.array([
+            np.median(base_events1[(chrm, strand)][pos])
+            for pos in range(start, start + (num_bases * 2) + 1)])
+        reg_sig_meds2 = np.array([
+            np.median(base_events2[(chrm, strand)][pos])
+            for pos in range(start, start + (num_bases * 2) + 1)])
+        reg_sig_diffs.append(reg_sig_meds1 - reg_sig_meds2)
+
+    reg_sig_diff_dists = [np.zeros(len(reg_sig_diffs)),]
+    for i in range(1,len(reg_sig_diffs)):
+        reg_i_dists = np.zeros(len(reg_sig_diffs))
+        for j in range(0,i+1):
+            reg_i_dists[j] = sliding_window_dist(
+                reg_sig_diffs[i], reg_sig_diffs[j], num_bases)
+        reg_sig_diff_dists.append(reg_i_dists)
+
+    reg_sig_diff_dists = r.r.matrix(
+        r.FloatVector(np.concatenate(reg_sig_diff_dists)),
+        ncol=len(reg_sig_diffs), byrow=True)
+
+    if r_struct_fn is not None:
+        all_reg_data1, no_cov_regs1 = get_region_reads(
+            plot_intervals, raw_read_coverage1, (num_bases * 2) + 1,
+            filter_no_cov=False)
+        all_reg_data2, no_cov_regs2 = get_region_reads(
+            plot_intervals, raw_read_coverage2, (num_bases * 2) + 1,
+            filter_no_cov=False)
+        merged_reg_data = [
+            (reg_id, start, chrm, reg_data1 + reg_data2)
+            for (reg_id, start, chrm, reg_data1),
+            (_, _, _, reg_data2) in  zip(all_reg_data1, all_reg_data2)]
+        all_reg_base_data = get_reg_base_data(
+            merged_reg_data, corrected_group, (num_bases * 2) + 1)
+        reg_seqs = get_reg_seqs(merged_reg_data, all_reg_base_data)
+        reg_sig_diff_dists.colnames = r.StrVector(
+            [str(i) + "." + seq for i, seq in
+             enumerate(zip(*reg_seqs)[1])])
+        r_struct_fn = r.StrVector([r_struct_fn,])
+    else:
+        r_struct_fn = r.NA_Character
+
+    r.r('pdf("' + pdf_fn + '", height=7, width=7)')
+    plotSigMDS(reg_sig_diff_dists, r_struct_fn)
+    r.r('dev.off()')
+
+    return
+
 
 
 #########################################
@@ -1940,6 +2033,21 @@ def write_signif_diff_main(args):
 
     return
 
+def cluster_signif_diff_main(args):
+    global VERBOSE
+    VERBOSE = not args.quiet
+
+    files1, files2 = get_files_lists(
+        args.fast5_basedirs, args.fast5_basedirs2)
+
+    cluster_most_signif(
+        files1, files2, args.num_regions, args.q_value_threshold,
+        args.corrected_group, args.basecall_subgroups,
+        args.pdf_filename, args.num_bases, args.test_type,
+        parse_obs_filter(args.obs_per_base_filter),
+        args.minimum_test_reads, args.r_data_filename)
+
+    return
 
 if __name__ == '__main__':
     raise NotImplementedError, (

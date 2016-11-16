@@ -202,6 +202,8 @@ wigfn_opt=('--wiggle-filename', {
 # misc opts
 pdf_opt=('--pdf-filename', {
     'help':'PDF filename to store plot(s). Default: %(default)s'})
+rdata_opt=('--r-data-filename', {
+    'help':"Filename to save R data structure. Defualt: Don't save"})
 seqs_opt=('--sequences-filename', {
     'help':'Filename to store sequences for selected regions (e.g. ' +
     'for PWM search). Sequences will be stored in FASTA format. ' +
@@ -473,6 +475,42 @@ def get_write_signif_diff_parser():
     misc_args.add_argument(
         seqs_opt[0], default='Nanopore_most_significant_regions.fasta',
         **seqs_opt[1])
+    misc_args.add_argument(numreg_opt[0], **numreg_opt[1])
+    misc_args.add_argument(qvalthresh_opt[0], **qvalthresh_opt[1])
+    misc_args.add_argument(minreads_opt[0], **minreads_opt[1])
+    misc_args.add_argument(numbases_opt[0], **numbases_opt[1])
+    misc_args.add_argument(*quiet_opt[0], **quiet_opt[1])
+    misc_args.add_argument(*help_opt[0], **help_opt[1])
+
+    return parser
+
+def get_cluster_signif_diff_parser():
+    parser = argparse.ArgumentParser(
+        description='Cluster signal trace differences at most ' +
+        'significantly different bases.',
+        add_help=False)
+    req_args = parser.add_argument_group('Required Argument')
+    req_args.add_argument(fast5dir_opt[0], **fast5dir_opt[1])
+    req_args.add_argument(altfast5dir_opt[0], required=True,
+                          **altfast5dir_opt[1])
+
+    fast5_args = parser.add_argument_group('FAST5 Data Arguments')
+    fast5_args.add_argument(corrgrp_opt[0], **corrgrp_opt[1])
+    bcsub_args = fast5_args.add_mutually_exclusive_group()
+    bcsub_args.add_argument(bcsubgrps_opt[0], **bcsubgrps_opt[1])
+    bcsub_args.add_argument(twod_opt[0], **twod_opt[1])
+
+    filter_args = parser.add_argument_group('Read Filtering Arguments')
+    filter_args.add_argument(obsfilt_opt[0], **obsfilt_opt[1])
+
+    testt_args = parser.add_argument_group('Significance Test Argument')
+    testt_args.add_argument(testtype_opt[0], **testtype_opt[1])
+
+    misc_args = parser.add_argument_group('Miscellaneous Arguments')
+    misc_args.add_argument(
+        pdf_opt[0], default='Nanopore_most_significant_clustering.pdf',
+        **pdf_opt[1])
+    misc_args.add_argument(rdata_opt[0], **rdata_opt[1])
     misc_args.add_argument(numreg_opt[0], **numreg_opt[1])
     misc_args.add_argument(qvalthresh_opt[0], **qvalthresh_opt[1])
     misc_args.add_argument(minreads_opt[0], **minreads_opt[1])
