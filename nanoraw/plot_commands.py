@@ -36,8 +36,23 @@ try:
     import rpy2.robjects as r
     from rpy2.robjects.packages import importr
     ggplot = importr("ggplot2")
-    r.r('''
-    plotSingleRun <- function(sigDat, quantDat, boxDat, eventDat,
+except:
+    sys.stderr.write(
+        '*' * 60 + '\nERROR: Must have rpy2, R and ' +
+        'R package ggplot2 installed in order to plot.\n' +
+        '*' * 60 + '\n\n')
+    raise
+
+try:
+    cowplot = importr("cowplot")
+except:
+    sys.stderr.write(
+        '*' * 60 + '\WARNING: Must have R packge `cowplot` ' +
+        'installed in order to create kmer centered plots.\n' +
+        '*' * 60 + '\n\n')
+
+r.r('''
+plotSingleRun <- function(sigDat, quantDat, boxDat, eventDat,
                           baseDat, TitleDat){
     ## fix 0 baased coordinates passed in
     sigDat$Position <- sigDat$Position + 1
@@ -100,10 +115,10 @@ try:
               theme_bw() + theme(axis.text.x=element_text(hjust=0)))
     }}
 ''')
-    plotSingleRun = r.globalenv['plotSingleRun']
+plotSingleRun = r.globalenv['plotSingleRun']
 
-    r.r('''
-    plotGroupComp <- function(sigDat, quantDat, boxDat, eventDat,
+r.r('''
+plotGroupComp <- function(sigDat, quantDat, boxDat, eventDat,
                           baseDat, TitleDat, QuantWidth){
     ## fix 0 baased coordinates passed in
     sigDat$Position <- sigDat$Position + 1
@@ -172,10 +187,57 @@ try:
               theme_bw() + theme(axis.text.x=element_text(hjust=0)))
     }}
 ''')
-    plotGroupComp = r.globalenv['plotGroupComp']
+plotGroupComp = r.globalenv['plotGroupComp']
 
-    r.r('''
-    plotSigMDS <- function(sigDiffDists, matFn){
+r.r('''
+plotKmerStats <- function(SignalDat, BaseDat, StatsDat){
+    regions <- unique(SignalDat$Region)
+    midReg <- regions[(length(regions) + 1) / 2]
+    ps <- lapply(regions, function(region){
+        rBaseDat <- BaseDat[BaseDat$Region==region,]
+        rSigDat <- SignalDat[SignalDat$Region==region,]
+        p <- ggplot(rSigDat) +
+            geom_path(aes(x=Position, y=Signal, color=Group, group=Read),
+                      alpha=0.3, size=0.05, show.legend=FALSE) +
+            geom_text(aes(x=Position+0.5, y=-5,
+                          label=Base, color=Base),
+                      data=rBaseDat,
+                      hjust=0.5, vjust=0, size=3, show.legend=FALSE) +
+            scale_color_manual(
+                values=c(
+                    'A'='#00CC00', 'C'='#0000CC', 'G'='#FFB300',
+                    'T'='#CC0000', '-'='black', 'N'='black',
+                    'Group1'='blue', 'Group2'='red')) +
+            geom_vline(
+                xintercept=min(rBaseDat$Position):
+                (max(rBaseDat$Position) + 1), size=0.01) +
+            theme_bw() + theme(axis.text.x=element_blank(),
+                               axis.text.y=element_blank(),
+                               axis.title.x=element_blank())
+        if(region != midReg){
+            p <- p + theme(axis.title.y=element_blank())
+        }
+        return(p)
+    })
+
+    ps[[length(ps) + 1]] <- ggplot(StatsDat) +
+        geom_violin(aes(
+            x=Position+0.5, y=NegLogAdjPValue,
+            group=cut_width(Position, 0.9999),
+            closed='right'), fill='black') +
+        scale_x_continuous() +
+        xlab('Position') + theme_bw() +
+        theme(axis.text.x=element_text(hjust=0))
+    print(do.call(
+        plot_grid,
+        c(ps, list(ncol=1, align='v',
+                   rel_heights=c(rep(1, length(regions)), 2)))))
+}
+''')
+plotKmerStats = r.globalenv['plotKmerStats']
+
+r.r('''
+plotSigMDS <- function(sigDiffDists, matFn){
     if(!is.na(matFn)){ save(sigDiffDists, file=matFn) }
     fit <- cmdscale(as.dist(sigDiffDists), eig=TRUE, k=2)
     gdat <- as.data.frame(fit$points)
@@ -184,10 +246,10 @@ try:
           geom_point(alpha=0.3, size=0.5) + theme_bw())
 }
 ''')
-    plotSigMDS = r.globalenv['plotSigMDS']
+plotSigMDS = r.globalenv['plotSigMDS']
 
-    r.r('''
-    plotReadCorr <- function(OldSegDat, NewSegDat, SigDat, DiffDat){
+r.r('''
+plotReadCorr <- function(OldSegDat, NewSegDat, SigDat, DiffDat){
     OldSegDat <- cbind.data.frame(OldSegDat, Type='Signal')
     NewSegDat <- cbind.data.frame(NewSegDat, Type='Signal')
 
@@ -227,10 +289,10 @@ try:
                            axis.title.y=element_blank()))
 }}
 ''')
-    plotReadCorr = r.globalenv['plotReadCorr']
+plotReadCorr = r.globalenv['plotReadCorr']
 
-    r.r('''
-    plotMultiReadCorr <- function(OldSegDat, NewSegDat, SigDat){
+r.r('''
+plotMultiReadCorr <- function(OldSegDat, NewSegDat, SigDat){
     for(regId in unique(OldSegDat$Region)){
         rOldSegDat <- OldSegDat[OldSegDat$Region == regId,]
         rNewSegDat <- NewSegDat[NewSegDat$Region == regId,]
@@ -265,10 +327,10 @@ try:
               theme_bw() + theme(legend.position='none'))
     }}
 ''')
-    plotMultiReadCorr = r.globalenv['plotMultiReadCorr']
+plotMultiReadCorr = r.globalenv['plotMultiReadCorr']
 
-    r.r('''
-    plotMultiReadCorrNoOrig <- function(NewSegDat, SigDat){
+r.r('''
+plotMultiReadCorrNoOrig <- function(NewSegDat, SigDat){
     for(regId in unique(NewSegDat$Region)){
         rNewSegDat <- NewSegDat[NewSegDat$Region == regId,]
         rSigDat <- SigDat[SigDat$Region == regId,]
@@ -297,9 +359,9 @@ try:
               theme_bw() + theme(legend.position='none'))
     }}
 ''')
-    plotMultiReadCorrNoOrig = r.globalenv['plotMultiReadCorrNoOrig']
+plotMultiReadCorrNoOrig = r.globalenv['plotMultiReadCorrNoOrig']
 
-    r.r('''
+r.r('''
     plotKmerDist <- function(dat){
     print(ggplot(dat) +
         geom_boxplot(aes(x=Trimer, y=Signal, color=Base)) +
@@ -309,9 +371,10 @@ try:
             values=c('#00CC00', '#0000CC', '#FFB300', '#CC0000')))
 }
 ''')
-    plotKmerDist = r.globalenv['plotKmerDist']
-    r.r('''
-    plotKmerDistWReadPath <- function(dat){
+plotKmerDist = r.globalenv['plotKmerDist']
+
+r.r('''
+plotKmerDistWReadPath <- function(dat){
     print(ggplot(dat) +
         geom_boxplot(aes(x=Trimer, y=Signal, color=Base)) +
         theme_bw() +
@@ -326,13 +389,7 @@ try:
         values=c('#00CC00', '#0000CC', '#FFB300', '#CC0000')))
 }
 ''')
-    plotKmerDistWReadPath = r.globalenv['plotKmerDistWReadPath']
-except:
-    sys.stderr.write(
-        '*' * 60 + '\nERROR: Must have rpy2, R and ' +
-        'R package ggplot2 installed in order to plot.\n' +
-        '*' * 60 + '\n\n')
-    raise
+plotKmerDistWReadPath = r.globalenv['plotKmerDistWReadPath']
 
 
 
@@ -893,15 +950,6 @@ def get_base_r_data(all_reg_data, all_reg_base_data):
         'Base':r.StrVector(Bases),
         'Region':r.StrVector(BaseRegion)})
 
-def get_reg_seqs(all_reg_data, all_reg_base_data):
-    reg_seqs = []
-    for region_i, reg_base_data in zip(
-            zip(*all_reg_data)[0], all_reg_base_data):
-        # save sequence if they should be saved to a file
-        reg_seqs.append((region_i, reg_base_data))
-
-    return reg_seqs
-
 def get_coverage(raw_read_coverage):
     if VERBOSE: sys.stderr.write('Calculating read coverage.\n')
     read_coverage = {}
@@ -1311,7 +1359,7 @@ def plot_two_samples(
 
     if seqs_fn is not None:
         if VERBOSE: sys.stderr.write('Outputting region seqeuences.\n')
-        reg_seqs = get_reg_seqs(merged_reg_data, all_reg_base_data)
+        reg_seqs = zip(zip(*merged_reg_data)[0], all_reg_base_data)
         with open(seqs_fn, 'w') as seqs_fp:
             for reg_i, reg_seq in reg_seqs:
                 chrm, start, strand, stat = next(
@@ -1324,6 +1372,49 @@ def plot_two_samples(
 
     return
 
+def plot_kmer_centered_with_stats(
+        motif_regions_data, raw_read_coverage1, raw_read_coverage2,
+        plot_intervals, pval_locs, num_bases, corrected_group,
+        overplot_thresh, pdf_fn):
+    if VERBOSE: sys.stderr.write('Preparing plot data.\n')
+    all_reg_data1, no_cov_regs1 = get_region_reads(
+        plot_intervals, raw_read_coverage1, num_bases,
+        filter_no_cov=False)
+    all_reg_data2, no_cov_regs2 = get_region_reads(
+        plot_intervals, raw_read_coverage2, num_bases,
+        filter_no_cov=False)
+    merged_reg_data = [
+        (reg_id, start, chrm, reg_data1 + reg_data2)
+        for (reg_id, start, chrm, reg_data1),
+        (_, _, _, reg_data2) in  zip(all_reg_data1, all_reg_data2)]
+
+    # downsample can be plotted with any number of reads on either strand
+    plot_types = ["Downsample" for _ in merged_reg_data]
+
+    # sigDat lists
+    SignalData1, QuantData1, BoxData1, EventData1 = get_plot_types_data(
+        (all_reg_data1, plot_types, num_bases, corrected_group,
+         overplot_thresh, 'Group1'), 0.1)
+    SignalData2, QuantData2, BoxData2, EventData2 = get_plot_types_data(
+        (all_reg_data2, plot_types, num_bases, corrected_group,
+         overplot_thresh, 'Group2'), 0.5)
+
+    all_reg_base_data = get_reg_base_data(
+        merged_reg_data, corrected_group, num_bases)
+    BasesData = get_base_r_data(merged_reg_data, all_reg_base_data)
+
+    # stat lists
+    StatsData = r.DataFrame({
+        'Position':r.FloatVector(zip(*pval_locs)[0]),
+        'NegLogAdjPValue':r.FloatVector(zip(*pval_locs)[1])})
+
+    if VERBOSE: sys.stderr.write('Plotting.\n')
+    r.r('pdf("' + pdf_fn + '", height=7, width=11)')
+    plotKmerStats(r.DataFrame.rbind(SignalData1, SignalData2), BasesData,
+                  StatsData)
+    r.r('dev.off()')
+
+    return
 
 
 #################################
@@ -1643,9 +1734,8 @@ def mann_whitney_u_test(samp1, samp2):
 
     return pval
 
-def get_most_signif_regions(
-        base_events1, base_events2, test_type, num_bases, num_regions,
-        qval_thresh=None, min_test_vals=2):
+def get_all_significance(
+        base_events1, base_events2, test_type, min_test_vals):
     if VERBOSE: sys.stderr.write(
             'Test significance of difference in base signal.\n')
     # get num_region most significantly different regions from
@@ -1680,8 +1770,7 @@ def get_most_signif_regions(
 
         if len(chrm_pvals) == 0: continue
         position_pvals.extend((
-            pval, max(pos - int(num_bases / 2.0), 0),
-            chrm, strand) for pval, pos in chrm_pvals)
+            pval, pos, chrm, strand) for pval, pos in chrm_pvals)
 
     if len(position_pvals) == 0:
         sys.stderr.write(
@@ -1690,25 +1779,35 @@ def get_most_signif_regions(
         sys.exit()
 
     position_pvals = sorted(position_pvals)
-    all_pvals = zip(*position_pvals)[0]
-    fdr_corr_pvals = correct_multiple_testing(all_pvals)
+    fdr_corr_pvals = correct_multiple_testing(zip(*position_pvals)[0])
+
+    return [(pval, qval, start, chrm, strand)
+            for qval, (pval, start, chrm, strand) in
+            zip(fdr_corr_pvals, position_pvals)]
+
+def get_most_signif_regions(
+        base_events1, base_events2, test_type, num_bases, num_regions,
+        qval_thresh=None, min_test_vals=2):
+    all_stats = get_all_significance(
+        base_events1, base_events2, test_type, min_test_vals)
+
     # applied threshold for scores on each chromosome, so now
     # we include all here
     if qval_thresh is not None:
-        num_regions = np.argmax(fdr_corr_pvals > qval_thresh)
+        num_regions = np.argmax(zip(*all_stats)[1] > qval_thresh)
         if num_regions == 0:
             sys.stderr.write(
                 '*' * 60 + '\nERROR: No regions identified q-value ' +
                 'below thresh. Minumum q-value: {:.2g}\n'.format(
-                    fdr_corr_pvals.min()) + '*' * 60 + '\n')
+                    all_stats[0][1]) + '*' * 60 + '\n')
             sys.exit()
+
     plot_intervals = zip(
         ['{:03d}'.format(rn) for rn in range(num_regions)],
-        [(chrm, start, strand,
+        [(chrm, max(pos - int(num_bases / 2.0), 0), strand,
           '(q-value:{0:.2g} p-value:{1:.2g})'.format(qval, pval))
-         for qval, (pval, start, chrm, strand) in
-         zip(fdr_corr_pvals[:num_regions],
-             position_pvals[:num_regions])])
+         for pval, qval, pos, chrm, strand in
+         all_stats[:num_regions]])
 
     return plot_intervals
 
@@ -1761,7 +1860,69 @@ def get_region_sequences(
     all_reg_base_data = get_reg_base_data(
         merged_reg_data, corrected_group, num_bases)
 
-    return get_reg_seqs(merged_reg_data, all_reg_base_data)
+    return zip(zip(*merged_reg_data)[0], all_reg_base_data)
+
+def plot_kmer_centered_signif(
+        files1, files2, num_regions, corrected_group, basecall_subgroups,
+        overplot_thresh, pdf_fn, motif, context_width, test_type,
+        obs_filter, min_test_vals, num_stat_values):
+    if VERBOSE: sys.stderr.write('Parsing files.\n')
+    raw_read_coverage1 = parse_fast5s(
+        files1, corrected_group, basecall_subgroups, True)
+    raw_read_coverage2 = parse_fast5s(
+        files2, corrected_group, basecall_subgroups, True)
+    raw_read_coverage1 = filter_reads(raw_read_coverage1, obs_filter)
+    raw_read_coverage2 = filter_reads(raw_read_coverage2, obs_filter)
+
+    chrm_sizes = dict((chrm, max(
+        [r_data.end for r_data in raw_read_coverage1[chrm]] +
+        [r_data.end for r_data in raw_read_coverage2[chrm]]))
+                      for chrm in set(raw_read_coverage1).intersection(
+                          raw_read_coverage2))
+
+    if VERBOSE: sys.stderr.write('Getting base signal.\n')
+    base_events1 = get_base_events(raw_read_coverage1, chrm_sizes)
+    base_events2 = get_base_events(raw_read_coverage2, chrm_sizes)
+
+    all_stats = get_all_significance(
+        base_events1, base_events2, test_type, min_test_vals)
+    all_stats_dict = dict(
+        ((chrm, strand, start), (pval, qval))
+        for pval, qval, start, chrm, strand in all_stats)
+
+    if VERBOSE: sys.stderr.write(
+            'Finding signficant regions with motif.\n')
+    motif_pat = re.compile(motif, re.IGNORECASE)
+    motif_regions_data = []
+    for pval, qval, pos, chrm, strand in all_stats:
+        reg_seq = get_region_sequences(
+            [('0', (chrm, pos - len(motif), strand, pval)),],
+            raw_read_coverage1, raw_read_coverage2,
+            (len(motif) * 2) - 1, corrected_group)
+        reg_match = motif_pat.search(reg_seq[0][1])
+        if reg_match:
+            motif_regions_data.append((
+                pval, qval, pos, chrm, strand, reg_match.start()))
+        if len(motif_regions_data) >= num_stat_values:
+            break
+
+    plot_intervals = zip(
+        ['{:03d}'.format(rn) for rn in range(num_regions)],
+        [(chrm, pos - len(motif) + offset - context_width, strand, '')
+         for pval, qval, pos, chrm, strand, offset in
+         motif_regions_data[:num_regions]])
+    plot_width = len(motif) + (context_width * 2)
+    pval_locs = [(pos - start, -np.log10(
+        all_stats_dict[(chrm, strand, pos)][1]))
+                 for chrm, start, strand, _ in zip(*plot_intervals)[1]
+                 for pos in range(start, start + plot_width)]
+
+    plot_kmer_centered_with_stats(
+        motif_regions_data, raw_read_coverage1, raw_read_coverage2,
+        plot_intervals, pval_locs, plot_width, corrected_group,
+        overplot_thresh, pdf_fn)
+
+    return
 
 def write_most_signif(
         files1, files2, num_regions, qval_thresh, corrected_group,
@@ -1858,14 +2019,15 @@ def cluster_most_signif(
         for chrm_strand in set(base_events1).intersection(base_events2))
 
     plot_intervals = get_most_signif_regions(
-        base_events1, base_events2, test_type, (num_bases * 2) - 1,
+        base_events1, base_events2, test_type, num_bases,
         num_regions, qval_thresh, min_test_vals)
+    # unique genomic regions filter
     uniq_p_intervals = []
     used_intervals = defaultdict(set)
     for p_int, (chrm, start, strand, reg_name) in plot_intervals:
         # could have significant region immediately next to
         # beginning/end of reads
-        interval_poss = range(start, start + (num_bases * 2) - 1)
+        interval_poss = range(start, start + num_bases)
         if start not in used_intervals[(chrm, strand)] and all(
                 pos in covered_poss[(chrm, strand)]
                 for pos in interval_poss):
@@ -1878,10 +2040,10 @@ def cluster_most_signif(
         np.array([
             np.median(base_events1[(chrm, strand)][pos]) -
             np.median(base_events2[(chrm, strand)][pos])
-            for pos in range(start, start + (num_bases * 2) - 1)])
+            for pos in range(start, start + num_bases)])
         for chrm, start, strand, _ in zip(*uniq_p_intervals)[1]]
 
-    if VERBOSE: sys.stderr.write('Getting region distances.\n')
+    if VERBOSE: sys.stderr.write('Getting distance between signals.\n')
     manager = mp.Manager()
     index_q = manager.Queue()
     dists_q = manager.Queue()
@@ -1920,7 +2082,7 @@ def cluster_most_signif(
         # add region sequences to column names for saved dist matrix
         reg_seqs = get_region_sequences(
             uniq_p_intervals, raw_read_coverage1, raw_read_coverage2,
-            (num_bases * 2) - 1, corrected_group)
+            num_bases, corrected_group)
         reg_sig_diff_dists.colnames = r.StrVector(
             [str(i) + "." + seq for i, seq in
              enumerate(zip(*reg_seqs)[1])])
@@ -1928,7 +2090,7 @@ def cluster_most_signif(
     else:
         r_struct_fn = r.NA_Character
 
-    if VERBOSE: sys.stderr.write('Plotting and saving data.\n')
+    if VERBOSE: sys.stderr.write('Plotting (and saving data).\n')
     r.r('pdf("' + pdf_fn + '", height=7, width=7)')
     plotSigMDS(reg_sig_diff_dists, r_struct_fn)
     r.r('dev.off()')
@@ -2072,6 +2234,22 @@ def signif_diff_main(args):
         args.overplot_type, args.test_type,
         parse_obs_filter(args.obs_per_base_filter),
         args.q_value_threshold, args.minimum_test_reads)
+
+    return
+
+def kmer_signif_diff_main(args):
+    global VERBOSE
+    VERBOSE = not args.quiet
+
+    files1, files2 = get_files_lists(
+        args.fast5_basedirs, args.fast5_basedirs2)
+
+    plot_kmer_centered_signif(
+        files1, files2, args.num_regions, args.corrected_group,
+        args.basecall_subgroups, args.overplot_threshold,
+        args.pdf_filename, args.motif, args.num_context,
+        args.test_type, parse_obs_filter(args.obs_per_base_filter),
+        args.minimum_test_reads, args.num_statistics)
 
     return
 

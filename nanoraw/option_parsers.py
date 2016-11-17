@@ -134,6 +134,14 @@ qvalthresh_opt=('--q-value-threshold', {
 numbases_opt=('--num-bases', {
     'type':int,
     'help':'Number of bases to plot from region. Default: %(default)d'})
+cntxt_opt=('--num-context', {
+    'type':int, 'default':2,
+    'help':'Number of bases surrounding motif of interest. ' +
+    'Default: %(default)d'})
+numstat_opt=('--num-statistics', {
+    'type':int, 'default':200,
+    'help':'Number of regions at which to accumulate statistics for ' +
+    'distribution plots. Default: %(default)d'})
 minreads_opt=('--minimum-test-reads', {
     'type':int, 'default':5,
     'help':'Number of reads required from both samples to test for ' +
@@ -180,9 +188,15 @@ ovplttype_opt=('--overplot-type', {
 
 # significance test type option
 testtype_opt=('--test-type', {
-    'default':'ttest', 'choices':['ttest', 'mw_utest'],
+    'default':'mw_utest', 'choices':['mw_utest', 'ttest'],
     'help':'Type of significance test to apply. Choices are: ' +
-    'ttest (default), mw_utest (mann-whitney u-test).'})
+    'mw_utest (default; mann-whitney u-test), ttest.'})
+
+# kmer centered statistic plotting options
+motif_opt=('--motif', {
+    'help':'A kmer to plot the most significant regions genomic ' +
+    ' regions as well as statistic distributions at each genomic ' +
+    'base in the region.'})
 
 # filter reads plotted
 obsfilt_opt=('--obs-per-base-filter', {
@@ -442,7 +456,49 @@ def get_signif_diff_parser():
     misc_args.add_argument(minreads_opt[0], **minreads_opt[1])
     misc_args.add_argument(seqs_opt[0], **seqs_opt[1])
     misc_args.add_argument(numreg_opt[0], **numreg_opt[1])
-    misc_args.add_argument(numbases_opt[0], default=51, **numbases_opt[1])
+    misc_args.add_argument(numbases_opt[0],
+                           default=51, **numbases_opt[1])
+    misc_args.add_argument(*quiet_opt[0], **quiet_opt[1])
+    misc_args.add_argument(*help_opt[0], **help_opt[1])
+
+    return parser
+
+def get_signif_kmer_parser():
+    parser = argparse.ArgumentParser(
+        description='Plot raw signal from from two samples ' +
+        'centered around a motif (k-mer) of interest along with ' +
+        'test statistics at each genomic position.',
+        add_help=False)
+    req_args = parser.add_argument_group('Required Argument')
+    req_args.add_argument(fast5dir_opt[0], **fast5dir_opt[1])
+    req_args.add_argument(altfast5dir_opt[0], required=True,
+                          **altfast5dir_opt[1])
+    req_args.add_argument(motif_opt[0], **motif_opt[1])
+
+    fast5_args = parser.add_argument_group('FAST5 Data Arguments')
+    fast5_args.add_argument(corrgrp_opt[0], **corrgrp_opt[1])
+    bcsub_args = fast5_args.add_mutually_exclusive_group()
+    bcsub_args.add_argument(bcsubgrps_opt[0], **bcsubgrps_opt[1])
+    bcsub_args.add_argument(twod_opt[0], **twod_opt[1])
+
+    ovplt_args = parser.add_argument_group('Overplotting Arguments')
+    ovplt_args.add_argument(ovpltthresh_opt[0], **ovpltthresh_opt[1])
+
+    filter_args = parser.add_argument_group('Read Filtering Arguments')
+    filter_args.add_argument(obsfilt_opt[0], **obsfilt_opt[1])
+
+    testt_args = parser.add_argument_group('Significance Test Argument')
+    testt_args.add_argument(testtype_opt[0], **testtype_opt[1])
+
+    misc_args = parser.add_argument_group('Miscellaneous Arguments')
+    misc_args.add_argument(
+        pdf_opt[0],
+        default='Nanopore_read_coverage.statistics_around_kmer.pdf',
+        **pdf_opt[1])
+    misc_args.add_argument(minreads_opt[0], **minreads_opt[1])
+    misc_args.add_argument(numreg_opt[0], **numreg_opt[1])
+    misc_args.add_argument(cntxt_opt[0], **cntxt_opt[1])
+    misc_args.add_argument(numstat_opt[0], **numstat_opt[1])
     misc_args.add_argument(*quiet_opt[0], **quiet_opt[1])
     misc_args.add_argument(*help_opt[0], **help_opt[1])
 

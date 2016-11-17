@@ -41,7 +41,12 @@ def main(args=None):
              'Plot signal where signal differs the most ' +
              'significantly between two groups.',
              option_parsers.get_signif_diff_parser(),
-             plot_commands.signif_diff_main)]),
+             plot_commands.signif_diff_main),
+            ('plot_kmer_centered',
+             'Plot signal from several regions and test ' +
+             'statistics centered on a kemer of interst.',
+             option_parsers.get_signif_kmer_parser(),
+             plot_commands.kmer_signif_diff_main)]),
         ('Sequencing Time Anchored Plotting Command:', [
             ('plot_correction',
              'Plot segmentation before and after correction.',
