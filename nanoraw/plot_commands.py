@@ -1917,7 +1917,13 @@ def plot_kmer_centered_signif(
             [('0', (chrm, pos - len(motif), strand, pval)),],
             raw_read_coverage1, raw_read_coverage2,
             (len(motif) * 2) - 1, corrected_group)
-        reg_match = motif_pat.search(reg_seq[0][1])
+        try:
+            reg_match = motif_pat.search(reg_seq[0][1])
+        except TypeError:
+            sys.stderr.write(
+                'WARNING: invalid sequence: ' +
+                str(reg_seq[0][1]) + '. Skipping...\n ')
+            continue
         if reg_match:
             motif_regions_data.append((
                 pval, qval, pos, chrm, strand, reg_match.start()))
@@ -2102,8 +2108,9 @@ def cluster_most_signif(
             uniq_p_intervals, raw_read_coverage1, raw_read_coverage2,
             num_bases, corrected_group)
         reg_sig_diff_dists.colnames = r.StrVector(
-            [str(i) + "." + seq for i, seq in
-             enumerate(zip(*reg_seqs)[1])])
+            ['::'.join((seq, chrm, strand, str(start))) for seq, (
+                region_i, (chrm, interval_start, strand, stat)) in
+             zip(zip(*reg_seqs)[1], uniq_p_intervals)])
         r_struct_fn = r.StrVector([r_struct_fn,])
     else:
         r_struct_fn = r.NA_Character
