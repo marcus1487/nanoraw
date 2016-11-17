@@ -190,17 +190,47 @@ plotGroupComp <- function(sigDat, quantDat, boxDat, eventDat,
 plotGroupComp = r.globalenv['plotGroupComp']
 
 r.r('''
-plotKmerStats <- function(SignalDat, BaseDat, StatsDat){
-    ylim <- 3
-    regions <- unique(SignalDat$Region)
+plotKmerStats <- function(
+        PlotDat, BaseDat, StatsDat, PlotType, QuantWidth){
+    ylim <- 3.5
+    regions <- unique(PlotDat$Region)
     midReg <- regions[(length(regions) + 1) / 2]
     ps <- lapply(regions, function(region){
         rBaseDat <- BaseDat[BaseDat$Region==region,]
-        rSigDat <- SignalDat[SignalDat$Region==region,]
-        p <- ggplot(rSigDat) +
-            geom_path(aes(x=Position, y=Signal, color=Group, group=Read),
-                      alpha=0.3, size=0.05, show.legend=FALSE) +
-            geom_text(aes(x=Position+0.5, y=-ylim,
+        rPlotDat <- PlotDat[PlotDat$Region==region,]
+        p <- ggplot(rPlotDat)
+        if(PlotType %in% c('Signal', 'Downsample')){
+            p <- p + geom_path(
+                      aes(x=Position, y=Signal, color=Group, group=Read),
+                      alpha=0.3, size=0.05, show.legend=FALSE)
+        } else if(PlotType == 'Quantile'){
+            p <- p +
+                geom_rect(aes(xmin=Position, xmax=Position + QuantWidth,
+                              ymin=Lower, ymax=Upper, fill=Group),
+                          alpha=0.2, show.legend=FALSE) +
+                scale_fill_manual(
+                    values=c('Group1'='blue', 'Group2'='red')) +
+                ylab('Signal')
+        } else if(PlotType == 'Boxplot'){
+            p <- p +
+                geom_boxplot(
+                    aes(Position + 0.5, ymin=SigMin, lower=Sig25,
+                        middle=SigMed, upper=Sig75, ymax=SigMax,
+                        fill=Group), size=0.2, alpha=1,
+                    stat="identity", show.legend=FALSE) +
+                scale_fill_manual(
+                    values=c('Group1'='blue', 'Group2'='red')) +
+                ylab('Signal')
+        } else if(PlotType == 'Violin'){
+            p <- p +
+                geom_violin(aes(x=Position + 0.5, y=Signal, fill=Group,
+                                group=paste0(Group, Position)),
+                            size=0, show.legend=FALSE) +
+                scale_fill_manual(
+                    values=c('Group1'='blue', 'Group2'='red')) +
+                ylab('Signal')
+        }
+        p <- p + geom_text(aes(x=Position+0.5, y=-ylim,
                           label=Base, color=Base),
                       data=rBaseDat,
                       hjust=0.5, vjust=0, size=3, show.legend=FALSE) +
@@ -215,9 +245,11 @@ plotKmerStats <- function(SignalDat, BaseDat, StatsDat){
            scale_x_continuous(expand=c(0,0)) +
            coord_cartesian(ylim=c(-ylim, ylim)) +
            theme_bw() +
-           theme(axis.text.x=element_blank(), axis.text.y=element_blank(),
+           theme(axis.text.x=element_blank(),
+                 axis.text.y=element_blank(),
                  axis.title.x=element_blank(),
-                 axis.ticks.x=element_blank(), axis.ticks.y=element_blank(),
+                 axis.ticks.x=element_blank(),
+                 axis.ticks.y=element_blank(),
                  plot.margin=margin(0,0,0,0,'lines'))
         if(region != midReg){
             p <- p + theme(axis.title.y=element_blank())
@@ -225,18 +257,22 @@ plotKmerStats <- function(SignalDat, BaseDat, StatsDat){
         return(p)
     })
 
+    maxStat <- max(StatsDat$NegLogPValue)
+    if(maxStat < 1){ tickVals <- c(0,0.2,0.4,0.6,0.8,1)
+    } else if(maxStat < 10){ tickVals <- seq(0,10,by=2)
+    } else { tickVals <- seq(0,100,by=5) }
     ps[[length(ps) + 1]] <- ggplot(StatsDat) +
         geom_violin(aes(
-            x=Position+0.5, y=NegLogAdjPValue,
+            x=Position+0.5, y=NegLogPValue,
             group=cut_width(Position, 0.9999)), size=0.1, fill='black') +
         scale_x_continuous(expand=c(0,0)) +
-        scale_y_continuous(breaks=c(0,1,2,4,6,8)) +
+        scale_y_continuous(breaks=tickVals) +
         xlab('Position') + theme_bw() +
         theme(axis.text.x=element_text(hjust=0))
     print(do.call(
         plot_grid,
         c(ps, list(ncol=1, align='v',
-                   rel_heights=c(rep(1, length(regions)), 2)))))
+                   rel_heights=c(rep(1, length(regions)), 3)))))
 }
 ''')
 plotKmerStats = r.globalenv['plotKmerStats']
@@ -1380,7 +1416,7 @@ def plot_two_samples(
 def plot_kmer_centered_with_stats(
         motif_regions_data, raw_read_coverage1, raw_read_coverage2,
         plot_intervals, pval_locs, num_bases, corrected_group,
-        overplot_thresh, pdf_fn):
+        overplot_thresh, overplot_type, pdf_fn):
     if VERBOSE: sys.stderr.write('Preparing plot data.\n')
     all_reg_data1, no_cov_regs1 = get_region_reads(
         plot_intervals, raw_read_coverage1, num_bases,
@@ -1406,8 +1442,7 @@ def plot_kmer_centered_with_stats(
         for (reg_id, start, chrm, reg_data1),
         (_, _, _, reg_data2) in  zip(all_reg_data1, all_reg_data2)]
 
-    # downsample can be plotted with any number of reads on either strand
-    plot_types = ["Downsample" for _ in merged_reg_data]
+    plot_types = [overplot_type for _ in merged_reg_data]
 
     # sigDat lists
     SignalData1, QuantData1, BoxData1, EventData1 = get_plot_types_data(
@@ -1416,6 +1451,14 @@ def plot_kmer_centered_with_stats(
     SignalData2, QuantData2, BoxData2, EventData2 = get_plot_types_data(
         (all_reg_data2, plot_types, num_bases, corrected_group,
          overplot_thresh, 'Group2'), 0.5)
+    if overplot_type in ('Signal', 'Downsample'):
+        PlotData = r.DataFrame.rbind(SignalData1, SignalData2)
+    elif overplot_type == 'Quantile':
+        PlotData = r.DataFrame.rbind(QuantData1, QuantData2)
+    elif overplot_type == 'Boxplot':
+        PlotData = r.DataFrame.rbind(BoxData1, BoxData2)
+    elif overplot_type == 'Violin':
+        PlotData = r.DataFrame.rbind(EventData1, EventData2)
 
     all_reg_base_data = get_reg_base_data(
         merged_reg_data, corrected_group, num_bases)
@@ -1424,12 +1467,12 @@ def plot_kmer_centered_with_stats(
     # stat lists
     StatsData = r.DataFrame({
         'Position':r.FloatVector(zip(*pval_locs)[0]),
-        'NegLogAdjPValue':r.FloatVector(zip(*pval_locs)[1])})
+        'NegLogPValue':r.FloatVector(zip(*pval_locs)[1])})
 
     if VERBOSE: sys.stderr.write('Plotting.\n')
-    r.r('pdf("' + pdf_fn + '", height=7, width=11)')
-    plotKmerStats(r.DataFrame.rbind(SignalData1, SignalData2), BasesData,
-                  StatsData)
+    r.r('pdf("' + pdf_fn + '", height=3, width=5)')
+    plotKmerStats(PlotData, BasesData,
+                  StatsData, overplot_type, 0.4)
     r.r('dev.off()')
 
     return
@@ -1812,7 +1855,8 @@ def get_most_signif_regions(
     # applied threshold for scores on each chromosome, so now
     # we include all here
     if qval_thresh is not None:
-        num_regions = np.argmax(zip(*all_stats)[1] > qval_thresh)
+        num_regions = np.argmax(
+            [x > qval_thresh for x in zip(*all_stats)[1]])
         if num_regions == 0:
             sys.stderr.write(
                 '*' * 60 + '\nERROR: No regions identified q-value ' +
@@ -1882,8 +1926,8 @@ def get_region_sequences(
 
 def plot_kmer_centered_signif(
         files1, files2, num_regions, corrected_group, basecall_subgroups,
-        overplot_thresh, pdf_fn, motif, context_width, test_type,
-        obs_filter, min_test_vals, num_stat_values):
+        overplot_thresh, overplot_type, pdf_fn, motif, context_width,
+        test_type, obs_filter, min_test_vals, num_stat_values):
     if VERBOSE: sys.stderr.write('Parsing files.\n')
     raw_read_coverage1 = parse_fast5s(
         files1, corrected_group, basecall_subgroups, True)
@@ -1937,14 +1981,14 @@ def plot_kmer_centered_signif(
          motif_regions_data[:num_regions]])
     plot_width = len(motif) + (context_width * 2)
     pval_locs = [(pos - start, -np.log10(
-        all_stats_dict[(chrm, strand, pos)][1]))
+        all_stats_dict[(chrm, strand, pos)][0]))
                  for chrm, start, strand, _ in zip(*plot_intervals)[1]
                  for pos in range(start, start + plot_width)]
 
     plot_kmer_centered_with_stats(
         motif_regions_data, raw_read_coverage1, raw_read_coverage2,
         plot_intervals, pval_locs, plot_width, corrected_group,
-        overplot_thresh, pdf_fn)
+        overplot_thresh, overplot_type, pdf_fn)
 
     return
 
@@ -2272,8 +2316,9 @@ def kmer_signif_diff_main(args):
     plot_kmer_centered_signif(
         files1, files2, args.num_regions, args.corrected_group,
         args.basecall_subgroups, args.overplot_threshold,
-        args.pdf_filename, args.motif, args.num_context,
-        args.test_type, parse_obs_filter(args.obs_per_base_filter),
+        args.overplot_type, args.pdf_filename, args.motif,
+        args.num_context, args.test_type,
+        parse_obs_filter(args.obs_per_base_filter),
         args.minimum_test_reads, args.num_statistics)
 
     return

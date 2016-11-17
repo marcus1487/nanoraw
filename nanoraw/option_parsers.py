@@ -483,6 +483,7 @@ def get_signif_kmer_parser():
 
     ovplt_args = parser.add_argument_group('Overplotting Arguments')
     ovplt_args.add_argument(ovpltthresh_opt[0], **ovpltthresh_opt[1])
+    ovplt_args.add_argument(ovplttype_opt[0], **ovplttype_opt[1])
 
     filter_args = parser.add_argument_group('Read Filtering Arguments')
     filter_args.add_argument(obsfilt_opt[0], **obsfilt_opt[1])
