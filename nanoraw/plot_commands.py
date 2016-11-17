@@ -191,6 +191,7 @@ plotGroupComp = r.globalenv['plotGroupComp']
 
 r.r('''
 plotKmerStats <- function(SignalDat, BaseDat, StatsDat){
+    ylim <- 3
     regions <- unique(SignalDat$Region)
     midReg <- regions[(length(regions) + 1) / 2]
     ps <- lapply(regions, function(region){
@@ -199,7 +200,7 @@ plotKmerStats <- function(SignalDat, BaseDat, StatsDat){
         p <- ggplot(rSigDat) +
             geom_path(aes(x=Position, y=Signal, color=Group, group=Read),
                       alpha=0.3, size=0.05, show.legend=FALSE) +
-            geom_text(aes(x=Position+0.5, y=-5,
+            geom_text(aes(x=Position+0.5, y=-ylim,
                           label=Base, color=Base),
                       data=rBaseDat,
                       hjust=0.5, vjust=0, size=3, show.legend=FALSE) +
@@ -211,9 +212,13 @@ plotKmerStats <- function(SignalDat, BaseDat, StatsDat){
             geom_vline(
                 xintercept=min(rBaseDat$Position):
                 (max(rBaseDat$Position) + 1), size=0.01) +
-            theme_bw() + theme(axis.text.x=element_blank(),
-                               axis.text.y=element_blank(),
-                               axis.title.x=element_blank())
+           scale_x_continuous(expand=c(0,0)) +
+           coord_cartesian(ylim=c(-ylim, ylim)) +
+           theme_bw() +
+           theme(axis.text.x=element_blank(), axis.text.y=element_blank(),
+                 axis.title.x=element_blank(),
+                 axis.ticks.x=element_blank(), axis.ticks.y=element_blank(),
+                 plot.margin=margin(0,0,0,0,'lines'))
         if(region != midReg){
             p <- p + theme(axis.title.y=element_blank())
         }
@@ -223,9 +228,9 @@ plotKmerStats <- function(SignalDat, BaseDat, StatsDat){
     ps[[length(ps) + 1]] <- ggplot(StatsDat) +
         geom_violin(aes(
             x=Position+0.5, y=NegLogAdjPValue,
-            group=cut_width(Position, 0.9999),
-            closed='right'), fill='black') +
-        scale_x_continuous() +
+            group=cut_width(Position, 0.9999)), size=0.1, fill='black') +
+        scale_x_continuous(expand=c(0,0)) +
+        scale_y_continuous(breaks=c(0,1,2,4,6,8)) +
         xlab('Position') + theme_bw() +
         theme(axis.text.x=element_text(hjust=0))
     print(do.call(
@@ -1383,6 +1388,19 @@ def plot_kmer_centered_with_stats(
     all_reg_data2, no_cov_regs2 = get_region_reads(
         plot_intervals, raw_read_coverage2, num_bases,
         filter_no_cov=False)
+
+    # TODO: Get reads regardless of strand. Needs to go back
+    # to region selection
+    # filter for only plus strand reads
+    all_reg_data1 = [
+        (reg_i, i_start, chrm, [r_data for r_data in reads
+                                if r_data.strand == '+'])
+        for reg_i, i_start, chrm, reads in all_reg_data1]
+    all_reg_data2 = [
+        (reg_i, i_start, chrm, [r_data for r_data in reads
+                                if r_data.strand == '+'])
+        for reg_i, i_start, chrm, reads in all_reg_data2]
+
     merged_reg_data = [
         (reg_id, start, chrm, reg_data1 + reg_data2)
         for (reg_id, start, chrm, reg_data1),
