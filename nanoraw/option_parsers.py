@@ -167,7 +167,6 @@ kmer_opt=('--kmer', {
     'help':'DNA K-mer of interest. Should be composed of ' +
     'ACGT characters.'})
 fasta_opt=('--genome-fasta', {
-    'required':True,
     'help':'FASTA file used to map reads with "genome_resquiggle" ' +
     'command.'})
 deepcov_opt=('--deepest-coverage', {
@@ -217,8 +216,10 @@ wigfn_opt=('--wiggle-filename', {
 pdf_opt=('--pdf-filename', {
     'help':'PDF filename to store plot(s). Default: %(default)s'})
 statfn_opt=('--statistics-filename', {
-    'help':"Filename to save base by base signal difference " +
-    "statistics. Default: Don't save."})
+    'help':"Filename to save/load base by base signal difference " +
+    "statistics. If file exists it will try to be loaded, if it" +
+    " does not exist it will be created to save statistics. " +
+    "Default: Don't save/load."})
 rdata_opt=('--r-data-filename', {
     'help':"Filename to save R data structure. Defualt: Don't save"})
 seqs_opt=('--sequences-filename', {
@@ -359,7 +360,7 @@ def get_kmer_loc_parser():
     req_args = parser.add_argument_group('Required Argument')
     req_args.add_argument(fast5dir_opt[0], **fast5dir_opt[1])
     req_args.add_argument(kmer_opt[0], **kmer_opt[1])
-    req_args.add_argument(fasta_opt[0], **fasta_opt[1])
+    req_args.add_argument(fasta_opt[0], required=True, **fasta_opt[1])
 
     alt_args = parser.add_argument_group('Comparison Group Argument')
     alt_args.add_argument(altfast5dir_opt[0], **altfast5dir_opt[1])
@@ -493,6 +494,9 @@ def get_signif_kmer_parser():
 
     testt_args = parser.add_argument_group('Significance Test Argument')
     testt_args.add_argument(testtype_opt[0], **testtype_opt[1])
+
+    fasta_args = parser.add_argument_group('FASTA Sequence Argument')
+    fasta_args.add_argument(fasta_opt[0], **fasta_opt[1])
 
     misc_args = parser.add_argument_group('Miscellaneous Arguments')
     misc_args.add_argument(

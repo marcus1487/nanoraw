@@ -972,7 +972,7 @@ def get_reg_base_data(all_reg_data, corrected_group, num_bases):
                     end_overlap = read_data.end - interval_start
                     reg_base_data[:end_overlap] = seq[-end_overlap:]
 
-            reg_base_data = ''.join(reg_base_dat)
+            reg_base_data = ''.join(reg_base_data)
 
         all_reg_base_data.append(reg_base_data)
 
@@ -1797,6 +1797,26 @@ def mann_whitney_u_test(samp1, samp2):
 
     return pval
 
+def parse_stats(stats_fn):
+    all_stats = []
+    with open(stats_fn) as stats_fp:
+        curr_chrm, curr_strand = None, None
+        for line in stats_fp:
+            if line.startswith('>>>>'):
+                _, curr_chrm, curr_strand = line.split("::")
+            else:
+                if curr_chrm is None or curr_strand is None:
+                    sys.stderr.write(
+                        'WARNING: Incorrectly formatted ' +
+                        'statistics file. No chrm or strand ' +
+                        'before statistics lines\n')
+                pos, pval, qval = line.split()
+                all_stats.append((
+                    float(pval), float(qval), int(pos),
+                    curr_chrm, curr_strand))
+
+    return sorted(all_stats)
+
 def get_all_significance(
         base_events1, base_events2, test_type, min_test_vals,
         all_stats_fn=None):
@@ -1942,41 +1962,53 @@ def get_region_sequences(
 def plot_kmer_centered_signif(
         files1, files2, num_regions, corrected_group, basecall_subgroups,
         overplot_thresh, overplot_type, pdf_fn, motif, context_width,
-        test_type, obs_filter, min_test_vals, num_stat_values, stats_fn):
+        test_type, obs_filter, min_test_vals, num_stat_values, stats_fn,
+        fasta_fn):
     if VERBOSE: sys.stderr.write('Parsing files.\n')
+    calc_stats = stats_fn is None or not os.path.isfile(stats_fn)
     raw_read_coverage1 = parse_fast5s(
-        files1, corrected_group, basecall_subgroups, True)
+        files1, corrected_group, basecall_subgroups, calc_stats)
     raw_read_coverage2 = parse_fast5s(
-        files2, corrected_group, basecall_subgroups, True)
+        files2, corrected_group, basecall_subgroups, calc_stats)
     raw_read_coverage1 = filter_reads(raw_read_coverage1, obs_filter)
     raw_read_coverage2 = filter_reads(raw_read_coverage2, obs_filter)
 
-    chrm_sizes = dict((chrm, max(
-        [r_data.end for r_data in raw_read_coverage1[chrm]] +
-        [r_data.end for r_data in raw_read_coverage2[chrm]]))
-                      for chrm in set(raw_read_coverage1).intersection(
-                          raw_read_coverage2))
+    if calc_stats:
+        chrm_sizes = dict((chrm, max(
+            [r_data.end for r_data in raw_read_coverage1[chrm]] +
+            [r_data.end for r_data in raw_read_coverage2[chrm]]))
+                          for chrm in set(raw_read_coverage1).intersection(
+                                  raw_read_coverage2))
 
-    if VERBOSE: sys.stderr.write('Getting base signal.\n')
-    base_events1 = get_base_events(raw_read_coverage1, chrm_sizes)
-    base_events2 = get_base_events(raw_read_coverage2, chrm_sizes)
+        if VERBOSE: sys.stderr.write('Getting base signal.\n')
+        base_events1 = get_base_events(raw_read_coverage1, chrm_sizes)
+        base_events2 = get_base_events(raw_read_coverage2, chrm_sizes)
 
-    all_stats = get_all_significance(
-        base_events1, base_events2, test_type, min_test_vals, stats_fn)
+        all_stats = get_all_significance(
+            base_events1, base_events2, test_type, min_test_vals, stats_fn)
+    else:
+        all_stats = parse_stats(stats_fn)
+
     all_stats_dict = dict(
         ((chrm, strand, start), (pval, qval))
         for pval, qval, start, chrm, strand in all_stats)
 
     if VERBOSE: sys.stderr.write(
             'Finding signficant regions with motif.\n')
+    if fasta_fn is not None:
+        with open(fasta_fn) as fasta_fp:
+            fasta_records = parse_fasta(fasta_fp)
     motif_pat = re.compile(motif, re.IGNORECASE)
     motif_regions_data = []
     for pval, qval, pos, chrm, strand in all_stats:
-        reg_seq = get_region_sequences(
-            [('0', (chrm, pos - len(motif), strand, pval)),],
-            raw_read_coverage1, raw_read_coverage2,
-            (len(motif) * 2) - 1, corrected_group)
-        reg_match = motif_pat.search(reg_seq[0][1])
+        if fasta_fn is None:
+            reg_seq = get_region_sequences(
+                [('0', (chrm, pos - len(motif), strand, pval)),],
+                raw_read_coverage1, raw_read_coverage2,
+                (len(motif) * 2) - 1, corrected_group)[0][1]
+        else:
+            reg_seq = fasta_records[chrm][pos-len(motif):pos+len(motif)-1]
+        reg_match = motif_pat.search(reg_seq)
         if reg_match:
             motif_regions_data.append((
                 pval, qval, pos, chrm, strand, reg_match.start()))
@@ -2329,7 +2361,7 @@ def kmer_signif_diff_main(args):
         args.num_context, args.test_type,
         parse_obs_filter(args.obs_per_base_filter),
         args.minimum_test_reads, args.num_statistics,
-        args.statistics_filename)
+        args.statistics_filename, args.genome_fasta)
 
     return
 
