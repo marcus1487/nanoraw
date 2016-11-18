@@ -1803,7 +1803,7 @@ def parse_stats(stats_fn):
         curr_chrm, curr_strand = None, None
         for line in stats_fp:
             if line.startswith('>>>>'):
-                _, curr_chrm, curr_strand = line.split("::")
+                _, curr_chrm, curr_strand = line.strip().split("::")
             else:
                 if curr_chrm is None or curr_strand is None:
                     sys.stderr.write(
@@ -1864,14 +1864,14 @@ def get_all_significance(
 
     position_pvals = sorted(position_pvals)
     fdr_corr_pvals = correct_multiple_testing(zip(*position_pvals)[0])
-    all_stats = [(pval, qval, start, chrm, strand)
-                 for qval, (pval, start, chrm, strand) in
+    all_stats = [(pval, qval, pos, chrm, strand)
+                 for qval, (pval, pos, chrm, strand) in
                  zip(fdr_corr_pvals, position_pvals)]
 
     if all_stats_fn is not None:
         chrm_strand_stats = defaultdict(list)
         for pval, qval, pos, chrm, strand in all_stats:
-            chrm_strand_stats[(chrm_strand)].append((pos, pval, qval))
+            chrm_strand_stats[(chrm, strand)].append((pos, pval, qval))
         with open(all_stats_fn, 'w') as stats_fp:
             for (chrm, strand), pos_stats in chrm_strand_stats.items():
                 stats_fp.write('>>>>::' + chrm + '::' + strand + '\n')
@@ -1990,8 +1990,8 @@ def plot_kmer_centered_signif(
         all_stats = parse_stats(stats_fn)
 
     all_stats_dict = dict(
-        ((chrm, strand, start), (pval, qval))
-        for pval, qval, start, chrm, strand in all_stats)
+        ((chrm, strand, pos), (pval, qval))
+        for pval, qval, pos, chrm, strand in all_stats)
 
     if VERBOSE: sys.stderr.write(
             'Finding signficant regions with motif.\n')
@@ -2003,11 +2003,14 @@ def plot_kmer_centered_signif(
     for pval, qval, pos, chrm, strand in all_stats:
         if fasta_fn is None:
             reg_seq = get_region_sequences(
-                [('0', (chrm, pos - len(motif), strand, pval)),],
+                [('0', (chrm, pos - len(motif) + 1, strand, pval)),],
                 raw_read_coverage1, raw_read_coverage2,
                 (len(motif) * 2) - 1, corrected_group)[0][1]
         else:
-            reg_seq = fasta_records[chrm][pos-len(motif):pos+len(motif)-1]
+            reg_seq = fasta_records[chrm][
+                pos-len(motif)+1:pos+len(motif)]
+            #reg_seq = rev_comp(reg_seq) if strand == '-' else reg_seq
+
         reg_match = motif_pat.search(reg_seq)
         if reg_match:
             motif_regions_data.append((
@@ -2017,7 +2020,7 @@ def plot_kmer_centered_signif(
 
     plot_intervals = zip(
         ['{:03d}'.format(rn) for rn in range(num_regions)],
-        [(chrm, pos - len(motif) + offset - context_width, strand, '')
+        [(chrm, pos - len(motif) + offset - context_width + 1, strand, '')
          for pval, qval, pos, chrm, strand, offset in
          motif_regions_data[:num_regions]])
     plot_width = len(motif) + (context_width * 2)
