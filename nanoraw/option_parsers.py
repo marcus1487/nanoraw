@@ -216,6 +216,9 @@ wigfn_opt=('--wiggle-filename', {
 # misc opts
 pdf_opt=('--pdf-filename', {
     'help':'PDF filename to store plot(s). Default: %(default)s'})
+statfn_opt=('--statistics-filename', {
+    'help':"Filename to save base by base signal difference " +
+    "statistics. Default: Don't save."})
 rdata_opt=('--r-data-filename', {
     'help':"Filename to save R data structure. Defualt: Don't save"})
 seqs_opt=('--sequences-filename', {
@@ -496,6 +499,7 @@ def get_signif_kmer_parser():
         pdf_opt[0],
         default='Nanopore_read_coverage.statistics_around_kmer.pdf',
         **pdf_opt[1])
+    misc_args.add_argument(statfn_opt[0], **statfn_opt[1])
     misc_args.add_argument(minreads_opt[0], **minreads_opt[1])
     misc_args.add_argument(numreg_opt[0], **numreg_opt[1])
     misc_args.add_argument(cntxt_opt[0], **cntxt_opt[1])

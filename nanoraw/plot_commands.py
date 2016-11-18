@@ -1796,7 +1796,8 @@ def mann_whitney_u_test(samp1, samp2):
     return pval
 
 def get_all_significance(
-        base_events1, base_events2, test_type, min_test_vals):
+        base_events1, base_events2, test_type, min_test_vals,
+        all_stats_fn=None):
     if VERBOSE: sys.stderr.write(
             'Test significance of difference in base signal.\n')
     # get num_region most significantly different regions from
@@ -1841,10 +1842,22 @@ def get_all_significance(
 
     position_pvals = sorted(position_pvals)
     fdr_corr_pvals = correct_multiple_testing(zip(*position_pvals)[0])
+    all_stats = [(pval, qval, start, chrm, strand)
+                 for qval, (pval, start, chrm, strand) in
+                 zip(fdr_corr_pvals, position_pvals)]
 
-    return [(pval, qval, start, chrm, strand)
-            for qval, (pval, start, chrm, strand) in
-            zip(fdr_corr_pvals, position_pvals)]
+    if all_stats_fn is not None:
+        chrm_strand_stats = defaultdict(list)
+        for pval, qval, pos, chrm, strand in all_stats:
+            chrm_strand_stats[(chrm_strand)].append((pos, pval, qval))
+        with open(all_stats_fn, 'w') as stats_fp:
+            for (chrm, strand), pos_stats in chrm_strand_stats.items():
+                stats_fp.write('>>>>::' + chrm + '::' + strand + '\n')
+                stats_fp.write('\n'.join([
+                    '{:d}\t{:.2g}\t{:.2g}'.format(pos, pval, qval)
+                    for pos, pval, qval in sorted(pos_stats)]) + '\n')
+
+    return all_stats
 
 def get_most_signif_regions(
         base_events1, base_events2, test_type, num_bases, num_regions,
@@ -1927,7 +1940,7 @@ def get_region_sequences(
 def plot_kmer_centered_signif(
         files1, files2, num_regions, corrected_group, basecall_subgroups,
         overplot_thresh, overplot_type, pdf_fn, motif, context_width,
-        test_type, obs_filter, min_test_vals, num_stat_values):
+        test_type, obs_filter, min_test_vals, num_stat_values, stats_fn):
     if VERBOSE: sys.stderr.write('Parsing files.\n')
     raw_read_coverage1 = parse_fast5s(
         files1, corrected_group, basecall_subgroups, True)
@@ -1947,7 +1960,7 @@ def plot_kmer_centered_signif(
     base_events2 = get_base_events(raw_read_coverage2, chrm_sizes)
 
     all_stats = get_all_significance(
-        base_events1, base_events2, test_type, min_test_vals)
+        base_events1, base_events2, test_type, min_test_vals, stats_fn)
     all_stats_dict = dict(
         ((chrm, strand, start), (pval, qval))
         for pval, qval, start, chrm, strand in all_stats)
@@ -2319,7 +2332,8 @@ def kmer_signif_diff_main(args):
         args.overplot_type, args.pdf_filename, args.motif,
         args.num_context, args.test_type,
         parse_obs_filter(args.obs_per_base_filter),
-        args.minimum_test_reads, args.num_statistics)
+        args.minimum_test_reads, args.num_statistics,
+        args.statistics_filename)
 
     return
 
