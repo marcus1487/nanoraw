@@ -972,6 +972,8 @@ def get_reg_base_data(all_reg_data, corrected_group, num_bases):
                     end_overlap = read_data.end - interval_start
                     reg_base_data[:end_overlap] = seq[-end_overlap:]
 
+            reg_base_data = ''.join(reg_base_dat)
+
         all_reg_base_data.append(reg_base_data)
 
     return all_reg_base_data
@@ -1974,13 +1976,7 @@ def plot_kmer_centered_signif(
             [('0', (chrm, pos - len(motif), strand, pval)),],
             raw_read_coverage1, raw_read_coverage2,
             (len(motif) * 2) - 1, corrected_group)
-        try:
-            reg_match = motif_pat.search(reg_seq[0][1])
-        except TypeError:
-            sys.stderr.write(
-                'WARNING: invalid sequence: ' +
-                str(reg_seq[0][1]) + '. Skipping...\n ')
-            continue
+        reg_match = motif_pat.search(reg_seq[0][1])
         if reg_match:
             motif_regions_data.append((
                 pval, qval, pos, chrm, strand, reg_match.start()))
