@@ -2038,16 +2038,19 @@ def plot_kmer_centered_signif(
         if len(motif_regions_data) >= num_stat_values:
             break
 
+    # get plot intervals for all stat regions then trim to
+    # num_regions after getting all p-values for plotting
     plot_intervals = zip(
-        ['{:03d}'.format(rn) for rn in range(num_regions)],
+        ['{:03d}'.format(rn) for rn in range(num_stat_values)],
         [(chrm, pos - motif_len + offset - context_width + 1, strand, '')
          for pval, qval, pos, chrm, strand, offset in
-         motif_regions_data[:num_regions]])
+         motif_regions_data])
     plot_width = motif_len + (context_width * 2)
     pval_locs = [(pos - start, -np.log10(
         all_stats_dict[(chrm, strand, pos)][0]))
                  for chrm, start, strand, _ in zip(*plot_intervals)[1]
                  for pos in range(start, start + plot_width)]
+    plot_intervals = plot_intervals[:num_regions]
 
     plot_kmer_centered_with_stats(
         motif_regions_data, raw_read_coverage1, raw_read_coverage2,
