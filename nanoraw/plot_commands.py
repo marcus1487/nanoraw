@@ -23,6 +23,13 @@ VERBOSE = False
 # to be meaningful
 QUANT_MIN = 3
 
+# single base conversion for motifs
+SINGLE_LETTER_CODE = {
+    'A':'A', 'C':'C', 'G':'G', 'T':'T', 'B':'[CGT]',
+    'D':'[AGT]', 'H':'[ACT]', 'K':'[GT]', 'M':'[AC]',
+    'N':'[ACGT]', 'R':'[AG]', 'S':'[CG]', 'V':'[ACG]',
+    'W':'[AT]', 'Y':'[CT]'}
+
 # plotting names for strands
 FWD_STRAND = 'Forward Strand'
 REV_STRAND = 'Reverse Strand'
@@ -1601,6 +1608,7 @@ def plot_kmer_centered(
     with open(fasta_fn) as fasta_fp:
         fasta_records = parse_fasta(fasta_fp)
 
+    # TODO: convert to motif instead of kmer using parse_motif function
     kmer_locs = []
     for chrm, seq in fasta_records.items():
         for kmer_loc in re.finditer(kmer, seq):
@@ -1959,12 +1967,26 @@ def get_region_sequences(
 
     return zip(zip(*merged_reg_data)[0], all_reg_base_data)
 
+def parse_motif(motif):
+    invalid_chars = re.findall('[^ACGTBDHKMNRSVWY]', motif)
+    if len(invalid_chars) > 0:
+       sys.stderr.write(
+           '********* ERROR ********* Invalid characters in motif: ' +
+           ', '.join(invalid_chars) + ' *********\n')
+       sys.exit()
+
+    return re.compile(''.join(
+        SINGLE_LETTER_CODE[letter] for letter in motif))
+
 def plot_kmer_centered_signif(
         files1, files2, num_regions, corrected_group, basecall_subgroups,
         overplot_thresh, overplot_type, pdf_fn, motif, context_width,
         test_type, obs_filter, min_test_vals, num_stat_values, stats_fn,
         fasta_fn):
     if VERBOSE: sys.stderr.write('Parsing files.\n')
+    motif_pat = parse_motif(motif)
+    motif_len = len(motif)
+
     calc_stats = stats_fn is None or not os.path.isfile(stats_fn)
     raw_read_coverage1 = parse_fast5s(
         files1, corrected_group, basecall_subgroups, calc_stats)
@@ -1998,18 +2020,16 @@ def plot_kmer_centered_signif(
     if fasta_fn is not None:
         with open(fasta_fn) as fasta_fp:
             fasta_records = parse_fasta(fasta_fp)
-    motif_pat = re.compile(motif, re.IGNORECASE)
     motif_regions_data = []
     for pval, qval, pos, chrm, strand in all_stats:
         if fasta_fn is None:
             reg_seq = get_region_sequences(
-                [('0', (chrm, pos - len(motif) + 1, strand, pval)),],
+                [('0', (chrm, pos - motif_len + 1, strand, pval)),],
                 raw_read_coverage1, raw_read_coverage2,
-                (len(motif) * 2) - 1, corrected_group)[0][1]
+                (motif_len * 2) - 1, corrected_group)[0][1]
         else:
             reg_seq = fasta_records[chrm][
-                pos-len(motif)+1:pos+len(motif)]
-            #reg_seq = rev_comp(reg_seq) if strand == '-' else reg_seq
+                pos-motif_len+1:pos+motif_len]
 
         reg_match = motif_pat.search(reg_seq)
         if reg_match:
@@ -2020,10 +2040,10 @@ def plot_kmer_centered_signif(
 
     plot_intervals = zip(
         ['{:03d}'.format(rn) for rn in range(num_regions)],
-        [(chrm, pos - len(motif) + offset - context_width + 1, strand, '')
+        [(chrm, pos - motif_len + offset - context_width + 1, strand, '')
          for pval, qval, pos, chrm, strand, offset in
          motif_regions_data[:num_regions]])
-    plot_width = len(motif) + (context_width * 2)
+    plot_width = motif_len + (context_width * 2)
     pval_locs = [(pos - start, -np.log10(
         all_stats_dict[(chrm, strand, pos)][0]))
                  for chrm, start, strand, _ in zip(*plot_intervals)[1]

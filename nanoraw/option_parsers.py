@@ -193,9 +193,9 @@ testtype_opt=('--test-type', {
 
 # kmer centered statistic plotting options
 motif_opt=('--motif', {
-    'help':'A kmer to plot the most significant regions genomic ' +
-    ' regions as well as statistic distributions at each genomic ' +
-    'base in the region.'})
+    'help':'A motif to plot the most significant regions genomic ' +
+    'regions as well as statistic distributions at each genomic ' +
+    'base in the region. Supports single letter codes.'})
 
 # filter reads plotted
 obsfilt_opt=('--obs-per-base-filter', {
