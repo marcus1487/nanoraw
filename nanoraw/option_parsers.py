@@ -456,6 +456,7 @@ def get_signif_diff_parser():
         pdf_opt[0],
         default='Nanopore_read_coverage.significant_difference.pdf',
         **pdf_opt[1])
+    misc_args.add_argument(statfn_opt[0], **statfn_opt[1])
     misc_args.add_argument(qvalthresh_opt[0], **qvalthresh_opt[1])
     misc_args.add_argument(minreads_opt[0], **minreads_opt[1])
     misc_args.add_argument(seqs_opt[0], **seqs_opt[1])
@@ -536,10 +537,14 @@ def get_write_signif_diff_parser():
     testt_args = parser.add_argument_group('Significance Test Argument')
     testt_args.add_argument(testtype_opt[0], **testtype_opt[1])
 
+    fasta_args = parser.add_argument_group('FASTA Sequence Argument')
+    fasta_args.add_argument(fasta_opt[0], **fasta_opt[1])
+
     misc_args = parser.add_argument_group('Miscellaneous Arguments')
     misc_args.add_argument(
         seqs_opt[0], default='Nanopore_most_significant_regions.fasta',
         **seqs_opt[1])
+    misc_args.add_argument(statfn_opt[0], **statfn_opt[1])
     misc_args.add_argument(numreg_opt[0], **numreg_opt[1])
     misc_args.add_argument(qvalthresh_opt[0], **qvalthresh_opt[1])
     misc_args.add_argument(minreads_opt[0], **minreads_opt[1])
@@ -571,6 +576,9 @@ def get_cluster_signif_diff_parser():
     testt_args = parser.add_argument_group('Significance Test Argument')
     testt_args.add_argument(testtype_opt[0], **testtype_opt[1])
 
+    fasta_args = parser.add_argument_group('FASTA Sequence Argument')
+    fasta_args.add_argument(fasta_opt[0], **fasta_opt[1])
+
     multi_args = parser.add_argument_group('Multiprocessing Argument')
     multi_args.add_argument(proc_opt[0], **proc_opt[1])
 
@@ -578,6 +586,7 @@ def get_cluster_signif_diff_parser():
     misc_args.add_argument(
         pdf_opt[0], default='Nanopore_most_significant_clustering.pdf',
         **pdf_opt[1])
+    misc_args.add_argument(statfn_opt[0], **statfn_opt[1])
     misc_args.add_argument(rdata_opt[0], **rdata_opt[1])
     misc_args.add_argument(numreg_opt[0], **numreg_opt[1])
     misc_args.add_argument(qvalthresh_opt[0], **qvalthresh_opt[1])

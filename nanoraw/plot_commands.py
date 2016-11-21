@@ -205,13 +205,15 @@ plotKmerStats <- function(
     ps <- lapply(regions, function(region){
         rBaseDat <- BaseDat[BaseDat$Region==region,]
         rPlotDat <- PlotDat[PlotDat$Region==region,]
-        p <- ggplot(rPlotDat)
         if(PlotType %in% c('Signal', 'Downsample')){
-            p <- p + geom_path(
+            ## randomize so all of one group isn't on top
+            sRPlotDat <- split(rPlotDat, rPlotDat$Read)
+            rPlotDat <- do.call(rbind.data.frame, sample(sRPlotDat))
+            p <- ggplot(rPlotDat) + geom_path(
                       aes(x=Position, y=Signal, color=Group, group=Read),
-                      alpha=0.3, size=0.05, show.legend=FALSE)
+                      alpha=0.5, size=0.1, show.legend=FALSE)
         } else if(PlotType == 'Quantile'){
-            p <- p +
+            p <- ggplot(rPlotDat) +
                 geom_rect(aes(xmin=Position, xmax=Position + QuantWidth,
                               ymin=Lower, ymax=Upper, fill=Group),
                           alpha=0.2, show.legend=FALSE) +
@@ -219,7 +221,7 @@ plotKmerStats <- function(
                     values=c('Group1'='blue', 'Group2'='red')) +
                 ylab('Signal')
         } else if(PlotType == 'Boxplot'){
-            p <- p +
+            p <- ggplot(rPlotDat) +
                 geom_boxplot(
                     aes(Position + 0.5, ymin=SigMin, lower=Sig25,
                         middle=SigMed, upper=Sig75, ymax=SigMax,
@@ -229,7 +231,7 @@ plotKmerStats <- function(
                     values=c('Group1'='blue', 'Group2'='red')) +
                 ylab('Signal')
         } else if(PlotType == 'Violin'){
-            p <- p +
+            p <- ggplot(rPlotDat) +
                 geom_violin(aes(x=Position + 0.5, y=Signal, fill=Group,
                                 group=paste0(Group, Position)),
                             size=0, show.legend=FALSE) +
@@ -245,7 +247,7 @@ plotKmerStats <- function(
                 values=c(
                     'A'='#00CC00', 'C'='#0000CC', 'G'='#FFB300',
                     'T'='#CC0000', '-'='black', 'N'='black',
-                    'Group1'='blue', 'Group2'='red')) +
+                    'Group1'='red', 'Group2'='black')) +
             geom_vline(
                 xintercept=min(rBaseDat$Position):
                 (max(rBaseDat$Position) + 1), size=0.01) +
@@ -1891,9 +1893,13 @@ def get_all_significance(
 
 def get_most_signif_regions(
         base_events1, base_events2, test_type, num_bases, num_regions,
-        qval_thresh=None, min_test_vals=2):
-    all_stats = get_all_significance(
-        base_events1, base_events2, test_type, min_test_vals)
+        qval_thresh=None, min_test_vals=2, stats_fn=None):
+    if stats_fn is None or not os.path.isfile(stats_fn):
+        all_stats = get_all_significance(
+            base_events1, base_events2, test_type, min_test_vals,
+            stats_fn)
+    else:
+        all_stats = parse_stats(stats_fn)
 
     # applied threshold for scores on each chromosome, so now
     # we include all here
@@ -1919,28 +1925,36 @@ def get_most_signif_regions(
 def plot_most_signif(
         files1, files2, num_regions, corrected_group, basecall_subgroups,
         overplot_thresh, pdf_fn, seqs_fn, num_bases, overplot_type,
-        test_type, obs_filter, qval_thresh, min_test_vals):
+        test_type, obs_filter, qval_thresh, min_test_vals, stats_fn):
     if VERBOSE: sys.stderr.write('Parsing files.\n')
+    calc_stats = stats_fn is None or not os.path.isfile(stats_fn)
+
     raw_read_coverage1 = parse_fast5s(
-        files1, corrected_group, basecall_subgroups, True)
+        files1, corrected_group, basecall_subgroups, calc_stats)
     raw_read_coverage2 = parse_fast5s(
-        files2, corrected_group, basecall_subgroups, True)
+        files2, corrected_group, basecall_subgroups, calc_stats)
     raw_read_coverage1 = filter_reads(raw_read_coverage1, obs_filter)
     raw_read_coverage2 = filter_reads(raw_read_coverage2, obs_filter)
 
-    chrm_sizes = dict((chrm, max(
-        [r_data.end for r_data in raw_read_coverage1[chrm]] +
-        [r_data.end for r_data in raw_read_coverage2[chrm]]))
-                      for chrm in set(raw_read_coverage1).intersection(
-                          raw_read_coverage2))
+    if calc_stats:
+        chrm_sizes = dict((chrm, max(
+            [r_data.end for r_data in raw_read_coverage1[chrm]] +
+            [r_data.end for r_data in raw_read_coverage2[chrm]]))
+                          for chrm in set(
+                              raw_read_coverage1).intersection(
+                                  raw_read_coverage2))
 
-    if VERBOSE: sys.stderr.write('Getting base signal.\n')
-    base_events1 = get_base_events(raw_read_coverage1, chrm_sizes)
-    base_events2 = get_base_events(raw_read_coverage2, chrm_sizes)
+        if VERBOSE: sys.stderr.write('Getting base signal.\n')
+        base_events1 = get_base_events(raw_read_coverage1, chrm_sizes)
+        base_events2 = get_base_events(raw_read_coverage2, chrm_sizes)
 
-    plot_intervals = get_most_signif_regions(
-        base_events1, base_events2, test_type, num_bases, num_regions,
-        qval_thresh, min_test_vals)
+        plot_intervals = get_most_signif_regions(
+            base_events1, base_events2, test_type, num_bases,
+            num_regions, qval_thresh, min_test_vals, stats_fn)
+    else:
+        plot_intervals = get_most_signif_regions(
+            None, None, test_type, num_bases,
+            num_regions, qval_thresh, min_test_vals, stats_fn)
 
     plot_two_samples(
         plot_intervals, raw_read_coverage1, raw_read_coverage2,
@@ -1999,7 +2013,8 @@ def plot_kmer_centered_signif(
         chrm_sizes = dict((chrm, max(
             [r_data.end for r_data in raw_read_coverage1[chrm]] +
             [r_data.end for r_data in raw_read_coverage2[chrm]]))
-                          for chrm in set(raw_read_coverage1).intersection(
+                          for chrm in set(
+                              raw_read_coverage1).intersection(
                                   raw_read_coverage2))
 
         if VERBOSE: sys.stderr.write('Getting base signal.\n')
@@ -2007,7 +2022,8 @@ def plot_kmer_centered_signif(
         base_events2 = get_base_events(raw_read_coverage2, chrm_sizes)
 
         all_stats = get_all_significance(
-            base_events1, base_events2, test_type, min_test_vals, stats_fn)
+            base_events1, base_events2, test_type, min_test_vals,
+            stats_fn)
     else:
         all_stats = parse_stats(stats_fn)
 
@@ -2062,32 +2078,48 @@ def plot_kmer_centered_signif(
 def write_most_signif(
         files1, files2, num_regions, qval_thresh, corrected_group,
         basecall_subgroups, seqs_fn, num_bases, test_type, obs_filter,
-        min_test_vals):
+        min_test_vals, stats_fn, fasta_fn):
     if VERBOSE: sys.stderr.write('Parsing files.\n')
+    calc_stats = stats_fn is None or not os.path.isfile(stats_fn)
+
     raw_read_coverage1 = parse_fast5s(
-        files1, corrected_group, basecall_subgroups, True)
+        files1, corrected_group, basecall_subgroups, calc_stats)
     raw_read_coverage2 = parse_fast5s(
-        files2, corrected_group, basecall_subgroups, True)
+        files2, corrected_group, basecall_subgroups, calc_stats)
     raw_read_coverage1 = filter_reads(raw_read_coverage1, obs_filter)
     raw_read_coverage2 = filter_reads(raw_read_coverage2, obs_filter)
 
-    chrm_sizes = dict((chrm, max(
-        [r_data.end for r_data in raw_read_coverage1[chrm]] +
-        [r_data.end for r_data in raw_read_coverage2[chrm]]))
-                      for chrm in set(raw_read_coverage1).intersection(
-                          raw_read_coverage2))
+    if calc_stats:
+        chrm_sizes = dict((chrm, max(
+            [r_data.end for r_data in raw_read_coverage1[chrm]] +
+            [r_data.end for r_data in raw_read_coverage2[chrm]]))
+                          for chrm in set(
+                              raw_read_coverage1).intersection(
+                                  raw_read_coverage2))
 
-    if VERBOSE: sys.stderr.write('Getting base signal.\n')
-    base_events1 = get_base_events(raw_read_coverage1, chrm_sizes)
-    base_events2 = get_base_events(raw_read_coverage2, chrm_sizes)
+        if VERBOSE: sys.stderr.write('Getting base signal.\n')
+        base_events1 = get_base_events(raw_read_coverage1, chrm_sizes)
+        base_events2 = get_base_events(raw_read_coverage2, chrm_sizes)
 
-    plot_intervals = get_most_signif_regions(
-        base_events1, base_events2, test_type, num_bases, num_regions,
-        qval_thresh, min_test_vals)
+        plot_intervals = get_most_signif_regions(
+            base_events1, base_events2, test_type, num_bases,
+            num_regions, qval_thresh, min_test_vals, stats_fn)
+    else:
+        plot_intervals = get_most_signif_regions(
+            None, None, test_type, num_bases,
+            num_regions, qval_thresh, min_test_vals, stats_fn)
 
-    reg_seqs = get_region_sequences(
-        plot_intervals, raw_read_coverage1, raw_read_coverage2,
-        num_bases, corrected_group)
+    if fasta_fn is None:
+        reg_seqs = get_region_sequences(
+            plot_intervals, raw_read_coverage1, raw_read_coverage2,
+            num_bases, corrected_group)
+    else:
+        with open(fasta_fn) as fasta_fp:
+            fasta_records = parse_fasta(fasta_fp)
+        reg_seqs = [
+            fasta_records[chrm][start-1:start+num_bases-1]
+            for p_int, (chrm, start, strand, reg_name)
+            in uniq_p_intervals]
 
     # get reads overlapping each region
     if VERBOSE: sys.stderr.write('Outputting region seqeuences.\n')
@@ -2130,7 +2162,7 @@ def get_pairwise_dists(reg_sig_diffs, index_q, dists_q, num_bases):
 def cluster_most_signif(
         files1, files2, num_regions, qval_thresh, corrected_group,
         basecall_subgroups, pdf_fn, num_bases, test_type, obs_filter,
-        min_test_vals, r_struct_fn, num_processes):
+        min_test_vals, r_struct_fn, num_processes, fasta_fn, stats_fn):
     if VERBOSE: sys.stderr.write('Parsing files.\n')
     raw_read_coverage1 = parse_fast5s(
         files1, corrected_group, basecall_subgroups, True)
@@ -2155,7 +2187,7 @@ def cluster_most_signif(
 
     plot_intervals = get_most_signif_regions(
         base_events1, base_events2, test_type, num_bases,
-        num_regions, qval_thresh, min_test_vals)
+        num_regions, qval_thresh, min_test_vals, stats_fn)
     # unique genomic regions filter
     uniq_p_intervals = []
     used_intervals = defaultdict(set)
@@ -2170,6 +2202,22 @@ def cluster_most_signif(
                 (p_int, (chrm, start, strand, reg_name)))
             used_intervals[(chrm, strand)].update(interval_poss)
 
+    # get region data if outputting R data structure
+    if r_struct_fn is not None:
+        if VERBOSE: sys.stderr.write('Getting sequences.\n')
+        if fasta_fn is None:
+            # add region sequences to column names for saved dist matrix
+            reg_seqs = zip(*get_region_sequences(
+                uniq_p_intervals, raw_read_coverage1, raw_read_coverage2,
+                num_bases, corrected_group))[1]
+        else:
+            with open(fasta_fn) as fasta_fp:
+                fasta_records = parse_fasta(fasta_fp)
+            reg_seqs = [
+                fasta_records[chrm][start:start+num_bases]
+                for p_int, (chrm, start, strand, reg_name)
+                in uniq_p_intervals]
+
     if VERBOSE: sys.stderr.write('Getting region signal difference.\n')
     reg_sig_diffs = [
         np.array([
@@ -2177,6 +2225,14 @@ def cluster_most_signif(
             np.median(base_events2[(chrm, strand)][pos])
             for pos in range(start, start + num_bases)])
         for chrm, start, strand, _ in zip(*uniq_p_intervals)[1]]
+
+    # some code to output reg signal for discovery plotting
+    """sys.stdout.write('\n'.join(
+        '\t'.join(('\t'.join(map(str, reg_diff)), reg_seq,
+                   chrm, str(start), strand))
+        for reg_seq, (chrm, start, strand, _), reg_diff in
+        zip(reg_seqs, zip(*uniq_p_intervals)[1], reg_sig_diffs)) + '\n')
+    sys.exit()"""
 
     if VERBOSE: sys.stderr.write('Getting distance between signals.\n')
     manager = mp.Manager()
@@ -2213,15 +2269,10 @@ def cluster_most_signif(
         ncol=len(reg_sig_diffs), byrow=True)
 
     if r_struct_fn is not None:
-        if VERBOSE: sys.stderr.write('Getting sequences.\n')
-        # add region sequences to column names for saved dist matrix
-        reg_seqs = get_region_sequences(
-            uniq_p_intervals, raw_read_coverage1, raw_read_coverage2,
-            num_bases, corrected_group)
         reg_sig_diff_dists.colnames = r.StrVector(
             ['::'.join((seq, chrm, strand, str(start))) for seq, (
                 region_i, (chrm, interval_start, strand, stat)) in
-             zip(zip(*reg_seqs)[1], uniq_p_intervals)])
+             zip(reg_seqs, uniq_p_intervals)])
         r_struct_fn = r.StrVector([r_struct_fn,])
     else:
         r_struct_fn = r.NA_Character
@@ -2369,7 +2420,8 @@ def signif_diff_main(args):
         args.pdf_filename, args.sequences_filename, args.num_bases,
         args.overplot_type, args.test_type,
         parse_obs_filter(args.obs_per_base_filter),
-        args.q_value_threshold, args.minimum_test_reads)
+        args.q_value_threshold, args.minimum_test_reads,
+        args.statistics_filename)
 
     return
 
@@ -2403,7 +2455,8 @@ def write_signif_diff_main(args):
         args.corrected_group, args.basecall_subgroups,
         args.sequences_filename, args.num_bases, args.test_type,
         parse_obs_filter(args.obs_per_base_filter),
-        args.minimum_test_reads)
+        args.minimum_test_reads, args.statistics_filename,
+        args.genome_fasta)
 
     return
 
@@ -2419,7 +2472,8 @@ def cluster_signif_diff_main(args):
         args.corrected_group, args.basecall_subgroups,
         args.pdf_filename, args.num_bases, args.test_type,
         parse_obs_filter(args.obs_per_base_filter),
-        args.minimum_test_reads, args.r_data_filename, args.processes)
+        args.minimum_test_reads, args.r_data_filename, args.processes,
+        args.genome_fasta, args.statistics_filename)
 
     return
 
