@@ -2117,9 +2117,9 @@ def write_most_signif(
         with open(fasta_fn) as fasta_fp:
             fasta_records = parse_fasta(fasta_fp)
         reg_seqs = [
-            fasta_records[chrm][start-1:start+num_bases-1]
+            (p_int, fasta_records[chrm][start:start+num_bases])
             for p_int, (chrm, start, strand, reg_name)
-            in uniq_p_intervals]
+            in plot_intervals]
 
     # get reads overlapping each region
     if VERBOSE: sys.stderr.write('Outputting region seqeuences.\n')
