@@ -2066,6 +2066,11 @@ def plot_kmer_centered_signif(
         all_stats_dict[(chrm, strand, pos)][0]))
                  for chrm, start, strand, _ in zip(*plot_intervals)[1]
                  for pos in range(start, start + plot_width)]
+    # TODO: Fix so that negative strand reads are plotted too.
+    # requires adding "don't reverse signal" option in getting plot
+    # data
+    plot_intervals = [interval_data for interval_data in plot_intervals
+                      if interval_data[1][2] == '+']
     plot_intervals = plot_intervals[:num_regions]
 
     plot_kmer_centered_with_stats(
