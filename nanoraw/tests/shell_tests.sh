@@ -1,9 +1,9 @@
 g1Dir="signif_testing/group1/"
 g2Dir="signif_testing/group2/"
 genomeFn="genomes.e_coli.s_aureus.m_smegmatis.fa"
-genomeLocs="'S_aureus:2064835' 'S_aureus:2064935'"
+genomeLocs='"S_aureus:2064835" "S_aureus:2064935"'
 
-printf "********* Testing help commands. **********\n"
+printf "********* Testing help commands **********\n"
 nanoraw -h
 
 nanoraw genome_resquiggle -h
@@ -24,7 +24,7 @@ nanoraw plot_kmer -h
 nanoraw write_most_significant -h
 nanoraw write_wiggle -h
 
-printf "\n\n********* Testing genome correction scripts. **********\n"
+printf "\n\n********* Testing genome correction scripts **********\n"
 nanoraw genome_resquiggle \
         $g1Dir ./graphmap $genomeFn \
         --timeout 60 --cpts-limit 100 --normalization-type median --overwrite \
@@ -36,7 +36,7 @@ nanoraw genome_resquiggle \
         --failed-reads-filename testing.signif_group2.failed_read.txt \
         --2d --processes 4
 
-printf "\n\n********* Testing pA normalization. **********\n"
+printf "\n\n********* Testing pA normalization **********\n"
 nanoraw genome_resquiggle \
         $g1Dir ./graphmap $genomeFn \
         --timeout 60 --cpts-limit 100 --normalization-type ont \
@@ -44,7 +44,7 @@ nanoraw genome_resquiggle \
         --failed-reads-filename testing.signif_group1.pA.failed_read.txt \
         --2d --processes 4
 
-printf "\n\n********* Testing single sample genome-anchored plotting functions. **********\n"
+printf "\n\n********* Testing single sample genome-anchored plotting functions **********\n"
 nanoraw plot_max_coverage --fast5-basedirs $g1Dir --2d \
         --num-bases 21 --overplot-threshold 1000
 nanoraw plot_max_coverage --fast5-basedirs $g1Dir --2d \
@@ -60,7 +60,7 @@ nanoraw plot_kmer_centered --fast5-basedirs $g1Dir --kmer ATC \
         --genome-fasta $genomeFn --2d \
         --num-bases 21 --overplot-threshold 1000 --deepest-coverage
 
-printf "\n\n********* Testing mutliple sample genome-anchored plotting functions. **********\n"
+printf "\n\n********* Testing mutliple sample genome-anchored plotting functions **********\n"
 nanoraw plot_max_coverage --fast5-basedirs $g1Dir \
         --fast5-basedirs2 $g2Dir --2d \
         --num-bases 21 --overplot-threshold 1000
@@ -76,7 +76,7 @@ nanoraw plot_kmer_centered --fast5-basedirs $g1Dir --kmer ATC \
         --fast5-basedirs2 $g2Dir --2d \
         --num-bases 21 --overplot-threshold 1000 --deepest-coverage
 
-printf "\n\n********* Testing mutliple sample statistical testing genome-anchored plotting functions. **********\n"
+printf "\n\n********* Testing mutliple sample statistical testing genome-anchored plotting functions **********\n"
 nanoraw plot_max_difference --fast5-basedirs $g1Dir \
         --fast5-basedirs2 $g2Dir --2d \
         --num-bases 21 --overplot-threshold 1000
@@ -84,14 +84,11 @@ nanoraw plot_most_significant --fast5-basedirs $g1Dir \
         --fast5-basedirs2 $g2Dir --2d \
         --num-bases 21 --overplot-threshold 1000
 nanoraw plot_kmer_with_stats --fast5-basedirs $g1Dir \
-        --fast5-basedirs2 $g2Dir --2d \
-        --num-bases 21 --overplot-threshold 1000
-nanoraw plot_kmer_with_stats --fast5-basedirs $g1Dir \
         --fast5-basedirs2 $g2Dir --motif ATC --2d \
         --overplot-threshold 1000 --test-type mw_utest \
         --genome-fasta $genomeFn
 
-printf "\n\n********* Testing overplotting options. **********\n"
+printf "\n\n********* Testing overplotting options **********\n"
 nanoraw plot_max_coverage --fast5-basedirs $g1Dir \
         --fast5-basedirs2 $g2Dir --2d \
         --num-bases 21 --overplot-threshold 20 --overplot-type Downsample \
@@ -109,11 +106,11 @@ nanoraw plot_max_coverage --fast5-basedirs $g1Dir \
         --num-bases 21 --overplot-threshold 20 --overplot-type Violin \
         --pdf-filename Nanopore_read_coverage.max_coverage.Violin.pdf
 
-printf "\n\n********* Testing correction plotting commands. **********\n"
+printf "\n\n********* Testing correction plotting commands **********\n"
 nanoraw plot_correction --fast5-basedirs $g1Dir --region-type random
 nanoraw plot_multi_correction --fast5-basedirs $g1Dir
 
-printf "\n\n********* Testing other plotting commands. **********\n"
+printf "\n\n********* Testing other plotting commands **********\n"
 nanoraw cluster_most_significant --fast5-basedirs $g1Dir \
         --fast5-basedirs2 $g2Dir --2d \
         --genome-fasta $genomeFn --num-regions 100
@@ -125,7 +122,7 @@ nanoraw cluster_most_significant --fast5-basedirs $g1Dir \
 nanoraw plot_kmer --fast5-basedirs $g1Dir
 nanoraw plot_kmer --fast5-basedirs $g1Dir --read-mean
 
-printf "\n\n********* Testing auxilliary commands. **********\n"
+printf "\n\n********* Testing auxilliary commands **********\n"
 nanoraw write_most_significant --fast5-basedirs $g1Dir \
         --fast5-basedirs2 $g2Dir --2d \
         --genome-fasta $genomeFn

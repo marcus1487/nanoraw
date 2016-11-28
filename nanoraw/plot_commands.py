@@ -1581,7 +1581,9 @@ def plot_genome_locations(
     # genome is generally 1-based
     plot_intervals = [
         ('{:03d}'.format(i), (
-            chrm, max(0, int(int(pos) - np.floor(num_bases / 2.0) - 1)),
+            chrm.replace('"', '').replace("'", ""),
+            max(0, int(int(pos.replace('"', '').replace("'", ""))
+                       - np.floor(num_bases / 2.0) - 1)),
             '', '')) for i, (chrm, pos) in enumerate(
                 genome_locations)]
 
@@ -1696,7 +1698,7 @@ def plot_kmer_centered(
             def get_cov(chrm, pos):
                 try:
                     return read_coverage[chrm][pos]
-                except IndexError:
+                except IndexError, KeyError:
                     return 0
             kmer_locs_cov = [
                 (get_cov(chrm, pos), chrm, pos)
