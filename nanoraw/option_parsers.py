@@ -156,10 +156,11 @@ regtype_opt=('--region-type', {
 
 # genome location plotting opts
 gnmloc_opt=('--genome-locations', {
-    'required':True, 'nargs':'+',
-    'help':'Plot genomic locations instead of regions selected ' +
-    'by criterion (default is max coverage regions). Format ' +
-    'locations as "chrm:position [chrm2:position2 ...]"'})
+    'nargs':'+',
+    'help':'Plot signal at specified genomic locations. Format ' +
+    'locations as "chrm:position[:strand] ' +
+    '[chrm2:position2[:strand2] ...]" (strand not applicable ' +
+    'for all applications)'})
 
 # kmer signal plotting opts
 kmer_opt=('--kmer', {
@@ -323,7 +324,7 @@ def get_genome_loc_parser():
         add_help=False)
     req_args = parser.add_argument_group('Required Arguments')
     req_args.add_argument(fast5dir_opt[0], **fast5dir_opt[1])
-    req_args.add_argument(gnmloc_opt[0], **gnmloc_opt[1])
+    req_args.add_argument(gnmloc_opt[0], required=True, **gnmloc_opt[1])
 
     alt_args = parser.add_argument_group('Comparison Group Argument')
     alt_args.add_argument(altfast5dir_opt[0], **altfast5dir_opt[1])
@@ -668,6 +669,7 @@ def get_multi_correction_parser():
     misc_args.add_argument(
         pdf_opt[0], default='Nanopore_genome_multiread_correction.pdf',
         **pdf_opt[1])
+    misc_args.add_argument(gnmloc_opt[0], **gnmloc_opt[1])
     misc_args.add_argument(origbcs_opt[0], **origbcs_opt[1])
     misc_args.add_argument(numreadspplot_opt[0], **numreadspplot_opt[1])
     misc_args.add_argument(numreg_opt[0], default=10, **numreg_opt[1])

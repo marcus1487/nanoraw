@@ -1172,7 +1172,8 @@ def plot_corrections(
 
 def plot_multi_corrections(
         files, num_reads_per_plot, num_regions, reg_width,
-        corrected_group, basecall_subgroups, pdf_fn, include_orig_bcs):
+        corrected_group, basecall_subgroups, pdf_fn, include_orig_bcs,
+        genome_locations):
     raw_read_coverage = parse_fast5s(
         files, corrected_group, basecall_subgroups)
     read_coverage = get_strand_coverage(raw_read_coverage)
@@ -1188,24 +1189,49 @@ def plot_multi_corrections(
              zip(chrm_reg_starts, zip(*chrm_coverage_regions)[1])],
             repeat(chrom_strand[0]), repeat(chrom_strand[1])))
 
-    # randomly select regions with at least num_reads_to_plot regions
-    coverage_regions = [
-        (chrm, reg_center, strand) for stat, reg_center, chrm, strand in
-        coverage_regions if stat >= num_reads_per_plot]
-    np.random.shuffle(coverage_regions)
-    plot_intervals = zip(
-        ['{:03d}'.format(rn) for rn in range(num_regions)],
-        coverage_regions[:num_regions])
+    if genome_locations is None:
+        # randomly select regions with at least num_reads_to_plot regions
+        coverage_regions = [
+            (chrm, reg_center, strand) for stat, reg_center, chrm, strand in
+            coverage_regions if stat >= num_reads_per_plot]
+        np.random.shuffle(coverage_regions)
+        plot_intervals = zip(
+            ['{:03d}'.format(rn) for rn in range(num_regions)],
+            coverage_regions[:num_regions])
+        if len(plot_intervals) < num_regions:
+            sys.stderr.write(
+                '*' * 60 + '\nWarning: Fewer regions contain minimum ' +
+                'number of reads than requested.\n' + '*' * 60 + '\n')
+    else:
+        if VERBOSE: sys.stderr.write('Parsing genome locations.\n')
+        parsed_locations = []
+        for chrm_pos_strand in genome_locations:
+            split_vals = chrm_pos_strand.replace('"', '').replace(
+                "'", "").split(':')[:3]
+            # default to plus strand if not specified
+            if len(split_vals) == 2:
+                parsed_locations.append((
+                    split_vals[0], split_vals[1], '+'))
+            else:
+                parsed_locations.append(split_vals)
+        plot_intervals = [
+            ('{:03d}'.format(i), (chrm, int(pos) - 1, strand))
+            for i, (chrm, pos, strand) in enumerate(parsed_locations)]
+        # filter regions with no coverage
+        plot_intervals = [
+            (reg_i, (chrm, start, strand))
+            for (reg_i, (chrm, start, strand)) in plot_intervals
+            if read_coverage[(chrm, strand)][start] > 0]
+        if len(plot_intervals) < len(parsed_locations):
+            sys.stderr.write(
+                '*' * 60 + '\nWarning: Some regions did not contain ' +
+                'read coverage.\n' + '*' * 60 + '\n')
 
     if len(plot_intervals) == 0:
         sys.stderr.write(
             '*' * 60 + '\nERROR: No regions contain minimum ' +
             'number of reads.\n' + '*' * 60 + '\n')
         sys.exit()
-    elif len(plot_intervals) < num_regions:
-        sys.stderr.write(
-            '*' * 60 + '\nWarning: Fewer regions contain minimum ' +
-            'number of reads than requested.\n' + '*' * 60 + '\n')
 
     if VERBOSE: sys.stderr.write('Preparing plot data.\n')
     OldSegDat, NewSegDat, SigDat = [], [], []
@@ -1575,15 +1601,16 @@ def plot_genome_locations(
         overplot_thresh, pdf_fn, num_bases, overplot_type,
         genome_locations, obs_filter):
     if VERBOSE: sys.stderr.write('Parsing genome locations.\n')
-    genome_locations = [chrm_pos.split(':')
-                        for chrm_pos in genome_locations]
+    # ignore strand for genome location plotting
+    genome_locations = [
+        chrm_pos.replace('"', '').replace("'", "").split(':')[:2]
+        for chrm_pos in genome_locations]
     # minus one here as all python internal coords are 0-based, but
     # genome is generally 1-based
     plot_intervals = [
         ('{:03d}'.format(i), (
-            chrm.replace('"', '').replace("'", ""),
-            max(0, int(int(pos.replace('"', '').replace("'", ""))
-                       - np.floor(num_bases / 2.0) - 1)),
+            chrm, max(0, int(int(pos) -
+                             np.floor(num_bases / 2.0) - 1)),
             '', '')) for i, (chrm, pos) in enumerate(
                 genome_locations)]
 
@@ -2338,7 +2365,7 @@ def plot_multi_correction_main(args):
     plot_multi_corrections(
         files, args.num_reads_per_plot, num_regions, args.num_obs,
         args.corrected_group, args.basecall_subgroups, args.pdf_filename,
-        args.include_original_basecalls)
+        args.include_original_basecalls, args.genome_locations)
 
     return
 

@@ -2,6 +2,7 @@ g1Dir="signif_testing/group1/"
 g2Dir="signif_testing/group2/"
 genomeFn="genomes.e_coli.s_aureus.m_smegmatis.fa"
 genomeLocs='"S_aureus:2064835" "S_aureus:2064935"'
+strandGenomeLocs='"S_aureus:2064835:-" "S_aureus:2064935"'
 
 printf "********* Testing help commands **********\n"
 nanoraw -h
@@ -44,7 +45,8 @@ nanoraw genome_resquiggle \
         --failed-reads-filename testing.signif_group1.pA.failed_read.txt \
         --2d --processes 4
 
-printf "\n\n********* Testing single sample genome-anchored plotting functions **********\n"
+printf "\n\n********* Testing single sample genome-anchored " + \
+       "plotting functions **********\n"
 nanoraw plot_max_coverage --fast5-basedirs $g1Dir --2d \
         --num-bases 21 --overplot-threshold 1000
 nanoraw plot_max_coverage --fast5-basedirs $g1Dir --2d \
@@ -60,13 +62,15 @@ nanoraw plot_kmer_centered --fast5-basedirs $g1Dir --kmer ATC \
         --genome-fasta $genomeFn --2d \
         --num-bases 21 --overplot-threshold 1000 --deepest-coverage
 
-printf "\n\n********* Testing mutliple sample genome-anchored plotting functions **********\n"
+printf "\n\n********* Testing mutliple sample genome-anchored " + \
+       "plotting functions **********\n"
 nanoraw plot_max_coverage --fast5-basedirs $g1Dir \
         --fast5-basedirs2 $g2Dir --2d \
         --num-bases 21 --overplot-threshold 1000
 nanoraw plot_max_coverage --fast5-basedirs $g1Dir \
         --fast5-basedirs2 $g2Dir --2d \
-        --num-bases 21 --overplot-threshold 1000 --obs-per-base-filter 99:200 100:5000
+        --num-bases 21 --overplot-threshold 1000 \
+        --obs-per-base-filter 99:200 100:5000
 nanoraw plot_genome_location --fast5-basedirs $g1Dir \
         --fast5-basedirs2 $g2Dir \
         --genome-locations $genomeLocs \
@@ -76,7 +80,8 @@ nanoraw plot_kmer_centered --fast5-basedirs $g1Dir --kmer ATC \
         --fast5-basedirs2 $g2Dir --2d \
         --num-bases 21 --overplot-threshold 1000 --deepest-coverage
 
-printf "\n\n********* Testing mutliple sample statistical testing genome-anchored plotting functions **********\n"
+printf "\n\n********* Testing mutliple sample statistical testing " + \
+       "genome-anchored plotting functions **********\n"
 nanoraw plot_max_difference --fast5-basedirs $g1Dir \
         --fast5-basedirs2 $g2Dir --2d \
         --num-bases 21 --overplot-threshold 1000
@@ -109,6 +114,8 @@ nanoraw plot_max_coverage --fast5-basedirs $g1Dir \
 printf "\n\n********* Testing correction plotting commands **********\n"
 nanoraw plot_correction --fast5-basedirs $g1Dir --region-type random
 nanoraw plot_multi_correction --fast5-basedirs $g1Dir
+nanoraw plot_multi_correction --fast5-basedirs $g1Dir \
+        --genome-locations $strandGenomeLocs
 
 printf "\n\n********* Testing other plotting commands **********\n"
 nanoraw cluster_most_significant --fast5-basedirs $g1Dir \
