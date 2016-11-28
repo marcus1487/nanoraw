@@ -124,7 +124,7 @@ numobs_opt=('--num-obs', {
     'help':'Number of observations to plot in each region. ' +
     'Default: %(default)d'})
 numreg_opt=('--num-regions', {
-    'type':int, 'default':10,
+    'type':int,
     'help':'Number of regions to plot. Default: %(default)d'})
 qvalthresh_opt=('--q-value-threshold', {
     'type':float,
@@ -210,7 +210,7 @@ obsfilt_opt=('--obs-per-base-filter', {
 wigfn_opt=('--wiggle-filename', {
     'default':'Nanopore_read_coverage.wig',
     'help':"Output wiggle read coverage file. Note that this will " +
-    "also be the track name in the def line."})
+    "also be the track name in the def line. Default: %(default)s"})
 
 # misc opts
 pdf_opt=('--pdf-filename', {
@@ -310,7 +310,7 @@ def get_max_cov_parser():
     misc_args.add_argument(
         pdf_opt[0], default='Nanopore_read_coverage.max_coverage.pdf',
         **pdf_opt[1])
-    misc_args.add_argument(numreg_opt[0], **numreg_opt[1])
+    misc_args.add_argument(numreg_opt[0], default=10, **numreg_opt[1])
     misc_args.add_argument(numbases_opt[0], default=51, **numbases_opt[1])
     misc_args.add_argument(*quiet_opt[0], **quiet_opt[1])
     misc_args.add_argument(*help_opt[0], **help_opt[1])
@@ -383,7 +383,7 @@ def get_kmer_loc_parser():
     misc_args.add_argument(
         pdf_opt[0], default='Nanopore_read_coverage.kmer_centered.pdf',
         **pdf_opt[1])
-    misc_args.add_argument(numreg_opt[0], **numreg_opt[1])
+    misc_args.add_argument(numreg_opt[0], default=10, **numreg_opt[1])
     misc_args.add_argument(numbases_opt[0], default=51, **numbases_opt[1])
     misc_args.add_argument(*quiet_opt[0], **quiet_opt[1])
     misc_args.add_argument(*help_opt[0], **help_opt[1])
@@ -418,7 +418,7 @@ def get_max_diff_parser():
         pdf_opt[0], default='Nanopore_read_coverage.max_difference.pdf',
         **pdf_opt[1])
     misc_args.add_argument(seqs_opt[0], **seqs_opt[1])
-    misc_args.add_argument(numreg_opt[0], **numreg_opt[1])
+    misc_args.add_argument(numreg_opt[0], default=10, **numreg_opt[1])
     misc_args.add_argument(numbases_opt[0], default=51, **numbases_opt[1])
     misc_args.add_argument(*quiet_opt[0], **quiet_opt[1])
     misc_args.add_argument(*help_opt[0], **help_opt[1])
@@ -460,7 +460,7 @@ def get_signif_diff_parser():
     misc_args.add_argument(qvalthresh_opt[0], **qvalthresh_opt[1])
     misc_args.add_argument(minreads_opt[0], **minreads_opt[1])
     misc_args.add_argument(seqs_opt[0], **seqs_opt[1])
-    misc_args.add_argument(numreg_opt[0], **numreg_opt[1])
+    misc_args.add_argument(numreg_opt[0], default=10, **numreg_opt[1])
     misc_args.add_argument(numbases_opt[0],
                            default=51, **numbases_opt[1])
     misc_args.add_argument(*quiet_opt[0], **quiet_opt[1])
@@ -506,7 +506,7 @@ def get_signif_kmer_parser():
         **pdf_opt[1])
     misc_args.add_argument(statfn_opt[0], **statfn_opt[1])
     misc_args.add_argument(minreads_opt[0], **minreads_opt[1])
-    misc_args.add_argument(numreg_opt[0], **numreg_opt[1])
+    misc_args.add_argument(numreg_opt[0], default=5, **numreg_opt[1])
     misc_args.add_argument(cntxt_opt[0], **cntxt_opt[1])
     misc_args.add_argument(numstat_opt[0], **numstat_opt[1])
     misc_args.add_argument(*quiet_opt[0], **quiet_opt[1])
@@ -545,7 +545,7 @@ def get_write_signif_diff_parser():
         seqs_opt[0], default='Nanopore_most_significant_regions.fasta',
         **seqs_opt[1])
     misc_args.add_argument(statfn_opt[0], **statfn_opt[1])
-    misc_args.add_argument(numreg_opt[0], **numreg_opt[1])
+    misc_args.add_argument(numreg_opt[0], default=10, **numreg_opt[1])
     misc_args.add_argument(qvalthresh_opt[0], **qvalthresh_opt[1])
     misc_args.add_argument(minreads_opt[0], **minreads_opt[1])
     misc_args.add_argument(numbases_opt[0], default=51, **numbases_opt[1])
@@ -588,7 +588,7 @@ def get_cluster_signif_diff_parser():
         **pdf_opt[1])
     misc_args.add_argument(statfn_opt[0], **statfn_opt[1])
     misc_args.add_argument(rdata_opt[0], **rdata_opt[1])
-    misc_args.add_argument(numreg_opt[0], **numreg_opt[1])
+    misc_args.add_argument(numreg_opt[0], default=10, **numreg_opt[1])
     misc_args.add_argument(qvalthresh_opt[0], **qvalthresh_opt[1])
     misc_args.add_argument(minreads_opt[0], **minreads_opt[1])
     misc_args.add_argument(numbases_opt[0], default=5, **numbases_opt[1])
@@ -670,7 +670,7 @@ def get_multi_correction_parser():
         **pdf_opt[1])
     misc_args.add_argument(origbcs_opt[0], **origbcs_opt[1])
     misc_args.add_argument(numreadspplot_opt[0], **numreadspplot_opt[1])
-    misc_args.add_argument(numreg_opt[0], **numreg_opt[1])
+    misc_args.add_argument(numreg_opt[0], default=10, **numreg_opt[1])
     misc_args.add_argument(numobs_opt[0], **numobs_opt[1])
     misc_args.add_argument(*quiet_opt[0], **quiet_opt[1])
     misc_args.add_argument(*help_opt[0], **help_opt[1])

@@ -42,9 +42,9 @@ def main(args=None):
              'significantly between two groups.',
              option_parsers.get_signif_diff_parser(),
              plot_commands.signif_diff_main),
-            ('plot_kmer_centered',
+            ('plot_kmer_with_stats',
              'Plot signal from several regions and test ' +
-             'statistics centered on a kemer of interst.',
+             'statistics centered on a k-mer of interst.',
              option_parsers.get_signif_kmer_parser(),
              plot_commands.kmer_signif_diff_main)]),
         ('Sequencing Time Anchored Plotting Command:', [

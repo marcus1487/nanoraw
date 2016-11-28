@@ -28,6 +28,7 @@ nanoraw [command] [options]
      plot_kmer_centered            Plot signal at regions centered on a specific kmer.
      plot_max_difference           Plot signal where signal differs the most between two groups.
      plot_most_significant         Plot signal where signal differs the most significantly between two groups.
+     plot_kmer_with_stats          Plot signal from several regions and test statistics centered on a k-mer of interst.
 
 #### Sequencing Time Anchored Plotting Command:
      plot_correction               Plot segmentation before and after correction.

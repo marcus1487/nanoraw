@@ -1044,7 +1044,8 @@ def get_region_reads(
         all_reg_data.append((region_i, interval_start, chrm, [
             r_data for r_data in raw_read_coverage[chrm]
             if not (r_data.start >= interval_start + num_bases or
-                    r_data.end < interval_start + 1)]))
+                    r_data.end < interval_start + 1)]
+                             if chrm in raw_read_coverage else []))
 
     no_cov_regions = [
         (len(r_data) == 0, chrm + ':' + str(start))
@@ -1092,6 +1093,9 @@ def get_base_means(raw_read_coverage, chrm_sizes):
     old_err_settings = np.seterr(all='ignore')
     mean_base_signal = {}
     for chrm_strand, chrm_sum_cov in base_signal.items():
+        # TODO: change to filtering NA values instead of setting to
+        # zero as this just finds regions with no coverage for
+        # pA or raw normalizarions
         mean_base_signal[chrm_strand] = np.nan_to_num(
             chrm_sum_cov['base_sums'] / chrm_sum_cov['base_cov'])
     foo = np.seterr(**old_err_settings)
@@ -1664,6 +1668,11 @@ def plot_kmer_centered(
                     (num_bases - len(kmer) + 1) / 2.0), 0), '', '')
                  for cov, chrm, pos in kmer_locs_cov))
         else:
+            # only look at chromosomes with coverage
+            covered_chrms = set(raw_read_coverage).intersection(
+                raw_read_coverage2)
+            kmer_locs = [(chrm, pos) for chrm, pos in kmer_locs
+                         if chrm in covered_chrms]
             # zip over iterator of regions that have at least a
             # read overlapping so we don't have to check all reads
             plot_intervals = zip(
@@ -1700,6 +1709,10 @@ def plot_kmer_centered(
                  for cov, chrm, pos in sorted(
                          kmer_locs_cov, reverse=True)))
         else:
+            # only look at chromosomes with coverage
+            covered_chrms = set(raw_read_coverage.keys())
+            kmer_locs = [(chrm, pos) for chrm, pos in kmer_locs
+                         if chrm in covered_chrms]
             # zip over iterator of regions that have at least a
             # read overlapping so we don't have to check all reads
             plot_intervals = zip(
