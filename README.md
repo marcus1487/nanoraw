@@ -30,7 +30,7 @@ nanoraw [command] [options]
      plot_most_significant         Plot signal where signal differs the most significantly between two groups.
      plot_kmer_with_stats          Plot signal from several regions and test statistics centered on a k-mer of interst.
 
-#### Sequencing Time Anchored Plotting Command:
+#### Sequencing Time Anchored Plotting Commands:
      plot_correction               Plot segmentation before and after correction.
      plot_multi_correction         Plot multiple raw signals anchored by genomic location.
 
@@ -38,7 +38,7 @@ nanoraw [command] [options]
      cluster_signif                Clustering traces at bases with significant differences.
      plot_kmer                     Plot signal quantiles acorss kmers.
 
-#### Auxiliary Command:
+#### Auxiliary Commands:
      write_most_significant        Write sequence where signal differs the most significantly between two groups.
      write_wiggle                  Write wiggle file of genome coverage from genome_resquiggle mappings.
 
@@ -50,19 +50,18 @@ nanoraw [command] [options]
 - graphmap (<https://github.com/isovic/graphmap>)
 
 #### python Requirements (handled by pip):
-- python
 - numpy
 - scipy
 - h5py
-- rpy2
+- rpy2 (along with an R installation)
 
-#### R Requirements:
-- R
-- ggplot2 (not actually enfored on install, but plotting commands will fail; install with `install.packages('ggplot2')` from an R prompt)
-
-#### Optionally:
-- changepoint (for using R's changepoint package for re-segmentation)
+#### Optional python Requirements:
 - Biopython (for robust FASTA parsing, but a simple parser is provided)
+
+#### Optional R Requirements (install with `install.packages([package_name])` from an R prompt):
+- changepoint (for using R's changepoint package for re-segmentation)
+- ggplot2 (required for any plotting subcommands)
+- cowplot (required for plot_kmer_with_stats subcommand)
 
 ## Legal
 nanoraw v.1 Copyright (c) 2016, The Regents of the University of California, through Lawrence Berkeley National Laboratory (subject to receipt of any required approvals from the U.S. Dept. of Energy).  All rights reserved.
