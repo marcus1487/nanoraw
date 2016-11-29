@@ -35,7 +35,7 @@ nanoraw [command] [options]
      plot_multi_correction         Plot multiple raw signals anchored by genomic location.
 
 #### Other Plotting Commands:
-     cluster_signif                Clustering traces at bases with significant differences.
+     cluster_most_significant      Clustering traces at bases with significant differences.
      plot_kmer                     Plot signal quantiles acorss kmers.
 
 #### Auxiliary Commands:
