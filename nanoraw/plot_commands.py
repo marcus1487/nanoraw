@@ -1826,6 +1826,23 @@ def correct_multiple_testing(pvals):
 
     return pvals_corrected[sortrevind]
 
+def calc_fm_pval(pvals):
+    return 1.0 - stats.chi2.cdf(
+        np.sum(np.log(pvals)) * -2,
+        pvals.shape[0] * 2)
+
+def calc_fishers_method(pos_pvals, offset):
+    pvals_np = np.empty(pos_pvals[-1][1] + 1)
+    pvals_np[:] = np.NAN
+    pvals_np[[zip(*pos_pvals)[1]]] = zip(*pos_pvals)[0]
+
+    fishers_pvals = [
+        (calc_fm_pval(pvals_np[i:i + (offset * 2) + 1]), i + offset)
+        for i in range(pvals_np.shape[0])
+        if not np.any(np.isnan(pvals_np[i:i + (offset * 2) + 1]))]
+
+    return fishers_pvals
+
 def mann_whitney_u_test(samp1, samp2):
     s1_len = samp1.shape[0]
     s2_len = samp2.shape[0]
@@ -1871,7 +1888,7 @@ def parse_stats(stats_fn):
 
 def get_all_significance(
         base_events1, base_events2, test_type, min_test_vals,
-        all_stats_fn=None):
+        all_stats_fn, fishers_method_offset):
     if VERBOSE: sys.stderr.write(
             'Test significance of difference in base signal.\n')
     # get num_region most significantly different regions from
@@ -1904,6 +1921,10 @@ def get_all_significance(
             raise RuntimeError, ('Invalid significance test type ' +
                                  'provided: ' + str(test_type))
 
+        if fishers_method_offset is not None:
+            chrm_pvals = calc_fishers_method(
+                chrm_pvals, fishers_method_offset)
+
         if len(chrm_pvals) == 0: continue
         position_pvals.extend((
             pval, pos, chrm, strand) for pval, pos in chrm_pvals)
@@ -1935,11 +1956,12 @@ def get_all_significance(
 
 def get_most_signif_regions(
         base_events1, base_events2, test_type, num_bases, num_regions,
-        qval_thresh=None, min_test_vals=2, stats_fn=None):
+        qval_thresh=None, min_test_vals=2, stats_fn=None,
+        fishers_method_offset=None):
     if stats_fn is None or not os.path.isfile(stats_fn):
         all_stats = get_all_significance(
             base_events1, base_events2, test_type, min_test_vals,
-            stats_fn)
+            stats_fn, fishers_method_offset)
     else:
         all_stats = parse_stats(stats_fn)
 
@@ -1967,7 +1989,8 @@ def get_most_signif_regions(
 def plot_most_signif(
         files1, files2, num_regions, corrected_group, basecall_subgroups,
         overplot_thresh, pdf_fn, seqs_fn, num_bases, overplot_type,
-        test_type, obs_filter, qval_thresh, min_test_vals, stats_fn):
+        test_type, obs_filter, qval_thresh, min_test_vals, stats_fn,
+        fishers_method_offset):
     if VERBOSE: sys.stderr.write('Parsing files.\n')
     calc_stats = stats_fn is None or not os.path.isfile(stats_fn)
 
@@ -1992,11 +2015,13 @@ def plot_most_signif(
 
         plot_intervals = get_most_signif_regions(
             base_events1, base_events2, test_type, num_bases,
-            num_regions, qval_thresh, min_test_vals, stats_fn)
+            num_regions, qval_thresh, min_test_vals, stats_fn,
+            fishers_method_offset)
     else:
         plot_intervals = get_most_signif_regions(
             None, None, test_type, num_bases,
-            num_regions, qval_thresh, min_test_vals, stats_fn)
+            num_regions, qval_thresh, min_test_vals, stats_fn,
+            fishers_method_offset)
 
     plot_two_samples(
         plot_intervals, raw_read_coverage1, raw_read_coverage2,
@@ -2038,7 +2063,7 @@ def plot_kmer_centered_signif(
         files1, files2, num_regions, corrected_group, basecall_subgroups,
         overplot_thresh, overplot_type, pdf_fn, motif, context_width,
         test_type, obs_filter, min_test_vals, num_stat_values, stats_fn,
-        fasta_fn):
+        fasta_fn, fishers_method_offset):
     if VERBOSE: sys.stderr.write('Parsing files.\n')
     motif_pat = parse_motif(motif)
     motif_len = len(motif)
@@ -2065,7 +2090,7 @@ def plot_kmer_centered_signif(
 
         all_stats = get_all_significance(
             base_events1, base_events2, test_type, min_test_vals,
-            stats_fn)
+            stats_fn, fishers_method_offset)
     else:
         all_stats = parse_stats(stats_fn)
 
@@ -2125,7 +2150,7 @@ def plot_kmer_centered_signif(
 def write_most_signif(
         files1, files2, num_regions, qval_thresh, corrected_group,
         basecall_subgroups, seqs_fn, num_bases, test_type, obs_filter,
-        min_test_vals, stats_fn, fasta_fn):
+        min_test_vals, stats_fn, fasta_fn, fishers_method_offset):
     if VERBOSE: sys.stderr.write('Parsing files.\n')
     calc_stats = stats_fn is None or not os.path.isfile(stats_fn)
 
@@ -2150,11 +2175,13 @@ def write_most_signif(
 
         plot_intervals = get_most_signif_regions(
             base_events1, base_events2, test_type, num_bases,
-            num_regions, qval_thresh, min_test_vals, stats_fn)
+            num_regions, qval_thresh, min_test_vals, stats_fn,
+            fishers_method_offset)
     else:
         plot_intervals = get_most_signif_regions(
             None, None, test_type, num_bases,
-            num_regions, qval_thresh, min_test_vals, stats_fn)
+            num_regions, qval_thresh, min_test_vals, stats_fn,
+            fishers_method_offset)
 
     if fasta_fn is None:
         reg_seqs = get_region_sequences(
@@ -2209,7 +2236,8 @@ def get_pairwise_dists(reg_sig_diffs, index_q, dists_q, num_bases):
 def cluster_most_signif(
         files1, files2, num_regions, qval_thresh, corrected_group,
         basecall_subgroups, pdf_fn, num_bases, test_type, obs_filter,
-        min_test_vals, r_struct_fn, num_processes, fasta_fn, stats_fn):
+        min_test_vals, r_struct_fn, num_processes, fasta_fn, stats_fn,
+        fishers_method_offset):
     if VERBOSE: sys.stderr.write('Parsing files.\n')
     raw_read_coverage1 = parse_fast5s(
         files1, corrected_group, basecall_subgroups, True)
@@ -2234,7 +2262,8 @@ def cluster_most_signif(
 
     plot_intervals = get_most_signif_regions(
         base_events1, base_events2, test_type, num_bases,
-        num_regions, qval_thresh, min_test_vals, stats_fn)
+        num_regions, qval_thresh, min_test_vals, stats_fn,
+        fishers_method_offset)
     # unique genomic regions filter
     uniq_p_intervals = []
     used_intervals = defaultdict(set)
@@ -2468,7 +2497,7 @@ def signif_diff_main(args):
         args.overplot_type, args.test_type,
         parse_obs_filter(args.obs_per_base_filter),
         args.q_value_threshold, args.minimum_test_reads,
-        args.statistics_filename)
+        args.statistics_filename, args.fishers_method_offset)
 
     return
 
@@ -2486,7 +2515,8 @@ def kmer_signif_diff_main(args):
         args.num_context, args.test_type,
         parse_obs_filter(args.obs_per_base_filter),
         args.minimum_test_reads, args.num_statistics,
-        args.statistics_filename, args.genome_fasta)
+        args.statistics_filename, args.genome_fasta,
+        args.fishers_method_offset)
 
     return
 
@@ -2503,7 +2533,7 @@ def write_signif_diff_main(args):
         args.sequences_filename, args.num_bases, args.test_type,
         parse_obs_filter(args.obs_per_base_filter),
         args.minimum_test_reads, args.statistics_filename,
-        args.genome_fasta)
+        args.genome_fasta, args.fishers_method_offset)
 
     return
 
@@ -2520,7 +2550,8 @@ def cluster_signif_diff_main(args):
         args.pdf_filename, args.num_bases, args.test_type,
         parse_obs_filter(args.obs_per_base_filter),
         args.minimum_test_reads, args.r_data_filename, args.processes,
-        args.genome_fasta, args.statistics_filename)
+        args.genome_fasta, args.statistics_filename,
+        args.fishers_method_offset)
 
     return
 

@@ -191,6 +191,11 @@ testtype_opt=('--test-type', {
     'default':'mw_utest', 'choices':['mw_utest', 'ttest'],
     'help':'Type of significance test to apply. Choices are: ' +
     'mw_utest (default; mann-whitney u-test), ttest.'})
+fmo_opt=('--fishers-method-offset', {
+    'type':int,
+    'help':'Offset up and downstream over which to compute ' +
+    "combined p-values using Fisher's method. " +
+    'Default: Use raw p-values.'})
 
 # kmer centered statistic plotting options
 motif_opt=('--motif', {
@@ -449,8 +454,9 @@ def get_signif_diff_parser():
     filter_args = parser.add_argument_group('Read Filtering Arguments')
     filter_args.add_argument(obsfilt_opt[0], **obsfilt_opt[1])
 
-    testt_args = parser.add_argument_group('Significance Test Argument')
+    testt_args = parser.add_argument_group('Significance Test Arguments')
     testt_args.add_argument(testtype_opt[0], **testtype_opt[1])
+    testt_args.add_argument(fmo_opt[0], **fmo_opt[1])
 
     misc_args = parser.add_argument_group('Miscellaneous Arguments')
     misc_args.add_argument(
@@ -479,7 +485,8 @@ def get_signif_kmer_parser():
     req_args.add_argument(fast5dir_opt[0], **fast5dir_opt[1])
     req_args.add_argument(altfast5dir_opt[0], required=True,
                           **altfast5dir_opt[1])
-    req_args.add_argument(motif_opt[0], **motif_opt[1])
+    req_args.add_argument(motif_opt[0], required=True,
+                          **motif_opt[1])
 
     fast5_args = parser.add_argument_group('FAST5 Data Arguments')
     fast5_args.add_argument(corrgrp_opt[0], **corrgrp_opt[1])
@@ -494,8 +501,9 @@ def get_signif_kmer_parser():
     filter_args = parser.add_argument_group('Read Filtering Arguments')
     filter_args.add_argument(obsfilt_opt[0], **obsfilt_opt[1])
 
-    testt_args = parser.add_argument_group('Significance Test Argument')
+    testt_args = parser.add_argument_group('Significance Test Arguments')
     testt_args.add_argument(testtype_opt[0], **testtype_opt[1])
+    testt_args.add_argument(fmo_opt[0], **fmo_opt[1])
 
     fasta_args = parser.add_argument_group('FASTA Sequence Argument')
     fasta_args.add_argument(fasta_opt[0], **fasta_opt[1])
@@ -535,8 +543,9 @@ def get_write_signif_diff_parser():
     filter_args = parser.add_argument_group('Read Filtering Arguments')
     filter_args.add_argument(obsfilt_opt[0], **obsfilt_opt[1])
 
-    testt_args = parser.add_argument_group('Significance Test Argument')
+    testt_args = parser.add_argument_group('Significance Test Arguments')
     testt_args.add_argument(testtype_opt[0], **testtype_opt[1])
+    testt_args.add_argument(fmo_opt[0], **fmo_opt[1])
 
     fasta_args = parser.add_argument_group('FASTA Sequence Argument')
     fasta_args.add_argument(fasta_opt[0], **fasta_opt[1])
@@ -574,8 +583,9 @@ def get_cluster_signif_diff_parser():
     filter_args = parser.add_argument_group('Read Filtering Arguments')
     filter_args.add_argument(obsfilt_opt[0], **obsfilt_opt[1])
 
-    testt_args = parser.add_argument_group('Significance Test Argument')
+    testt_args = parser.add_argument_group('Significance Test Arguments')
     testt_args.add_argument(testtype_opt[0], **testtype_opt[1])
+    testt_args.add_argument(fmo_opt[0], **fmo_opt[1])
 
     fasta_args = parser.add_argument_group('FASTA Sequence Argument')
     fasta_args.add_argument(fasta_opt[0], **fasta_opt[1])
