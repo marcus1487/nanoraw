@@ -48,15 +48,28 @@ except:
         '*' * 60 + '\nERROR: Must have rpy2, R and ' +
         'R package ggplot2 installed in order to plot.\n' +
         '*' * 60 + '\n\n')
-    raise
+    sys.exit()
 
-try:
-    cowplot = importr("cowplot")
-except:
-    sys.stderr.write(
-        '*' * 60 + '\WARNING: Must have R packge `cowplot` ' +
-        'installed in order to create kmer centered plots.\n' +
-        '*' * 60 + '\n\n')
+# silently try to load cowplot
+fd = sys.stderr.fileno()
+def _redirect_stderr(to):
+    sys.stderr.close()
+    os.dup2(to.fileno(), fd)
+    sys.stderr = os.fdopen(fd, 'w')
+
+with os.fdopen(os.dup(fd), 'w') as old_stderr:
+    with open(os.devnull, 'w') as fp:
+        _redirect_stderr(fp)
+    try:
+        # load changepoint from R since pythons isn't very stable
+        import rpy2.robjects as r
+        from rpy2.robjects.packages import importr
+        cowplot = importr("cowplot")
+        USE_COWPLOT = True
+    except:
+        USE_COWPLOT = False
+    finally:
+        _redirect_stderr(old_stderr)
 
 r.r('''
 plotSingleRun <- function(sigDat, quantDat, boxDat, eventDat,
@@ -2502,6 +2515,14 @@ def signif_diff_main(args):
     return
 
 def kmer_signif_diff_main(args):
+    if not USE_COWPLOT:
+        sys.stderr.write(
+            '*' * 60 + '\nERROR: Must have R packge `cowplot` ' +
+            'installed in order to create kmer centered plots ' +
+            '(install via `install.packages(cowplot)` from ' +
+            'an R prompt).\n' + '*' * 60 + '\n\n')
+        sys.exit()
+
     global VERBOSE
     VERBOSE = not args.quiet
 
