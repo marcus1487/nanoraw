@@ -425,32 +425,85 @@ plotMultiReadCorrNoOrig <- function(NewSegDat, SigDat){
 plotMultiReadCorrNoOrig = r.globalenv['plotMultiReadCorrNoOrig']
 
 r.r('''
-    plotKmerDist <- function(dat){
-    print(ggplot(dat) +
-        geom_boxplot(aes(x=Trimer, y=Signal, color=Base)) +
+    plotKmerDist <- function(dat, baseDat){
+    mainP <- ggplot(dat) +
+        #geom_boxplot(aes(x=Kmer, y=Signal, color=Base)) +
+        #scale_color_manual(
+        #    values=c('#00CC00', '#0000CC', '#FFB300', '#CC0000')) +
+        geom_violin(aes(x=Kmer, y=Signal, fill=Base), size=0) +
+        scale_fill_manual(
+            values=c('#00CC00', '#0000CC', '#FFB300', '#CC0000')) +
         theme_bw() + theme(
-            axis.text.x=element_text(angle=60, hjust=1, size=8)) +
-        scale_color_manual(
-            values=c('#00CC00', '#0000CC', '#FFB300', '#CC0000')))
-}
+            axis.text.x=element_text(angle=60, hjust=1, size=8),
+            legend.position='bottom')
+    if (is.na(baseDat)){
+        print(mainP)
+    } else {
+    mainL <- get_legend(mainP)
+    mainP <- mainP + theme(legend.position='none')
+    baseP <- ggplot(baseDat) +
+        geom_tile(aes(x=Kmer, y=Position, fill=Base)) +
+        scale_fill_manual(
+            values=c('A'='#00CC00', 'C'='#0000CC', 'G'='#FFB300', 'T'='#CC0000')) +
+        theme_bw() + theme(
+            axis.text.x=element_text(angle=60, hjust=1, size=8),
+            legend.position='none')
+    mainP <- mainP + theme(axis.text.x=element_blank(),
+                           axis.title.x=element_blank())
+    if (nchar(as.character(dat$Kmer[1])) > 3){
+        mainP <- mainP + theme(axis.text.x=element_blank())
+        baseP <- baseP + theme(axis.text.x=element_blank())
+    }
+    print(plot_grid(plot_grid(mainP, baseP, ncol=1, rel_heights=c(5,1), align='v'),
+          mainL, ncol=1, rel_heights=c(10,1)))
+}}
 ''')
 plotKmerDist = r.globalenv['plotKmerDist']
 
 r.r('''
-plotKmerDistWReadPath <- function(dat){
-    print(ggplot(dat) +
-        geom_boxplot(aes(x=Trimer, y=Signal, color=Base)) +
+plotKmerDistWReadPath <- function(dat, baseDat){
+    mainP <- ggplot(dat) +
+        #geom_boxplot(aes(x=Kmer, y=Signal, color=Base)) +
+        #scale_color_manual(
+        #    values=c('#00CC00', '#0000CC', '#FFB300', '#CC0000')) +
+        geom_violin(aes(x=Kmer, y=Signal, fill=Base), size=0) +
+        scale_fill_manual(
+            values=c('#00CC00', '#0000CC', '#FFB300', '#CC0000')) +
+        theme_bw() +
+        theme(axis.text.x=element_text(angle=60, hjust=1, size=8),
+              legend.position='bottom')
+    readP <- ggplot(dat) +
+        geom_path(aes(x=Kmer, y=Signal, group=Read), alpha=0.05) +
         theme_bw() +
         theme(axis.text.x=element_text(angle=60, hjust=1, size=8)) +
         scale_color_manual(
-            values=c('#00CC00', '#0000CC', '#FFB300', '#CC0000')))
-    print(ggplot(dat) +
-        geom_path(aes(x=Trimer, y=Signal, group=Read), alpha=0.05) +
-        theme_bw() +
-        theme(axis.text.x=element_text(angle=60, hjust=1, size=8)) +
-        scale_color_manual(
-        values=c('#00CC00', '#0000CC', '#FFB300', '#CC0000')))
-}
+        values=c('#00CC00', '#0000CC', '#FFB300', '#CC0000'))
+    if (is.na(baseDat)){
+        print(mainP)
+        print(readP)
+    } else {
+    mainL <- get_legend(mainP)
+    mainP <- mainP + theme(legend.position='none')
+    baseP <- ggplot(baseDat) +
+        geom_tile(aes(x=Kmer, y=Position, fill=Base)) +
+        scale_fill_manual(
+            values=c('A'='#00CC00', 'C'='#0000CC', 'G'='#FFB300', 'T'='#CC0000')) +
+        theme_bw() + theme(
+            axis.text.x=element_text(angle=60, hjust=1, size=8))
+    mainP <- mainP + theme(axis.text.x=element_blank(),
+                           axis.title.x=element_blank())
+    readP <- readP + theme(axis.text.x=element_blank(),
+                           axis.title.x=element_blank())
+    if (nchar(as.character(dat$Kmer[1])) > 3){
+        mainP <- mainP + theme(axis.text.x=element_blank())
+        readP <- readP + theme(axis.text.x=element_blank())
+        baseP <- baseP + theme(axis.text.x=element_blank())
+    }
+    print(plot_grid(plot_grid(mainP, baseP, ncol=1, rel_heights=c(5,1), align='v'),
+          mainL, ncol=1, rel_heights=c(10,1)))
+    print(plot_grid(plot_grid(readP, baseP, ncol=1, rel_heights=c(5,1), align='v'),
+          mainL, ncol=1, rel_heights=c(10,1)))
+}}
 ''')
 plotKmerDistWReadPath = r.globalenv['plotKmerDistWReadPath']
 
@@ -461,9 +514,11 @@ plotKmerDistWReadPath = r.globalenv['plotKmerDistWReadPath']
 ############################################
 
 def plot_kmer_dist(files, corrected_group, basecall_subgroups,
-                   read_mean, kmer_len, kmer_thresh, num_reads, pdf_fn):
+                   read_mean, upstrm_bases, dnstrm_bases,
+                   kmer_thresh, num_reads, pdf_fn):
     if VERBOSE: sys.stderr.write(
             'Parsing files and tabulating k-mers.\n')
+    kmer_len = upstrm_bases + dnstrm_bases + 1
     reads_added = 0
     all_trimers = defaultdict(list)
     # randomly pick files instead of ordered from listing
@@ -483,7 +538,7 @@ def plot_kmer_dist(files, corrected_group, basecall_subgroups,
         for trimer, event_mean in zip(
                 [''.join(bs) for bs in zip(*[
                     seq[i:] for i in range(kmer_len)])],
-                means[kmer_len - 1:]):
+                means[kmer_len - 1 - dnstrm_bases:]):
             read_trimers[trimer].append(event_mean)
         if min(len(x) for x in read_trimers.values()) > kmer_thresh:
             reads_added += 1
@@ -504,36 +559,42 @@ def plot_kmer_dist(files, corrected_group, basecall_subgroups,
         for kmer, means in all_trimers.items()])]
 
     plot_data = [
-        (kmer, kmer[-1], sig_mean, read_i)
+        (kmer, kmer[upstrm_bases], sig_mean, read_i)
         for kmer in kmer_levels
         for sig_mean, read_i in all_trimers[kmer]]
 
     trimerDat = r.DataFrame({
-        'Trimer':r.FactorVector(
+        'Kmer':r.FactorVector(
             r.StrVector(zip(*plot_data)[0]),
             ordered=True, levels=r.StrVector(kmer_levels)),
         'Base':r.StrVector(zip(*plot_data)[1]),
         'Signal':r.FloatVector(zip(*plot_data)[2]),
         'Read':r.StrVector(zip(*plot_data)[3])})
-    # code to plot kmers as tile of colors but adds gridExtra dependency
-    if False:
-        kmer_plot_data = [
-            (kmer_i, pos_i, base)
-            for kmer_i, kmer in enumerate(kmer_leves)
-            for pos_i, base in enumerate(kmer)]
-        kmerDat = r.DataFrame({
-            'Kmer':r.IntVector(zip(*kmer_plot_data)[0]),
-            'Position':r.IntVector(zip(*kmer_plot_data)[1]),
-            'Base':r.StrVector(zip(*kmer_plot_data)[2])})
+    # df to plot kmers as tile of colors requires cowplot R package
+    if USE_COWPLOT:
+        baseDat = r.DataFrame({
+            'Kmer':r.FactorVector(
+                r.StrVector([kmer for kmer in kmer_levels
+                             for _ in range(kmer_len)]),
+                ordered=True, levels=r.StrVector(kmer_levels)),
+            'Base':r.StrVector([kmer[i] for kmer in kmer_levels
+                                for i in range(kmer_len)]),
+            'Position':r.StrVector([i - upstrm_bases for kmer in kmer_levels
+                                    for i in range(kmer_len)])})
+    else:
+        sys.stderr.write(
+            '********* WARNING: Install R package cowplot for ' +
+            'visual kmer display. Using text kmer display. ********\n')
+        baseDat = r.NA_Character
 
     if VERBOSE: sys.stderr.write('Plotting.\n')
     if read_mean:
         r.r('pdf("' + pdf_fn + '", height=7, width=10)')
-        plotKmerDistWReadPath(trimerDat)
+        plotKmerDistWReadPath(trimerDat, baseDat)
         r.r('dev.off()')
     else:
         r.r('pdf("' + pdf_fn + '", height=7, width=10)')
-        plotKmerDist(trimerDat)
+        plotKmerDist(trimerDat, baseDat)
         r.r('dev.off()')
 
     return
@@ -2418,8 +2479,8 @@ def kmer_dist_main(args):
     files = get_files_list(args.fast5_basedirs)
     plot_kmer_dist(
         files, args.corrected_group, args.basecall_subgroups,
-        args.read_mean, args.kmer_length, args.num_trimer_threshold,
-        args.num_reads, args.pdf_filename)
+        args.read_mean, args.upstream_bases, args.downstream_bases,
+        args.num_trimer_threshold, args.num_reads, args.pdf_filename)
 
     return
 

@@ -97,9 +97,13 @@ twod_opt=('--2d', {
     '`--basecall-subgroups BaseCalled_template BaseCalled_complement`'})
 
 # k-mer dist plotting opts
-kmerlen_opt=('--kmer-length', {
-    'default':3, 'type':int, 'choices':(2,3,4),
-    'help':'Value of K to analyze. Should be one of {2,3,4}. ' +
+upstrmbs_opt=('--upstream-bases', {
+    'default':1, 'type':int, 'choices':(0,1,2,3),
+    'help':'Upstream bases in k-mer. Should be one of {0,1,2,3}. ' +
+    'Default: %(default)d'})
+dnstrmbs_opt=('--downstream-bases', {
+    'default':2, 'type':int, 'choices':(0,1,2,3),
+    'help':'Downstream bases in k-mer. Should be one of {0,1,2,3}. ' +
     'Default: %(default)d'})
 trimerthresh_opt=('--num-trimer-threshold', {
     'default':4, 'type':int,
@@ -697,7 +701,8 @@ def get_kmer_dist_parser():
     req_args.add_argument(fast5dir_opt[0], **fast5dir_opt[1])
 
     proc_args = parser.add_argument_group('Data Processing Arguments')
-    proc_args.add_argument(kmerlen_opt[0], **kmerlen_opt[1])
+    proc_args.add_argument(upstrmbs_opt[0], **upstrmbs_opt[1])
+    proc_args.add_argument(dnstrmbs_opt[0], **dnstrmbs_opt[1])
     proc_args.add_argument(readmean_opt[0], **readmean_opt[1])
     proc_args.add_argument(trimerthresh_opt[0], **trimerthresh_opt[1])
 
