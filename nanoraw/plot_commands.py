@@ -1908,12 +1908,15 @@ def calc_fm_pval(pvals):
 def calc_fishers_method(pos_pvals, offset):
     pvals_np = np.empty(pos_pvals[-1][1] + 1)
     pvals_np[:] = np.NAN
-    pvals_np[[zip(*pos_pvals)[1]]] = zip(*pos_pvals)[0]
+    pvals_np[[list(zip(*pos_pvals)[1])]] = zip(*pos_pvals)[0]
 
     fishers_pvals = [
-        (calc_fm_pval(pvals_np[i:i + (offset * 2) + 1]), i + offset)
-        for i in range(pvals_np.shape[0])
-        if not np.any(np.isnan(pvals_np[i:i + (offset * 2) + 1]))]
+        (calc_fm_pval(pvals_np[pos - offset:pos + offset + 1]),
+         pos, cov1, cov2)
+        for _, pos, cov1, cov2 in pos_pvals
+        if pos - offset >= 0 and pos + offset + 1 <= pvals_np.shape[0]
+        and not np.any(np.isnan(
+            pvals_np[pos - offset:pos + offset + 1]))]
 
     return fishers_pvals
 
@@ -1953,10 +1956,10 @@ def parse_stats(stats_fn):
                         'WARNING: Incorrectly formatted ' +
                         'statistics file. No chrm or strand ' +
                         'before statistics lines\n')
-                pos, pval, qval = line.split()
+                pos, pval, qval, cov1, cov2 = line.split()
                 all_stats.append((
                     float(pval), float(qval), int(pos),
-                    curr_chrm, curr_strand))
+                    curr_chrm, curr_strand), int(cov1), int(cov2))
 
     return sorted(all_stats)
 
@@ -1974,9 +1977,12 @@ def get_all_significance(
             chrm_pvals = [
                 (np.abs(stats.ttest_ind(
                     base_events1[chrm_strand][pos],
-                    base_events2[chrm_strand][pos])[1]), pos)
-                for pos in set(base_events1[chrm_strand]).intersection(
-                base_events2[chrm_strand])
+                    base_events2[chrm_strand][pos])[1]), pos,
+                base_events1[chrm_strand][pos].shape[0],
+                base_events2[chrm_strand][pos].shape[0])
+                for pos in sorted(set(
+                    base_events1[chrm_strand]).intersection(
+                    base_events2[chrm_strand]))
                 if min(base_events1[chrm_strand][pos].shape[0],
                        base_events2[chrm_strand][pos].shape[0])
                 >= min_test_vals]
@@ -1985,9 +1991,12 @@ def get_all_significance(
             chrm_pvals = [
                 (mann_whitney_u_test(
                     base_events1[chrm_strand][pos],
-                    base_events2[chrm_strand][pos]), pos)
-                for pos in set(base_events1[chrm_strand]).intersection(
-                        base_events2[chrm_strand])
+                    base_events2[chrm_strand][pos]), pos,
+                base_events1[chrm_strand][pos].shape[0],
+                base_events2[chrm_strand][pos].shape[0])
+                for pos in sorted(set(
+                    base_events1[chrm_strand]).intersection(
+                        base_events2[chrm_strand]))
                 if min(base_events1[chrm_strand][pos].shape[0],
                        base_events2[chrm_strand][pos].shape[0])
                 >= min_test_vals]
@@ -1995,13 +2004,14 @@ def get_all_significance(
             raise RuntimeError, ('Invalid significance test type ' +
                                  'provided: ' + str(test_type))
 
+        if len(chrm_pvals) == 0: continue
         if fishers_method_offset is not None:
             chrm_pvals = calc_fishers_method(
                 chrm_pvals, fishers_method_offset)
 
-        if len(chrm_pvals) == 0: continue
-        position_pvals.extend((
-            pval, pos, chrm, strand) for pval, pos in chrm_pvals)
+        position_pvals.extend(
+            (pval, pos, chrm, strand, cov1, cov2)
+            for pval, pos, cov1, cov2 in chrm_pvals)
 
     if len(position_pvals) == 0:
         sys.stderr.write(
@@ -2011,20 +2021,23 @@ def get_all_significance(
 
     position_pvals = sorted(position_pvals)
     fdr_corr_pvals = correct_multiple_testing(zip(*position_pvals)[0])
-    all_stats = [(pval, qval, pos, chrm, strand)
-                 for qval, (pval, pos, chrm, strand) in
+    all_stats = [(pval, qval, pos, chrm, strand, cov1, cov2)
+                 for qval, (pval, pos, chrm, strand, cov1, cov2) in
                  zip(fdr_corr_pvals, position_pvals)]
 
     if all_stats_fn is not None:
         chrm_strand_stats = defaultdict(list)
-        for pval, qval, pos, chrm, strand in all_stats:
-            chrm_strand_stats[(chrm, strand)].append((pos, pval, qval))
+        for pval, qval, pos, chrm, strand, cov1, cov2 in all_stats:
+            chrm_strand_stats[(chrm, strand)].append((
+                pos, pval, qval, cov1, cov2))
         with open(all_stats_fn, 'w') as stats_fp:
             for (chrm, strand), pos_stats in chrm_strand_stats.items():
                 stats_fp.write('>>>>::' + chrm + '::' + strand + '\n')
                 stats_fp.write('\n'.join([
-                    '{:d}\t{:.2g}\t{:.2g}'.format(pos, pval, qval)
-                    for pos, pval, qval in sorted(pos_stats)]) + '\n')
+                    '{:d}\t{:.2g}\t{:.2g}\t{:d}\t{:d}'.format(
+                        pos, pval, qval, cov1, cov2)
+                    for pos, pval, qval, cov1, cov2 in
+                    sorted(pos_stats)]) + '\n')
 
     return all_stats
 
@@ -2055,7 +2068,7 @@ def get_most_signif_regions(
         ['{:03d}'.format(rn) for rn in range(num_regions)],
         [(chrm, max(pos - int(num_bases / 2.0), 0), strand,
           '(q-value:{0:.2g} p-value:{1:.2g})'.format(qval, pval))
-         for pval, qval, pos, chrm, strand in
+         for pval, qval, pos, chrm, strand, cov1, cov2 in
          all_stats[:num_regions]])
 
     return plot_intervals
@@ -2170,7 +2183,7 @@ def plot_kmer_centered_signif(
 
     all_stats_dict = dict(
         ((chrm, strand, pos), (pval, qval))
-        for pval, qval, pos, chrm, strand in all_stats)
+        for pval, qval, pos, chrm, strand, cov1, cov2 in all_stats)
 
     if VERBOSE: sys.stderr.write(
             'Finding signficant regions with motif.\n')
@@ -2178,7 +2191,7 @@ def plot_kmer_centered_signif(
         with open(fasta_fn) as fasta_fp:
             fasta_records = parse_fasta(fasta_fp)
     motif_regions_data = []
-    for pval, qval, pos, chrm, strand in all_stats:
+    for pval, qval, pos, chrm, strand, cov1, cov2 in all_stats:
         if fasta_fn is None:
             reg_seq = get_region_sequences(
                 [('0', (chrm, pos - motif_len + 1, strand, pval)),],
