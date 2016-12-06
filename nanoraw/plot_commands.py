@@ -444,7 +444,8 @@ r.r('''
     baseP <- ggplot(baseDat) +
         geom_tile(aes(x=Kmer, y=Position, fill=Base)) +
         scale_fill_manual(
-            values=c('A'='#00CC00', 'C'='#0000CC', 'G'='#FFB300', 'T'='#CC0000')) +
+            values=c('A'='#00CC00', 'C'='#0000CC',
+                     'G'='#FFB300', 'T'='#CC0000')) +
         theme_bw() + theme(
             axis.text.x=element_text(angle=60, hjust=1, size=8),
             legend.position='none')
@@ -454,7 +455,8 @@ r.r('''
         mainP <- mainP + theme(axis.text.x=element_blank())
         baseP <- baseP + theme(axis.text.x=element_blank())
     }
-    print(plot_grid(plot_grid(mainP, baseP, ncol=1, rel_heights=c(5,1), align='v'),
+    print(plot_grid(plot_grid(mainP, baseP, ncol=1,
+                    rel_heights=c(5,1), align='v'),
           mainL, ncol=1, rel_heights=c(10,1)))
 }}
 ''')
@@ -487,9 +489,11 @@ plotKmerDistWReadPath <- function(dat, baseDat){
     baseP <- ggplot(baseDat) +
         geom_tile(aes(x=Kmer, y=Position, fill=Base)) +
         scale_fill_manual(
-            values=c('A'='#00CC00', 'C'='#0000CC', 'G'='#FFB300', 'T'='#CC0000')) +
+            values=c('A'='#00CC00', 'C'='#0000CC',
+                     'G'='#FFB300', 'T'='#CC0000')) +
         theme_bw() + theme(
-            axis.text.x=element_text(angle=60, hjust=1, size=8))
+            axis.text.x=element_text(angle=60, hjust=1, size=8),
+            legend.position='none')
     mainP <- mainP + theme(axis.text.x=element_blank(),
                            axis.title.x=element_blank())
     readP <- readP + theme(axis.text.x=element_blank(),
@@ -499,9 +503,11 @@ plotKmerDistWReadPath <- function(dat, baseDat){
         readP <- readP + theme(axis.text.x=element_blank())
         baseP <- baseP + theme(axis.text.x=element_blank())
     }
-    print(plot_grid(plot_grid(mainP, baseP, ncol=1, rel_heights=c(5,1), align='v'),
+    print(plot_grid(plot_grid(mainP, baseP, ncol=1,
+                              rel_heights=c(5,1), align='v'),
           mainL, ncol=1, rel_heights=c(10,1)))
-    print(plot_grid(plot_grid(readP, baseP, ncol=1, rel_heights=c(5,1), align='v'),
+    print(plot_grid(plot_grid(readP, baseP, ncol=1,
+                              rel_heights=c(5,1), align='v'),
           mainL, ncol=1, rel_heights=c(10,1)))
 }}
 ''')
@@ -520,7 +526,7 @@ def plot_kmer_dist(files, corrected_group, basecall_subgroups,
             'Parsing files and tabulating k-mers.\n')
     kmer_len = upstrm_bases + dnstrm_bases + 1
     reads_added = 0
-    all_trimers = defaultdict(list)
+    all_kmers = defaultdict(list)
     # randomly pick files instead of ordered from listing
     np.random.shuffle(files)
     for fn, basecall_subgroup in [(fn, bc_grp) for fn in files
@@ -534,21 +540,21 @@ def plot_kmer_dist(files, corrected_group, basecall_subgroups,
             '/Events'].value
         seq = event_data['base']
         means = event_data['norm_mean']
-        read_trimers = defaultdict(list)
-        for trimer, event_mean in zip(
+        read_kmers = defaultdict(list)
+        for kmer, event_mean in zip(
                 [''.join(bs) for bs in zip(*[
                     seq[i:] for i in range(kmer_len)])],
                 means[kmer_len - 1 - dnstrm_bases:]):
-            read_trimers[trimer].append(event_mean)
-        if min(len(x) for x in read_trimers.values()) > kmer_thresh:
+            read_kmers[kmer].append(event_mean)
+        if min(len(x) for x in read_kmers.values()) > kmer_thresh:
             reads_added += 1
-            for trimer, trimer_means in read_trimers.items():
+            for kmer, kmer_means in read_kmers.items():
                 if read_mean:
-                    all_trimers[trimer].append((
-                        np.mean(trimer_means), reads_added))
+                    all_kmers[kmer].append((
+                        np.mean(kmer_means), reads_added))
                 else:
-                    all_trimers[trimer].extend(
-                        zip(trimer_means, repeat(reads_added)))
+                    all_kmers[kmer].extend(
+                        zip(kmer_means, repeat(reads_added)))
 
         if reads_added >= num_reads:
             break
@@ -556,14 +562,14 @@ def plot_kmer_dist(files, corrected_group, basecall_subgroups,
     if VERBOSE: sys.stderr.write('Preparing plot data.\n')
     kmer_levels = [kmer for means, kmer in sorted([
         (np.mean(zip(*means)[0]), kmer)
-        for kmer, means in all_trimers.items()])]
+        for kmer, means in all_kmers.items()])]
 
     plot_data = [
         (kmer, kmer[upstrm_bases], sig_mean, read_i)
         for kmer in kmer_levels
-        for sig_mean, read_i in all_trimers[kmer]]
+        for sig_mean, read_i in all_kmers[kmer]]
 
-    trimerDat = r.DataFrame({
+    kmerDat = r.DataFrame({
         'Kmer':r.FactorVector(
             r.StrVector(zip(*plot_data)[0]),
             ordered=True, levels=r.StrVector(kmer_levels)),
@@ -579,8 +585,9 @@ def plot_kmer_dist(files, corrected_group, basecall_subgroups,
                 ordered=True, levels=r.StrVector(kmer_levels)),
             'Base':r.StrVector([kmer[i] for kmer in kmer_levels
                                 for i in range(kmer_len)]),
-            'Position':r.StrVector([i - upstrm_bases for kmer in kmer_levels
-                                    for i in range(kmer_len)])})
+            'Position':r.IntVector([
+                i - upstrm_bases for kmer in kmer_levels
+                for i in range(kmer_len)])})
     else:
         sys.stderr.write(
             '********* WARNING: Install R package cowplot for ' +
@@ -590,11 +597,11 @@ def plot_kmer_dist(files, corrected_group, basecall_subgroups,
     if VERBOSE: sys.stderr.write('Plotting.\n')
     if read_mean:
         r.r('pdf("' + pdf_fn + '", height=7, width=10)')
-        plotKmerDistWReadPath(trimerDat, baseDat)
+        plotKmerDistWReadPath(kmerDat, baseDat)
         r.r('dev.off()')
     else:
         r.r('pdf("' + pdf_fn + '", height=7, width=10)')
-        plotKmerDist(trimerDat, baseDat)
+        plotKmerDist(kmerDat, baseDat)
         r.r('dev.off()')
 
     return
@@ -1266,7 +1273,8 @@ def plot_multi_corrections(
     if genome_locations is None:
         # randomly select regions with at least num_reads_to_plot regions
         coverage_regions = [
-            (chrm, reg_center, strand) for stat, reg_center, chrm, strand in
+            (chrm, reg_center, strand)
+            for stat, reg_center, chrm, strand in
             coverage_regions if stat >= num_reads_per_plot]
         np.random.shuffle(coverage_regions)
         plot_intervals = zip(
@@ -2493,7 +2501,7 @@ def kmer_dist_main(args):
     plot_kmer_dist(
         files, args.corrected_group, args.basecall_subgroups,
         args.read_mean, args.upstream_bases, args.downstream_bases,
-        args.num_trimer_threshold, args.num_reads, args.pdf_filename)
+        args.num_kmer_threshold, args.num_reads, args.pdf_filename)
 
     return
 

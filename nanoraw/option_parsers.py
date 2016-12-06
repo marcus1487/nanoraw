@@ -105,7 +105,7 @@ dnstrmbs_opt=('--downstream-bases', {
     'default':2, 'type':int, 'choices':(0,1,2,3),
     'help':'Downstream bases in k-mer. Should be one of {0,1,2,3}. ' +
     'Default: %(default)d'})
-trimerthresh_opt=('--num-trimer-threshold', {
+kmerthresh_opt=('--num-kmer-threshold', {
     'default':4, 'type':int,
     'help':'Number of each kmer required to include a read in ' +
     'read level averages. Default: %(default)d'})
@@ -704,7 +704,7 @@ def get_kmer_dist_parser():
     proc_args.add_argument(upstrmbs_opt[0], **upstrmbs_opt[1])
     proc_args.add_argument(dnstrmbs_opt[0], **dnstrmbs_opt[1])
     proc_args.add_argument(readmean_opt[0], **readmean_opt[1])
-    proc_args.add_argument(trimerthresh_opt[0], **trimerthresh_opt[1])
+    proc_args.add_argument(kmerthresh_opt[0], **kmerthresh_opt[1])
 
     fast5_args = parser.add_argument_group('FAST5 Data Arguments')
     fast5_args.add_argument(corrgrp_opt[0], **corrgrp_opt[1])
