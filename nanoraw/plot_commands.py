@@ -1967,7 +1967,7 @@ def parse_stats(stats_fn):
                 pos, pval, qval, cov1, cov2 = line.split()
                 all_stats.append((
                     float(pval), float(qval), int(pos),
-                    curr_chrm, curr_strand), int(cov1), int(cov2))
+                    curr_chrm, curr_strand, int(cov1), int(cov2)))
 
     return sorted(all_stats)
 
