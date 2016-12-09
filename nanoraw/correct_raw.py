@@ -91,13 +91,15 @@ def write_new_fast5_group(
 
     np_read_align = np.chararray(len(alignVals))
     np_read_align[:] = zip(*alignVals)[0]
-    corr_alignment.create_dataset('read_alignment', data=np_read_align)
+    corr_alignment.create_dataset(
+        'read_alignment', data=np_read_align, compression="gzip")
     np_genome_align = np.chararray(len(alignVals))
     np_genome_align[:] = zip(*alignVals)[1]
     corr_alignment.create_dataset(
-        'genome_alignment', data=np_genome_align)
+        'genome_alignment', data=np_genome_align, compression="gzip")
     # store old segmentation in order to plot "correction process"
-    corr_alignment.create_dataset('read_segments', data=old_segs)
+    corr_alignment.create_dataset(
+        'read_segments', data=old_segs, compression="gzip")
 
     # Add Events to data frame with event means, SDs and lengths
     """raw_mean_sd = [(base_sig.mean(), base_sig.std()) for base_sig in
@@ -110,7 +112,8 @@ def write_new_fast5_group(
             new_segs[:-1], np.diff(new_segs), list(align_seq)),
         dtype=[('norm_mean', '<f8'), ('norm_stdev', '<f8'),
                ('start', '<u4'), ('length', '<u4'), ('base', 'S1')])
-    corr_events = corr_subgrp.create_dataset('Events', data=event_data)
+    corr_events = corr_subgrp.create_dataset(
+        'Events', data=event_data, compression="gzip")
     corr_events.attrs['read_start_rel_to_raw'] = read_start_rel_to_raw
 
     read_data.flush()
