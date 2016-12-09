@@ -19,6 +19,8 @@ from nanoraw_helper import (
 
 VERBOSE = False
 
+SMALLEST_PVAL = 1e-15
+
 # quantiles and especially violin plots at leat 3 values
 # to be meaningful
 QUANT_MIN = 3
@@ -2206,8 +2208,13 @@ def plot_kmer_centered_signif(
                 raw_read_coverage1, raw_read_coverage2,
                 (motif_len * 2) - 1, corrected_group)[0][1]
         else:
-            reg_seq = fasta_records[chrm][
-                pos-motif_len+1:pos+motif_len]
+            # skip regions not found in fasta to allow for selection
+            # of reads only from one chromosome/organism
+            try:
+                reg_seq = fasta_records[chrm][
+                    pos-motif_len+1:pos+motif_len]
+            except (KeyError, IndexError):
+                continue
 
         reg_match = motif_pat.search(reg_seq)
         if reg_match:
@@ -2224,8 +2231,11 @@ def plot_kmer_centered_signif(
          for pval, qval, pos, chrm, strand, offset in
          motif_regions_data])
     plot_width = motif_len + (context_width * 2)
+    # note check for key in stats dict as significant position
+    # may lie next to region with coverage below the threshold
     pval_locs = [(pos - start, -np.log10(
-        all_stats_dict[(chrm, strand, pos)][0]))
+        max(SMALLEST_PVAL, all_stats_dict[(chrm, strand, pos)][0]
+            if (chrm, strand, pos) in all_stats_dict else 1)))
                  for chrm, start, strand, _ in zip(*plot_intervals)[1]
                  for pos in range(start, start + plot_width)]
     # TODO: Fix so that negative strand reads are plotted too.
