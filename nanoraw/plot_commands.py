@@ -533,7 +533,11 @@ def plot_kmer_dist(files, corrected_group, basecall_subgroups,
     np.random.shuffle(files)
     for fn, basecall_subgroup in [(fn, bc_grp) for fn in files
                                   for bc_grp in basecall_subgroups]:
-        read_data = h5py.File(fn)
+        try:
+            read_data = h5py.File(fn, 'r')
+        except IOError:
+            # probably truncated file
+            continue
         if ('/Analyses/' + corrected_group + '/' +
             basecall_subgroup + '/Events') not in read_data:
             continue
@@ -1539,9 +1543,9 @@ def plot_two_samples(
     return
 
 def plot_kmer_centered_with_stats(
-        motif_regions_data, raw_read_coverage1, raw_read_coverage2,
-        plot_intervals, pval_locs, num_bases, corrected_group,
-        overplot_thresh, overplot_type, pdf_fn):
+        raw_read_coverage1, raw_read_coverage2, plot_intervals,
+        pval_locs, num_bases, corrected_group, overplot_thresh,
+        overplot_type, pdf_fn):
     if VERBOSE: sys.stderr.write('Preparing plot data.\n')
     all_reg_data1, no_cov_regs1 = get_region_reads(
         plot_intervals, raw_read_coverage1, num_bases,
@@ -2194,6 +2198,9 @@ def plot_kmer_centered_signif(
     all_stats_dict = dict(
         ((chrm, strand, pos), (pval, qval))
         for pval, qval, pos, chrm, strand, cov1, cov2 in all_stats)
+    covered_poss = defaultdict(set)
+    for _, _, pos, chrm, strand, _, _ in all_stats:
+        covered_poss[(chrm, strand)].add(pos)
 
     if VERBOSE: sys.stderr.write(
             'Finding signficant regions with motif.\n')
@@ -2243,12 +2250,26 @@ def plot_kmer_centered_signif(
     # data
     plot_intervals = [interval_data for interval_data in plot_intervals
                       if interval_data[1][2] == '+']
-    plot_intervals = plot_intervals[:num_regions]
+    # unique genomic regions filter
+    uniq_p_intervals = []
+    used_intervals = defaultdict(set)
+    for p_int, (chrm, start, strand, reg_name) in plot_intervals:
+        # could have significant region immediately next to
+        # beginning/end of reads
+        interval_poss = range(start, start + plot_width)
+        if start not in used_intervals[(chrm, strand)] and all(
+                pos in covered_poss[(chrm, strand)]
+                for pos in interval_poss):
+            uniq_p_intervals.append(
+                (p_int, (chrm, start, strand, reg_name)))
+            used_intervals[(chrm, strand)].update(interval_poss)
+
+    uniq_p_intervals = uniq_p_intervals[:num_regions]
 
     plot_kmer_centered_with_stats(
-        motif_regions_data, raw_read_coverage1, raw_read_coverage2,
-        plot_intervals, pval_locs, plot_width, corrected_group,
-        overplot_thresh, overplot_type, pdf_fn)
+        raw_read_coverage1, raw_read_coverage2, uniq_p_intervals,
+        pval_locs, plot_width, corrected_group, overplot_thresh,
+        overplot_type, pdf_fn)
 
     return
 
