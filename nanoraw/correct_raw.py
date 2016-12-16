@@ -38,7 +38,7 @@ with os.fdopen(os.dup(fd), 'w') as old_stderr:
         _redirect_stderr(old_stderr)
 
 
-NANORAW_VERSION = '0.3'
+NANORAW_VERSION = '0.3.1'
 VERBOSE = False
 
 indelStats = namedtuple('indelStats',
