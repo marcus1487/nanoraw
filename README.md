@@ -63,6 +63,11 @@ nanoraw [command] [options]
 - ggplot2 (required for any plotting subcommands)
 - cowplot (required for plot_kmer_with_stats subcommand)
 
+## Citation
+Stoiber, M.H. et al. De novo Identification of DNA Modifications Enabled by Genome-Guided Nanopore Signal Processing. bioRxiv (2016).
+
+http://biorxiv.org/content/early/2016/12/15/094672
+
 ## Legal
 nanoraw v.1 Copyright (c) 2016, The Regents of the University of California, through Lawrence Berkeley National Laboratory (subject to receipt of any required approvals from the U.S. Dept. of Energy).  All rights reserved.
 
