@@ -8,11 +8,13 @@ Plot signal distribution acorss kmers. The command allows the selection of the n
 
 .. figure::  _images/kmer_dist.jpg
    :align:   center
+   :scale: 50%
    
    K-mer signal distribution plotting example.
 
 .. figure::  _images/kmer_dist_read.jpg
    :align:   center
+   :scale: 50%
    
    K-mer signal distribution connecting each read example.
 
@@ -24,5 +26,6 @@ Cluster raw signal traces at bases with significant differences. Clustering is d
 
 .. figure::  _images/cluster.jpg
    :align:   center
+   :scale: 50%
    
    Signal clustering plotting example.

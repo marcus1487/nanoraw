@@ -69,6 +69,7 @@ This command shows the read correction process for a small region of a single re
 
 .. figure::  _images/read_correction.jpg
    :align:   center
+   :scale: 50%
    
    Read correction example plot.
 
@@ -79,5 +80,6 @@ This plot shows multiple reads in "sequencing time space" (x-axis) anchored at a
 
 .. figure::  _images/multi_correction.jpg
    :align:   center
+   :scale: 50%
    
    Mutliple read correction example plot.

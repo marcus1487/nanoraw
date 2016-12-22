@@ -6,6 +6,7 @@ Single Sample Plotting
 
 .. figure::  _images/one_sample_coverage.jpg
    :align:   center
+   :scale: 50%
    
    Single sample plotting example.
 
@@ -23,6 +24,7 @@ Two Sample Plotting
 
 .. figure::  _images/two_sample_coverage.jpg
    :align:   center
+   :scale: 50%
    
    Two sample plotting example.
 
@@ -39,6 +41,7 @@ Motif Centered Multi-location with Statistics Plotting
 
 .. figure::  _images/motif_centered.jpg
    :align:   center
+   :scale: 50%
    
    Motif centered plotting with distribution of statistical test surrounding motif.
 
@@ -62,21 +65,25 @@ Overplotting Options:
 
 .. figure::  _images/downsample.jpg
    :align:   center
+   :scale: 50%
    
    Downsample Overplotting example
 
 .. figure::  _images/boxplot.jpg
    :align:   center
+   :scale: 50%
    
    Boxplot Overplotting example
 
 .. figure::  _images/quantile.jpg
    :align:   center
+   :scale: 50%
    
    Quantile Overplotting example
 
 .. figure::  _images/violin.jpg
    :align:   center
+   :scale: 50%
    
    Violin Overplotting example
 
