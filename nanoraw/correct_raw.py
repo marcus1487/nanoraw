@@ -460,7 +460,7 @@ def prep_graphmap_options(genome_fn, read_fn, out_fn, output_format):
             '-L', output_format]
 
 def prep_bwa_mem_options(genome_fn, read_fn):
-    return ['mem', '-v', '1', genome_fn, read_fn]
+    return ['mem', '-x', 'ont2d', '-v', '1', genome_fn, read_fn]
 
 def align_to_genome(basecalls, genome_filename, mapper_exe,
                     mapper_type, output_format='sam'):
