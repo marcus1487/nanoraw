@@ -8,8 +8,8 @@ import argparse
 # genome resquiggle opts
 basedir_opt=('fast5_basedir', {
     'help':'Directory containing fast5 files.'})
-graphmap_opt=('graphmap_path', {
-    'help':'Full path to built graphmap version.'})
+graphmap_opt=('graphmap_executable', {
+    'help':'Relative or absolute path to built graphmap executable.'})
 fasta_pos_opt=('genome_fasta', {
     'help':'Path to fasta file for mapping.'})
 

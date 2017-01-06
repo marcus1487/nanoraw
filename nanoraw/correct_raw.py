@@ -1,15 +1,18 @@
 import os, sys
+
+import re
 import h5py
 import Queue
 
 import numpy as np
 import multiprocessing as mp
 
+from Bio import SeqIO
 from glob import glob
 from time import sleep, time
 from subprocess import call, STDOUT
-from itertools import groupby, izip
 from tempfile import NamedTemporaryFile
+from itertools import groupby, izip, repeat
 from collections import defaultdict, namedtuple
 
 # import nanoraw functions
@@ -47,7 +50,7 @@ indelGroupStats = namedtuple('indelGroupStats',
                              ('start', 'end', 'cpts', 'indels'))
 readInfo = namedtuple(
     'readInfo',
-    ('ID', 'Start', 'TrimStart', 'TrimEnd',
+    ('ID', 'Start', 'ClipStart', 'ClipEnd',
      'Insertions', 'Deletions', 'Matches', 'Mismatches'))
 genomeLoc = namedtuple(
     'genomeLoc', ('Start', 'Strand', 'Chrom'))
@@ -57,6 +60,10 @@ GRAPHMAP_FIELDS = (
     'tName', 'tLength', 'tStart', 'tEnd', 'tStrand',
     'score', 'numMatch', 'numMismatch', 'numIns', 'numDel',
     'mapQV', 'qAlignedSeq', 'matchPattern', 'tAlignedSeq')
+SAM_FIELDS = (
+    'qName', 'flag', 'rName', 'pos', 'mapq',
+    'cigar', 'rNext', 'pNext', 'tLen', 'seq', 'qual')
+CIGAR_PAT = re.compile('(\d+)([MIDNSHP=X])')
 
 
 def write_new_fast5_group(
@@ -82,8 +89,8 @@ def write_new_fast5_group(
     corr_alignment.attrs['mapped_strand'] = genome_location.Strand
     corr_alignment.attrs['mapped_chrom'] = genome_location.Chrom
 
-    corr_alignment.attrs['trimmed_obs_start'] = read_info.TrimStart
-    corr_alignment.attrs['trimmed_obs_end'] = read_info.TrimEnd
+    corr_alignment.attrs['clipped_bases_start'] = read_info.ClipStart
+    corr_alignment.attrs['clipped_bases_end'] = read_info.ClipEnd
     corr_alignment.attrs['num_insertions'] = read_info.Insertions
     corr_alignment.attrs['num_deletions'] = read_info.Deletions
     corr_alignment.attrs['num_matches'] = read_info.Matches
@@ -280,34 +287,66 @@ def get_aligned_seq(align_dat):
                     [(len(read_seq), ''),])])
     return read_seq.replace("-", "")
 
-def align_to_genome(basecalls, genome_filename, graphmap_path):
-    ## align to genome
-    read_fp = NamedTemporaryFile(
-        delete=False, suffix='.fasta')
-    read_fp.write(">" + ''.join(basecalls[:5]) + '\n' +
-                  ''.join(basecalls) + '\n')
-    read_fp.close()
-    out_fp = NamedTemporaryFile(delete=False)
-    try:
-        # suppress output from graphmap with devnull sink
-        with open(os.devnull, 'w') as FNULL:
-            exitStatus = call([
-                graphmap_path, 'align',
-                '-r', genome_filename,
-                '-d', read_fp.name,
-                '-o', out_fp.name,
-                '-L', 'm5'], stdout=FNULL, stderr=STDOUT)
+def fix_raw_starts_for_clipped_bases(
+        start_clipped_bases, end_clipped_bases, starts_rel_to_read,
+        read_start_rel_to_raw, abs_event_start):
+    if start_clipped_bases > 0:
+        start_clipped_obs = starts_rel_to_read[start_clipped_bases]
+        starts_rel_to_read = starts_rel_to_read[
+            start_clipped_bases:] - start_clipped_obs
+        read_start_rel_to_raw += start_clipped_obs
+        abs_event_start += start_clipped_obs
 
-        alignment = dict(zip(GRAPHMAP_FIELDS, out_fp.readline().split()))
-        out_fp.close()
-    except:
-        raise OSError, ('Problem running/parsing graphmap. Ensure ' +
-                        'you have a compatible version installed.')
+    if end_clipped_bases > 0:
+        starts_rel_to_read = starts_rel_to_read[:-1 * end_clipped_bases]
 
-    ## flip read and genome to match raw signal if neg strand mapped
+    return starts_rel_to_read, read_start_rel_to_raw, abs_event_start
+
+def trim_m5_alignment(alignVals, start, strand, chrm):
+    # trim read to first matching bases
+    start_clipped_read_bases = 0
+    start_clipped_genome_bases = 0
+    start_clipped_align_bases = 0
+    r_base, g_base = alignVals[0]
+    while r_base == '-' or g_base == '-':
+        start_clipped_read_bases += int(r_base != '-')
+        start_clipped_genome_bases += int(g_base != '-')
+        start_clipped_align_bases += 1
+        r_base, g_base = alignVals[start_clipped_align_bases]
+
+    end_clipped_read_bases = 0
+    end_clipped_genome_bases = 0
+    end_clipped_align_bases = 0
+    r_base, g_base = alignVals[-1]
+    while r_base == '-' or g_base == '-':
+        end_clipped_read_bases += int(r_base != '-')
+        end_clipped_genome_bases += int(g_base != '-')
+        end_clipped_align_bases += 1
+        r_base, g_base = alignVals[-1 * (end_clipped_align_bases + 1)]
+
+    alignVals = alignVals[start_clipped_align_bases:]
+    if end_clipped_align_bases > 0:
+        alignVals = alignVals[:-1*end_clipped_align_bases]
+
+    if strand == '+' and start_clipped_genome_bases > 0:
+        genome_loc = genomeLoc(
+            start + start_clipped_genome_bases, '+', chrm)
+    elif strand == '-' and end_clipped_genome_bases > 0:
+        genome_loc = genomeLoc(
+            start + end_clipped_genome_bases, '-', chrm)
+    else:
+        genome_loc = genomeLoc(start, strand, chrm)
+
+    return alignVals, start_clipped_read_bases, end_clipped_read_bases, \
+        genome_loc
+
+def parse_m5_record(align_output):
+    # TDOD: handle multiple reads here for batching
+    alignment = dict(zip(
+        GRAPHMAP_FIELDS, align_output[0].strip().split()))
+
     if len(alignment) != len(GRAPHMAP_FIELDS):
-        raise NotImplementedError, (
-            'Graphmap did not produce alignment.')
+        raise NotImplementedError, 'Alignment not produced.'
 
     if alignment['tStrand'] != '+':
         raise NotImplementedError, (
@@ -320,60 +359,139 @@ def align_to_genome(basecalls, genome_filename, graphmap_path):
         alignVals = zip(rev_comp(alignment['qAlignedSeq']),
                         rev_comp(alignment['tAlignedSeq']))
 
-    return alignVals, genomeLoc(
-        int(alignment['tStart']), alignment['qStrand'],
-        alignment['tName'])
+    alignVals, start_clipped_bases, end_clipped_bases, genome_loc \
+        = trim_m5_alignment(alignVals, int(alignment['tStart']),
+                            alignment['qStrand'], alignment['tName'])
 
-def trim_alignment(alignVals, starts_rel_to_read,
-                   read_start_rel_to_raw, abs_event_start,
-                   genome_location):
-    # trim read to first matching bases
-    start_trim_align_pos = 0
-    start_trim_read_pos = 0
-    start_trim_genome_pos = 0
-    r_base, g_base = alignVals[0]
-    while r_base == '-' or g_base == '-':
-        start_trim_read_pos += int(r_base != '-')
-        start_trim_genome_pos += int(g_base != '-')
-        start_trim_align_pos += 1
-        r_base, g_base = alignVals[start_trim_align_pos]
+    return alignVals, genome_loc, start_clipped_bases, end_clipped_bases
 
-    end_trim_align_pos = 0
-    end_trim_read_pos = 0
-    end_trim_genome_pos = 0
-    r_base, g_base = alignVals[-1]
-    while r_base == '-' or g_base == '-':
-        end_trim_read_pos += int(r_base != '-')
-        end_trim_genome_pos += int(g_base != '-')
-        end_trim_align_pos += 1
-        r_base, g_base = alignVals[-1 * (end_trim_align_pos + 1)]
+def parse_sam_record(align_output, genome_fn):
+    genome_index = SeqIO.index(genome_fn, 'fasta')
+    # TODO: handle multiple reads here for batching
+    for line in align_output:
+        if line.startswith('@'): continue
+        alignment = line.strip().split()
+        break
+    alignment = dict(zip(SAM_FIELDS, alignment))
+    if alignment['rName'] == '*':
+        raise NotImplementedError, 'Alignment not produced.'
 
-    alignVals = alignVals[start_trim_align_pos:]
-    if end_trim_align_pos > 0:
-        alignVals = alignVals[:-1*end_trim_align_pos]
+    cigar = [
+        (int(reg_len), reg_type) for reg_len, reg_type in
+        CIGAR_PAT.findall(alignment['cigar'])]
+    if len(cigar) < 1:
+        raise RuntimeError, 'Invalid cigar string produced.'
 
-    if start_trim_read_pos > 0:
-        start_trim_obs = starts_rel_to_read[start_trim_read_pos]
-        starts_rel_to_read = starts_rel_to_read[
-            start_trim_read_pos:] - start_trim_obs
-        read_start_rel_to_raw += start_trim_obs
-        abs_event_start += start_trim_obs
+    strand = '-' if int(alignment['flag']) & 0x10 else '+'
+    if strand == '-':
+        cigar = cigar[::-1]
 
-    if end_trim_read_pos > 0:
-        starts_rel_to_read = starts_rel_to_read[:-1 * end_trim_read_pos]
+    qSeq = alignment['seq'] if strand == '+' else rev_comp(
+        alignment['seq'])
+    start_clipped_bases = 0
+    end_clipped_bases = 0
+    # handle clipping elements (H and S)
+    if cigar[0][1] == 'H':
+        start_clipped_bases += cigar[0][0]
+        cigar = cigar[1:]
+    if cigar[-1][1] == 'H':
+        end_clipped_bases += cigar[-1][0]
+        cigar = cigar[:-1]
+    if cigar[0][1] == 'S':
+        start_clipped_bases += cigar[0][0]
+        qSeq = qSeq[cigar[0][0]:]
+        cigar = cigar[1:]
+    if cigar[-1][1] == 'S':
+        end_clipped_bases += cigar[-1][0]
+        qSeq = qSeq[:-cigar[-1][0]]
+        cigar = cigar[:-1]
 
-    if genome_location.Strand == '+' and start_trim_genome_pos > 0:
-        genome_location = genomeLoc(
-            genome_location.Start + start_trim_genome_pos, '+',
-            genome_location.Chrom)
-    elif genome_location.Strand == '-' and end_trim_genome_pos > 0:
-        genome_location = genomeLoc(
-            genome_location.Start + end_trim_genome_pos, '-',
-            genome_location.Chrom)
+    tLen = sum([reg_len for reg_len, reg_type in cigar
+                if reg_type in 'MDN=X'])
+    tSeq = genome_index[alignment['rName']][
+        int(alignment['pos']) - 1:int(alignment['pos']) + tLen - 1]
+    if strand == '-': tSeq = rev_comp(tSeq)
 
-    return (alignVals, starts_rel_to_read, read_start_rel_to_raw,
-            abs_event_start, start_trim_read_pos, end_trim_read_pos,
-            genome_location)
+    # check that cigar starts and ends with matched bases
+    while cigar[0][1] not in 'M=X':
+        if cigar[0][1] in 'IP':
+            tSeq = tSeq[cigar[0][0]:]
+        else:
+            qSeq = qSeq[cigar[0][0]:]
+            start_clipped_bases += cigar[0][0]
+        cigar = cigar[1:]
+    while cigar[-1][1] not in 'M=X':
+        if cigar[-1][1] in 'IP':
+            tSeq = tSeq[:-cigar[-1][0]]
+        else:
+            qSeq = qSeq[:-cigar[-1][0]]
+            end_clipped_bases += cigar[0][0]
+        cigar = cigar[:-1]
+
+    qLen = sum([reg_len for reg_len, reg_type in cigar
+                if reg_type in 'MIP=X'])
+    assert len(qSeq) == qLen, 'Read sequence from SAM and ' + \
+        'cooresponding cigar string do not agree.'
+
+    alignVals = []
+    for reg_len, reg_type in cigar:
+        if reg_type in 'M=X':
+            alignVals.extend(zip(qSeq[:reg_len], tSeq[:reg_len]))
+            qSeq = qSeq[reg_len:]
+            tSeq = tSeq[reg_len:]
+        elif reg_type in 'IP':
+            alignVals.extend(zip(qSeq[:reg_len], repeat('-')))
+            qSeq = qSeq[reg_len:]
+        else:
+            alignVals.extend(zip(repeat('-'), tSeq[:reg_len]))
+            tSeq = tSeq[reg_len:]
+
+    return (alignVals, genomeLoc(
+        int(alignment['pos']) - 1, strand, alignment['rName']),
+            start_clipped_bases, end_clipped_bases)
+
+def prep_graphmap_options(genome_fn, read_fn, out_fn, output_format):
+    return ['align', '-r', genome_fn, '-d', read_fn, '-o', out_fn,
+            '-L', output_format]
+
+def align_to_genome(basecalls, genome_filename, mapper_exe,
+                    mapper_type, output_format='sam'):
+    read_fp = NamedTemporaryFile(
+        delete=False, suffix='.fasta')
+    read_fp.write(">" + ''.join(basecalls[:5]) + '\n' +
+                  ''.join(basecalls) + '\n')
+    read_fp.close()
+    out_fp = NamedTemporaryFile(delete=False)
+
+    if mapper_type == 'graphmap':
+        mapper_options = prep_graphmap_options(
+            genome_filename, read_fp.name, out_fp.name, output_format)
+    else:
+        raise RuntimeError, 'Mapper not supported.'
+
+    try:
+        # suppress output from mapper with devnull sink
+        with open(os.devnull, 'w') as FNULL:
+            exitStatus = call([mapper_exe,] + mapper_options,
+                              stdout=FNULL, stderr=STDOUT)
+
+        align_output = out_fp.readlines()
+        out_fp.close()
+    except:
+        raise OSError, (
+            'Problem running/parsing genome mapper. ' +
+            'Ensure you have a compatible version installed.')
+
+    if output_format == 'sam':
+        alignVals, genome_loc, start_clipped_bases, end_clipped_bases \
+            = parse_sam_record(align_output, genome_filename)
+    elif output_format == 'm5':
+        alignVals, genome_loc, start_clipped_bases, end_clipped_bases \
+            = parse_m5_record(align_output)
+    else:
+        raise RuntimeError, 'Mapper output type not supported.'
+
+    return alignVals, genome_loc, start_clipped_bases, end_clipped_bases
 
 def fix_stay_states(
         called_dat, starts_rel_to_read, basecalls,
@@ -481,8 +599,8 @@ def get_read_data(
             start_trim, end_trim)
 
 def correct_raw_data_read(
-        filename, genome_filename, graphmap_path, basecall_group,
-        basecall_subgroup, corrected_group, rmStayStates,
+        filename, genome_filename, mapper_exe, mapper_type,
+        basecall_group, basecall_subgroup, corrected_group, rmStayStates,
         norm_type, outlier_thresh, timeout, min_event_obs,
         num_cpts_limit, in_place):
     (all_raw_signal, read_start_rel_to_raw, starts_rel_to_read,
@@ -490,18 +608,17 @@ def correct_raw_data_read(
      rm_stay_start_trim, rm_stay_end_trim) = get_read_data(
          filename, rmStayStates, basecall_group, basecall_subgroup)
 
-    alignVals, genome_location = align_to_genome(
-        basecalls, genome_filename, graphmap_path)
-
-    (alignVals, starts_rel_to_read, read_start_rel_to_raw,
-     abs_event_start, startTrim, endTrim,
-     genome_location) = trim_alignment(
-         alignVals, starts_rel_to_read, read_start_rel_to_raw,
-         abs_event_start, genome_location)
+    alignVals, genome_loc, start_clipped_bases, end_clipped_bases \
+        = align_to_genome(
+            basecalls, genome_filename, mapper_exe, mapper_type)
+    starts_rel_to_read, read_start_rel_to_raw, abs_event_start \
+        = fix_raw_starts_for_clipped_bases(
+            start_clipped_bases, end_clipped_bases, starts_rel_to_read,
+            read_start_rel_to_raw, abs_event_start)
 
     read_info = readInfo(
         read_id, abs_event_start / float(channel_info.sampling_rate),
-        startTrim, endTrim,
+        start_clipped_bases, end_clipped_bases,
         sum(b == "-" for b in zip(*alignVals)[0]),
         sum(b == "-" for b in zip(*alignVals)[1]),
         sum(rb == gb for rb, gb in alignVals),
@@ -548,7 +665,7 @@ def correct_raw_data_read(
     if in_place:
         # create new hdf5 file to hold new read signal
         write_new_fast5_group(
-            filename, genome_location, read_info,
+            filename, genome_loc, read_info,
             read_start_rel_to_raw, new_segs, align_seq, alignVals,
             starts_rel_to_read, norm_signal, scale_values,
             corrected_group, basecall_subgroup, norm_type,
@@ -560,8 +677,8 @@ def correct_raw_data_read(
     return
 
 def correct_raw_data(
-        filename, genome_filename, graphmap_path, basecall_group,
-        basecall_subgroups, corrected_group, norm_type,
+        filename, genome_filename, mapper_exe, mapper_type,
+        basecall_group, basecall_subgroups, corrected_group, norm_type,
         outlier_thresh, timeout, num_cpts_limit, overwrite,
         rmStayStates=True, min_event_obs=4, in_place=True):
     # several checks to prepare the FAST5 file for correction before
@@ -605,10 +722,10 @@ def correct_raw_data(
     for basecall_subgroup in basecall_subgroups:
         try:
             correct_raw_data_read(
-                filename, genome_filename, graphmap_path, basecall_group,
-                basecall_subgroup, corrected_group, rmStayStates,
-                norm_type, outlier_thresh, timeout, min_event_obs,
-                num_cpts_limit, in_place)
+                filename, genome_filename, mapper_exe, mapper_type,
+                basecall_group, basecall_subgroup, corrected_group,
+                rmStayStates, norm_type, outlier_thresh, timeout,
+                min_event_obs, num_cpts_limit, in_place)
         except Exception as e:
             file_failed_reads.append((
                 str(e), basecall_subgroup + ' :: ' + filename))
@@ -616,9 +733,10 @@ def correct_raw_data(
     return file_failed_reads
 
 def get_aligned_seq_worker(
-        filenames_q, failed_reads_q, genome_filename, graphmap_path,
-        basecall_group, basecall_subgroups, corrected_group, norm_type,
-        outlier_thresh, timeout, num_cpts_limit, overwrite):
+        filenames_q, failed_reads_q, genome_filename, mapper_exe,
+        mapper_type, basecall_group, basecall_subgroups,
+        corrected_group, norm_type, outlier_thresh, timeout,
+        num_cpts_limit, overwrite):
     num_processed = 0
     while not filenames_q.empty():
         try:
@@ -632,7 +750,7 @@ def get_aligned_seq_worker(
             sys.stderr.flush()
 
         file_failed_reads = correct_raw_data(
-            fn, genome_filename, graphmap_path, basecall_group,
+            fn, genome_filename, mapper_exe, mapper_type, basecall_group,
             basecall_subgroups, corrected_group, norm_type,
             outlier_thresh, timeout, num_cpts_limit, overwrite)
         for failed_read in file_failed_reads:
@@ -641,8 +759,8 @@ def get_aligned_seq_worker(
     return
 
 def get_all_reads_data(
-        fast5_fns, genome_filename, graphmap_path, basecall_group,
-        basecall_subgroups, corrected_group, norm_type,
+        fast5_fns, genome_filename, mapper_exe, mapper_type,
+        basecall_group, basecall_subgroups, corrected_group, norm_type,
         outlier_thresh, timeout, num_cpts_limit, overwrite,
         num_processes):
     manager = mp.Manager()
@@ -654,7 +772,7 @@ def get_all_reads_data(
         fast5_q.put(fast5_fn)
 
     args = (fast5_q, failed_reads_q, genome_filename,
-            graphmap_path, basecall_group, basecall_subgroups,
+            mapper_exe, mapper_type, basecall_group, basecall_subgroups,
             corrected_group, norm_type, outlier_thresh, timeout,
             num_cpts_limit, overwrite)
     processes = []
@@ -690,6 +808,16 @@ def resquiggle_main(args):
     global VERBOSE
     VERBOSE = not args.quiet
 
+    # currently required, but adding new mappers shortly
+    if args.graphmap_executable is None:
+        sys.stderr.write(
+            '*' * 60 + '\nERROR: Must provide a ' + \
+            'graphmap executable.\n' + '*' * 60 + '\n')
+        sys.exit()
+    else:
+        mapper_exe = args.graphmap_executable
+        mapper_type = 'graphmap'
+
     global USE_R_CPTS
     if not USE_R_CPTS and args.use_r_cpts:
         sys.stderr.write(
@@ -716,11 +844,10 @@ def resquiggle_main(args):
         args.outlier_threshold > 0) else None
 
     failed_reads = get_all_reads_data(
-        files, args.genome_fasta, args.graphmap_path,
+        files, args.genome_fasta, mapper_exe, mapper_type,
         args.basecall_group, args.basecall_subgroups,
-        args.corrected_group, args.normalization_type,
-        outlier_thresh, args.timeout, args.cpts_limit, args.overwrite,
-        args.processes)
+        args.corrected_group, args.normalization_type, outlier_thresh,
+        args.timeout, args.cpts_limit, args.overwrite, args.processes)
     sys.stderr.write('Failed reads summary:\n' + '\n'.join(
         "\t" + err + " :\t" + str(len(fns))
         for err, fns in failed_reads.items()) + '\n')

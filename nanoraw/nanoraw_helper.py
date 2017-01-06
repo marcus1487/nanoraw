@@ -7,6 +7,8 @@ import numpy as np
 from itertools import izip
 from collections import defaultdict, namedtuple
 
+from Bio import SeqIO
+
 readData = namedtuple('readData', (
     'start', 'end', 'segs', 'read_start_rel_to_raw',
     'strand', 'means', 'stdevs', 'fn', 'corr_group'))
@@ -100,7 +102,8 @@ def parse_fast5s(files, corrected_group, basecall_subgroups,
                 'length']
             segs = np.concatenate([event_data['start'], [events_end,]])
             base_means = event_data['norm_mean'] if get_means else None
-            base_stdevs = event_data['norm_stdev'] if get_stdevs else None
+            base_stdevs = event_data['norm_stdev'] if get_stdevs \
+                          else None
         except:
             sys.stderr.write(
                 '********** WARNING: Corrupted corrected events in ' +
@@ -181,20 +184,13 @@ def normalize_raw_signal(
     return raw_signal, scaleValues(shift, scale, lower_lim, upper_lim)
 
 def parse_fasta(fasta_fp):
-    fasta_records = {}
-    try:
-        from Bio import SeqIO
-        seqio_fasta_recs = SeqIO.parse(fasta_fp,'fasta')
-        for fasta in seqio_fasta_recs:
-            fasta_records[fasta.id] = str(fasta.seq)
+    # could consider a conditional dependence on pyfaix if on-memory
+    # indexing is required for larger genomes
+    # Biopython's record level indexing will do for now...
+    return SeqIO.index(fasta_fp,'fasta')
 
-        return fasta_records
-    except ImportError:
-        sys.stderr.write(
-            'WARNING: Could not load "Bio" python module so ' +
-            'using less robust parser.\n')
-        pass
-
+# Old fasta parser method
+""" 
     curr_id = None
     curr_seq = None
     for line in fasta_fp:
@@ -212,3 +208,4 @@ def parse_fasta(fasta_fp):
         fasta_records[curr_id] = curr_seq
 
     return fasta_records
+"""

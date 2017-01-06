@@ -54,9 +54,7 @@ nanoraw [command] [options]
 - scipy
 - h5py
 - rpy2 (along with an R installation)
-
-#### Optional python Requirements:
-- Biopython (for robust FASTA parsing, but a simple parser is provided)
+- Bio (Biopython)
 
 #### Optional R Requirements (install with `install.packages([package_name])` from an R prompt):
 - changepoint (for using R's changepoint package for re-segmentation)
