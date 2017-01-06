@@ -8,10 +8,16 @@ import argparse
 # genome resquiggle opts
 basedir_opt=('fast5_basedir', {
     'help':'Directory containing fast5 files.'})
-graphmap_opt=('graphmap_executable', {
-    'help':'Relative or absolute path to built graphmap executable.'})
 fasta_pos_opt=('genome_fasta', {
     'help':'Path to fasta file for mapping.'})
+
+# read mapper options (one mustn be provided to genome_resquiggle)
+graphmap_opt=('--graphmap-executable', {
+    'help':'Relative or absolute path to built graphmap executable ' + \
+    'or command name if globally installed.'})
+bwamem_opt=('--bwa-mem-executable', {
+    'help':'Relative or absolute path to built bwa-mem executable ' + \
+    'or command name if globally installed.'})
 
 # optional genome resquiggle opts
 proc_opt=('--processes', {
@@ -258,8 +264,12 @@ def get_resquiggle_parser():
 
     req_args = parser.add_argument_group('Required Arguments')
     req_args.add_argument(basedir_opt[0], **basedir_opt[1])
-    req_args.add_argument(graphmap_opt[0], **graphmap_opt[1])
     req_args.add_argument(fasta_pos_opt[0], **fasta_pos_opt[1])
+
+    mapper_args = parser.add_argument_group(
+        'Mapper Arguments (One mapper is required)')
+    mapper_args.add_argument(graphmap_opt[0], **graphmap_opt[1])
+    mapper_args.add_argument(bwamem_opt[0], **bwamem_opt[1])
 
     filt_args = parser.add_argument_group('Read Filtering Arguments')
     filt_args.add_argument(timeout_opt[0], **timeout_opt[1])

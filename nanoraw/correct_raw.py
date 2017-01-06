@@ -55,7 +55,7 @@ readInfo = namedtuple(
 genomeLoc = namedtuple(
     'genomeLoc', ('Start', 'Strand', 'Chrom'))
 
-GRAPHMAP_FIELDS = (
+M5_FIELDS = (
     'qName', 'qLength', 'qStart', 'qEnd', 'qStrand',
     'tName', 'tLength', 'tStart', 'tEnd', 'tStrand',
     'score', 'numMatch', 'numMismatch', 'numIns', 'numDel',
@@ -343,14 +343,14 @@ def trim_m5_alignment(alignVals, start, strand, chrm):
 def parse_m5_record(align_output):
     # TDOD: handle multiple reads here for batching
     alignment = dict(zip(
-        GRAPHMAP_FIELDS, align_output[0].strip().split()))
+        M5_FIELDS, align_output[0].strip().split()))
 
-    if len(alignment) != len(GRAPHMAP_FIELDS):
+    if len(alignment) != len(M5_FIELDS):
         raise NotImplementedError, 'Alignment not produced.'
 
     if alignment['tStrand'] != '+':
         raise NotImplementedError, (
-            'Graphmap indicates negative strand reference mapping.')
+            'Mapping indicates negative strand reference mapping.')
 
     if alignment['qStrand'] == "+":
         alignVals = zip(alignment['qAlignedSeq'],
@@ -368,11 +368,16 @@ def parse_m5_record(align_output):
 def parse_sam_record(align_output, genome_fn):
     genome_index = SeqIO.index(genome_fn, 'fasta')
     # TODO: handle multiple reads here for batching
+    alignments = []
     for line in align_output:
         if line.startswith('@'): continue
-        alignment = line.strip().split()
-        break
-    alignment = dict(zip(SAM_FIELDS, alignment))
+        alignments.append(line.strip().split())
+
+    # some mappers don't include unmapped reads
+    if len(alignments) == 0:
+        raise NotImplementedError, 'Alignment not produced.'
+    alignment = dict(zip(SAM_FIELDS, alignments[0]))
+    # other mappers show read mapped to * reference
     if alignment['rName'] == '*':
         raise NotImplementedError, 'Alignment not produced.'
 
@@ -454,6 +459,9 @@ def prep_graphmap_options(genome_fn, read_fn, out_fn, output_format):
     return ['align', '-r', genome_fn, '-d', read_fn, '-o', out_fn,
             '-L', output_format]
 
+def prep_bwa_mem_options(genome_fn, read_fn):
+    return ['mem', '-v', '1', genome_fn, read_fn]
+
 def align_to_genome(basecalls, genome_filename, mapper_exe,
                     mapper_type, output_format='sam'):
     read_fp = NamedTemporaryFile(
@@ -463,24 +471,31 @@ def align_to_genome(basecalls, genome_filename, mapper_exe,
     read_fp.close()
     out_fp = NamedTemporaryFile(delete=False)
 
-    if mapper_type == 'graphmap':
-        mapper_options = prep_graphmap_options(
-            genome_filename, read_fp.name, out_fp.name, output_format)
-    else:
-        raise RuntimeError, 'Mapper not supported.'
+    # optionally suppress output from mapper with devnull sink
+    with open(os.devnull, 'w') as FNULL:
+        if mapper_type == 'graphmap':
+            mapper_options = prep_graphmap_options(
+                genome_filename, read_fp.name, out_fp.name,
+                output_format)
+            stdout_sink = FNULL
+        elif mapper_type == 'bwa_mem':
+            mapper_options = prep_bwa_mem_options(
+                genome_filename, read_fp.name)
+            stdout_sink = out_fp
+        else:
+            raise RuntimeError, 'Mapper not supported.'
 
-    try:
-        # suppress output from mapper with devnull sink
-        with open(os.devnull, 'w') as FNULL:
+        try:
             exitStatus = call([mapper_exe,] + mapper_options,
-                              stdout=FNULL, stderr=STDOUT)
+                              stdout=stdout_sink, stderr=FNULL)
 
-        align_output = out_fp.readlines()
-        out_fp.close()
-    except:
-        raise OSError, (
-            'Problem running/parsing genome mapper. ' +
-            'Ensure you have a compatible version installed.')
+            out_fp.seek(0)
+            align_output = out_fp.readlines()
+            out_fp.close()
+        except:
+            raise OSError, (
+                'Problem running/parsing genome mapper. ' +
+                'Ensure you have a compatible version installed.')
 
     if output_format == 'sam':
         alignVals, genome_loc, start_clipped_bases, end_clipped_bases \
@@ -810,10 +825,13 @@ def resquiggle_main(args):
 
     # currently required, but adding new mappers shortly
     if args.graphmap_executable is None:
-        sys.stderr.write(
-            '*' * 60 + '\nERROR: Must provide a ' + \
-            'graphmap executable.\n' + '*' * 60 + '\n')
-        sys.exit()
+        if args.bwa_mem_executable is None:
+            sys.stderr.write(
+                '*' * 60 + '\nERROR: Must provide either a ' + \
+                'graphmap or bwa-mem executable.\n' + '*' * 60 + '\n')
+            sys.exit()
+        mapper_exe = args.bwa_mem_executable
+        mapper_type = 'bwa_mem'
     else:
         mapper_exe = args.graphmap_executable
         mapper_type = 'graphmap'
