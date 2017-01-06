@@ -23,6 +23,14 @@ bwamem_opt=('--bwa-mem-executable', {
 proc_opt=('--processes', {
     'default':1, 'type':int,
     'help':'Number of processes. Default: %(default)d'})
+alignproc_opt=('--align-processes', {
+    'type':int,
+    'help':'Number of processes to use for aligning and parsing ' + \
+    'original basecalls. Default: [--processes]'})
+rsqglproc_opt=('--resquiggle-processes', {
+    'type':int,
+    'help':'Number of processes to use for re-squiggling raw ' + \
+    'data. Default: [--processes]'})
 timeout_opt=('--timeout', {
     'default':None, 'type':int,
     'help':'Timeout in seconds for the processing of a single ' +
@@ -291,8 +299,10 @@ def get_resquiggle_parser():
     bcsub_args.add_argument(bcsubgrps_opt[0], **bcsubgrps_opt[1])
     bcsub_args.add_argument(twod_opt[0], **twod_opt[1])
 
-    multi_args = parser.add_argument_group('Multiprocessing Argument')
+    multi_args = parser.add_argument_group('Multiprocessing Arguments')
     multi_args.add_argument(proc_opt[0], **proc_opt[1])
+    multi_args.add_argument(alignproc_opt[0], **alignproc_opt[1])
+    multi_args.add_argument(rsqglproc_opt[0], **rsqglproc_opt[1])
 
     misc_args = parser.add_argument_group('Miscellaneous Arguments')
     misc_args.add_argument(rcpt_opt[0], **rcpt_opt[1])

@@ -44,13 +44,15 @@ with os.fdopen(os.dup(fd), 'w') as old_stderr:
 NANORAW_VERSION = '0.3.1'
 VERBOSE = False
 
+MAX_BASE_CALL_Q_SIZE = 100
+
 indelStats = namedtuple('indelStats',
                         ('start', 'end', 'diff'))
 indelGroupStats = namedtuple('indelGroupStats',
                              ('start', 'end', 'cpts', 'indels'))
 readInfo = namedtuple(
     'readInfo',
-    ('ID', 'Start', 'ClipStart', 'ClipEnd',
+    ('ID', 'Start', 'Subgroup', 'ClipStart', 'ClipEnd',
      'Insertions', 'Deletions', 'Matches', 'Mismatches'))
 genomeLoc = namedtuple(
     'genomeLoc', ('Start', 'Strand', 'Chrom'))
@@ -65,6 +67,9 @@ SAM_FIELDS = (
     'cigar', 'rNext', 'pNext', 'tLen', 'seq', 'qual')
 CIGAR_PAT = re.compile('(\d+)([MIDNSHP=X])')
 
+#################################################
+########## Raw Signal Re-squiggle Code ##########
+#################################################
 
 def write_new_fast5_group(
         filename, genome_location, read_info,
@@ -287,6 +292,117 @@ def get_aligned_seq(align_dat):
                     [(len(read_seq), ''),])])
     return read_seq.replace("-", "")
 
+def resquiggle_read(
+        fast5_fn, read_start_rel_to_raw, starts_rel_to_read,
+        norm_type, outlier_thresh, alignVals,
+        timeout, num_cpts_limit, genome_loc, read_info,
+        corrected_group, min_event_obs=4, in_place=True):
+    # errors should not happen here since these slotes were checked
+    # in alignment function, but can't hurt
+    try:
+        fast5_data = h5py.File(fast5_fn, 'r')
+    except IOError:
+        raise IOError, 'Error opening file. Likely a corrupted file.'
+    channel_info = get_channel_info(fast5_data)
+
+    # extract raw data for this read
+    try:
+        raw_dat = fast5_data['/Raw/Reads/'].values()[0]
+    except:
+        raise RuntimeError, (
+            'Raw data is not stored in Raw/Reads/Read_[read#] so ' +
+            'new segments cannot be identified.')
+    all_raw_signal = raw_dat['Signal'].value
+    fast5_data.close()
+
+    # normalize signal
+    norm_signal, scale_values = normalize_raw_signal(
+        all_raw_signal, read_start_rel_to_raw, starts_rel_to_read[-1],
+        norm_type, channel_info, outlier_thresh)
+
+    # parse out aligned (including deleted) and inserted bases
+    align_dat = {'aligned':[], 'insertion':defaultdict(str)}
+    for r_base, g_base in alignVals:
+        if r_base == "-":
+            align_dat['insertion'][
+                len(align_dat['aligned'])] += g_base
+        else:
+            align_dat['aligned'].append((
+                g_base, g_base == r_base))
+    align_dat['insertion'] = align_dat['insertion'].items()
+
+    # group indels that are adjacent for re-segmentation
+    indel_groups = get_indel_groups(
+        align_dat, starts_rel_to_read, norm_signal, min_event_obs,
+        timeout, num_cpts_limit, USE_R_CPTS)
+
+    new_segs = []
+    prev_stop = 0
+    for group_start, group_stop, cpts, group_indels in indel_groups:
+        ## add segments from last indel to this one and new segments
+        new_segs.append(
+            np.append(starts_rel_to_read[prev_stop:group_start+1], cpts))
+        prev_stop = group_stop
+    # handle end of read
+    new_segs.append(starts_rel_to_read[prev_stop:])
+    new_segs = np.concatenate(new_segs)
+
+    align_seq = get_aligned_seq(align_dat)
+    if new_segs.shape[0] != len(align_seq) + 1:
+        raise ValueError, ('Aligned sequence does not match number ' +
+                           'of segments produced.')
+
+    if in_place:
+        # create new hdf5 file to hold new read signal
+        write_new_fast5_group(
+            fast5_fn, genome_loc, read_info,
+            read_start_rel_to_raw, new_segs, align_seq, alignVals,
+            starts_rel_to_read, norm_signal, scale_values,
+            corrected_group, read_info.Subgroup, norm_type,
+            outlier_thresh)
+    else:
+        # create new hdf5 file to hold corrected read events
+        pass
+
+    return
+
+def resquiggle_worker(
+        basecalls_q, failed_reads_q, corrected_group, norm_type,
+        outlier_thresh, timeout, num_cpts_limit):
+    num_processed = 0
+    while True:
+        try:
+            fast5_fn, align_data = basecalls_q.get(block=False)
+            # None values placed in queue when all files have
+            # been processed
+            if fast5_fn is None: break
+        except Queue.Empty:
+            sleep(1)
+            continue
+
+        num_processed += 1
+        if VERBOSE and num_processed % 100 == 0:
+            sys.stderr.write('.')
+            sys.stderr.flush()
+
+        (alignVals, genome_loc, starts_rel_to_read,
+         read_start_rel_to_raw, abs_event_start, read_info) = align_data
+        try:
+            resquiggle_read(
+                fast5_fn, read_start_rel_to_raw, starts_rel_to_read,
+                norm_type, outlier_thresh, alignVals,
+                timeout, num_cpts_limit, genome_loc, read_info,
+                corrected_group)
+        except Exception as e:
+            failed_reads_q.put((
+                str(e), read_info.Subgroup + ' :: ' + fast5_fn))
+
+    return
+
+############################################
+########## Genomic Alignment Code ##########
+############################################
+
 def fix_raw_starts_for_clipped_bases(
         start_clipped_bases, end_clipped_bases, starts_rel_to_read,
         read_start_rel_to_raw, abs_event_start):
@@ -302,8 +418,8 @@ def fix_raw_starts_for_clipped_bases(
 
     return starts_rel_to_read, read_start_rel_to_raw, abs_event_start
 
-def trim_m5_alignment(alignVals, start, strand, chrm):
-    # trim read to first matching bases
+def clip_m5_alignment(alignVals, start, strand, chrm):
+    # clip read to first matching bases
     start_clipped_read_bases = 0
     start_clipped_genome_bases = 0
     start_clipped_align_bases = 0
@@ -360,7 +476,7 @@ def parse_m5_record(align_output):
                         rev_comp(alignment['tAlignedSeq']))
 
     alignVals, start_clipped_bases, end_clipped_bases, genome_loc \
-        = trim_m5_alignment(alignVals, int(alignment['tStart']),
+        = clip_m5_alignment(alignVals, int(alignment['tStart']),
                             alignment['qStrand'], alignment['tName'])
 
     return alignVals, genome_loc, start_clipped_bases, end_clipped_bases
@@ -512,34 +628,34 @@ def fix_stay_states(
         called_dat, starts_rel_to_read, basecalls,
         read_start_rel_to_raw, abs_event_start):
     move_states = called_dat['move'][1:] > 0
-    start_trim = 0
+    start_clip = 0
     event_change_state = move_states[0]
     while not event_change_state:
-        if start_trim >= len(move_states) - 2:
+        if start_clip >= len(move_states) - 2:
             raise RuntimeError, (
                 'Read is composed entirely of stay model ' +
                 'states and cannot be processed')
-        start_trim += 1
-        event_change_state = move_states[start_trim]
-    end_trim = 0
+        start_clip += 1
+        event_change_state = move_states[start_clip]
+    end_clip = 0
     event_change_state = move_states[-1]
     while not event_change_state:
-        end_trim += 1
-        event_change_state = move_states[-(end_trim+1)]
+        end_clip += 1
+        event_change_state = move_states[-(end_clip+1)]
 
-    # trim all applicable data structures
-    move_states = move_states[start_trim:]
-    starts_rel_to_read = starts_rel_to_read[start_trim:]
-    basecalls = basecalls[start_trim:]
-    if end_trim > 0:
-        move_states = move_states[:-end_trim]
-        starts_rel_to_read = starts_rel_to_read[:-end_trim]
-        basecalls = basecalls[:-end_trim]
-    if start_trim > 0:
-        start_trim_obs = starts_rel_to_read[0]
-        starts_rel_to_read = starts_rel_to_read - start_trim_obs
-        read_start_rel_to_raw += start_trim_obs
-        abs_event_start += start_trim_obs
+    # clip all applicable data structures
+    move_states = move_states[start_clip:]
+    starts_rel_to_read = starts_rel_to_read[start_clip:]
+    basecalls = basecalls[start_clip:]
+    if end_clip > 0:
+        move_states = move_states[:-end_clip]
+        starts_rel_to_read = starts_rel_to_read[:-end_clip]
+        basecalls = basecalls[:-end_clip]
+    if start_clip > 0:
+        start_clip_obs = starts_rel_to_read[0]
+        starts_rel_to_read = starts_rel_to_read - start_clip_obs
+        read_start_rel_to_raw += start_clip_obs
+        abs_event_start += start_clip_obs
 
     # now actually remove internal stay states
     move_states = np.insert(
@@ -548,12 +664,11 @@ def fix_stay_states(
     basecalls = basecalls[move_states[:-1]]
 
     return (starts_rel_to_read, basecalls, read_start_rel_to_raw,
-            abs_event_start, start_trim, end_trim)
+            abs_event_start)
 
-def get_read_data(
-        filename, rmStayStates, basecall_group, basecall_subgroup):
+def get_read_data(fast5_fn, basecall_group, basecall_subgroup):
     try:
-        fast5_data = h5py.File(filename, 'r')
+        fast5_data = h5py.File(fast5_fn, 'r')
     except IOError:
         raise IOError, 'Error opening file. Likely a corrupted file.'
 
@@ -569,7 +684,7 @@ def get_read_data(
             'segmentation error or mis-specified basecall-' +
             'subgroups (--2d?).')
     try:
-        raw_dat = fast5_data['/Raw/Reads/'].values()[0]
+        raw_attrs = fast5_data['/Raw/Reads/'].values()[0].attrs
     except:
         raise RuntimeError, (
             'Raw data is not stored in Raw/Reads/Read_[read#] so ' +
@@ -577,13 +692,12 @@ def get_read_data(
 
     channel_info = get_channel_info(fast5_data)
 
-    all_raw_signal = raw_dat['Signal'].value
-    read_id = raw_dat.attrs['read_id']
+    read_id = raw_attrs['read_id']
 
     abs_event_start = int(called_attrs['start_time'] *
                           channel_info.sampling_rate)
     read_start_rel_to_raw = int(
-        abs_event_start - raw_dat.attrs['start_time'])
+        abs_event_start - raw_attrs['start_time'])
 
     last_event = called_dat[-1]
     starts_rel_to_read = np.append(
@@ -595,37 +709,31 @@ def get_read_data(
         event_state[2] for event_state in called_dat['model_state']])
 
     if any(len(vals) <= 1 for vals in (
-        all_raw_signal, starts_rel_to_read, basecalls,
+        starts_rel_to_read, basecalls,
         called_dat['model_state'])):
         raise NotImplementedError, (
             'One or no segments or signal present in read.')
 
-    start_trim, end_trim = 0, 0
-    if rmStayStates:
-        (starts_rel_to_read, basecalls, read_start_rel_to_raw,
-         abs_event_start, start_trim, end_trim) = fix_stay_states(
-             called_dat, starts_rel_to_read, basecalls,
-             read_start_rel_to_raw, abs_event_start)
+    # remove stay states from the base caller
+    (starts_rel_to_read, basecalls, read_start_rel_to_raw,
+     abs_event_start) = fix_stay_states(
+         called_dat, starts_rel_to_read, basecalls,
+         read_start_rel_to_raw, abs_event_start)
 
     fast5_data.close()
 
-    return (all_raw_signal, read_start_rel_to_raw, starts_rel_to_read,
-            basecalls, channel_info, abs_event_start, read_id,
-            start_trim, end_trim)
+    return (read_start_rel_to_raw, starts_rel_to_read, basecalls,
+            channel_info, abs_event_start, read_id)
 
-def correct_raw_data_read(
-        filename, genome_filename, mapper_exe, mapper_type,
-        basecall_group, basecall_subgroup, corrected_group, rmStayStates,
-        norm_type, outlier_thresh, timeout, min_event_obs,
-        num_cpts_limit, in_place):
-    (all_raw_signal, read_start_rel_to_raw, starts_rel_to_read,
-     basecalls, channel_info, abs_event_start, read_id,
-     rm_stay_start_trim, rm_stay_end_trim) = get_read_data(
-         filename, rmStayStates, basecall_group, basecall_subgroup)
+def align_and_parse(
+        fast5_fn, genome_fn, mapper_exe, mapper_type,
+        basecall_group, basecall_subgroup):
+    (read_start_rel_to_raw, starts_rel_to_read,
+     basecalls, channel_info, abs_event_start, read_id) = get_read_data(
+         fast5_fn, basecall_group, basecall_subgroup)
 
     alignVals, genome_loc, start_clipped_bases, end_clipped_bases \
-        = align_to_genome(
-            basecalls, genome_filename, mapper_exe, mapper_type)
+        = align_to_genome(basecalls, genome_fn, mapper_exe, mapper_type)
     starts_rel_to_read, read_start_rel_to_raw, abs_event_start \
         = fix_raw_starts_for_clipped_bases(
             start_clipped_bases, end_clipped_bases, starts_rel_to_read,
@@ -633,96 +741,45 @@ def correct_raw_data_read(
 
     read_info = readInfo(
         read_id, abs_event_start / float(channel_info.sampling_rate),
-        start_clipped_bases, end_clipped_bases,
+        basecall_subgroup, start_clipped_bases, end_clipped_bases,
         sum(b == "-" for b in zip(*alignVals)[0]),
         sum(b == "-" for b in zip(*alignVals)[1]),
         sum(rb == gb for rb, gb in alignVals),
         sum(rb != gb for rb, gb in alignVals
             if rb != '-' and gb != '-'))
 
-    # normalize signal
-    norm_signal, scale_values = normalize_raw_signal(
-        all_raw_signal, read_start_rel_to_raw, starts_rel_to_read[-1],
-        norm_type, channel_info, outlier_thresh)
+    return (alignVals, genome_loc, starts_rel_to_read,
+            read_start_rel_to_raw, abs_event_start, read_info)
 
-    # parse out aligned (including deleted) and inserted bases
-    align_dat = {'aligned':[], 'insertion':defaultdict(str)}
-    for r_base, g_base in alignVals:
-        if r_base == "-":
-            align_dat['insertion'][
-                len(align_dat['aligned'])] += g_base
-        else:
-            align_dat['aligned'].append((
-                g_base, g_base == r_base))
-    align_dat['insertion'] = align_dat['insertion'].items()
-
-    # group indels that are adjacent for re-segmentation
-    indel_groups = get_indel_groups(
-        align_dat, starts_rel_to_read, norm_signal, min_event_obs,
-        timeout, num_cpts_limit, USE_R_CPTS)
-
-    new_segs = []
-    prev_stop = 0
-    for group_start, group_stop, cpts, group_indels in indel_groups:
-        ## add segments from last indel to this one and new segments
-        new_segs.append(
-            np.append(starts_rel_to_read[prev_stop:group_start+1], cpts))
-        prev_stop = group_stop
-    # handle end of read
-    new_segs.append(starts_rel_to_read[prev_stop:])
-    new_segs = np.concatenate(new_segs)
-
-    align_seq = get_aligned_seq(align_dat)
-    if new_segs.shape[0] != len(align_seq) + 1:
-        raise ValueError, ('Aligned sequence does not match number ' +
-                           'of segments produced.')
-
-    if in_place:
-        # create new hdf5 file to hold new read signal
-        write_new_fast5_group(
-            filename, genome_loc, read_info,
-            read_start_rel_to_raw, new_segs, align_seq, alignVals,
-            starts_rel_to_read, norm_signal, scale_values,
-            corrected_group, basecall_subgroup, norm_type,
-            outlier_thresh)
-    else:
-        # create new hdf5 file to hold corrected read events
-        pass
-
-    return
-
-def correct_raw_data(
-        filename, genome_filename, mapper_exe, mapper_type,
-        basecall_group, basecall_subgroups, corrected_group, norm_type,
-        outlier_thresh, timeout, num_cpts_limit, overwrite,
-        rmStayStates=True, min_event_obs=4, in_place=True):
+def prep_fast5(fast5_fn, basecall_group, corrected_group,
+               overwrite, in_place):
     # several checks to prepare the FAST5 file for correction before
     # processing to save compute
     if not in_place:
         return [('Not currently implementing new hdf5 file writing.',
-                 filename),]
+                 fast5_fn),]
     # check that the file is writeable before trying to correct
-    if not os.access(filename, os.W_OK):
-        return [('FAST5 file is not writable.', filename),]
+    if not os.access(fast5_fn, os.W_OK):
+        return [('FAST5 file is not writable.', fast5_fn),]
     try:
-        read_data = h5py.File(filename, 'r+')
-        if '/Analyses/' + basecall_group not in read_data:
-            return [('FAST5 basecall or Analyses group does not ' +
-                     'exist. Likely a mux scan file.', filename),]
-        read_data.close()
+        with h5py.File(fast5_fn, 'r') as read_data:
+            if '/Analyses/' + basecall_group not in read_data:
+                return [(
+                    'FAST5 basecall-group or Analyses group does not ' +
+                    'exist. Check --basecall-group and ' + \
+                    '--basecall-subgroups arguments against files ' + \
+                    'or this may be a mux scan file.', fast5_fn),]
+            if not overwrite and '/Analyses/' + corrected_group \
+               in read_data:
+                return [(
+                    "Raw genome corrected data exists for " +
+                    "this read and --overwrite is not set.", fast5_fn),]
     except IOError:
         return [('Error opening file. Likely a corrupted file.',
-                 filename),]
-    if not overwrite:
-        read_data = h5py.File(filename, 'r')
-        if '/Analyses/' + corrected_group in read_data:
-            return [(
-                "Raw genome corrected data exists for " +
-                "this read and --overwrite is not set.", filename),]
-        read_data.close()
+                 fast5_fn),]
 
     # create group to store data
-    with h5py.File(filename, 'r+') as read_data:
+    with h5py.File(fast5_fn, 'r+') as read_data:
         analyses_grp = read_data['/Analyses']
         # check for previously created correction group and
         # delete if it exists
@@ -733,75 +790,97 @@ def correct_raw_data(
         corr_grp.attrs['nanoraw_version'] = NANORAW_VERSION
         corr_grp.attrs['basecall_group'] = basecall_group
 
+    return
+
+def align_reads(
+        fast5_fn, genome_fn, mapper_exe, mapper_type,
+        basecall_group, basecall_subgroups, corrected_group, basecalls_q,
+        overwrite, in_place=True):
+    prep_fast5(fast5_fn, basecall_group, corrected_group,
+               overwrite, in_place)
+
     file_failed_reads = []
     for basecall_subgroup in basecall_subgroups:
         try:
-            correct_raw_data_read(
-                filename, genome_filename, mapper_exe, mapper_type,
-                basecall_group, basecall_subgroup, corrected_group,
-                rmStayStates, norm_type, outlier_thresh, timeout,
-                min_event_obs, num_cpts_limit, in_place)
+            align_data = align_and_parse(
+                fast5_fn, genome_fn, mapper_exe, mapper_type,
+                basecall_group, basecall_subgroup)
+            basecalls_q.put((fast5_fn, align_data))
         except Exception as e:
             file_failed_reads.append((
-                str(e), basecall_subgroup + ' :: ' + filename))
+                str(e), basecall_subgroup + ' :: ' + fast5_fn))
 
     return file_failed_reads
 
-def get_aligned_seq_worker(
-        filenames_q, failed_reads_q, genome_filename, mapper_exe,
-        mapper_type, basecall_group, basecall_subgroups,
-        corrected_group, norm_type, outlier_thresh, timeout,
-        num_cpts_limit, overwrite):
-    num_processed = 0
-    while not filenames_q.empty():
+def alignment_worker(
+        fast5_q, basecalls_q, failed_reads_q, genome_fn,
+        mapper_exe, mapper_type, basecall_group, basecall_subgroups,
+        corrected_group, overwrite):
+    while not fast5_q.empty():
         try:
-            fn = filenames_q.get(block=False)
+            fast5_fn = fast5_q.get(block=False)
         except Queue.Empty:
             break
 
-        num_processed += 1
-        if VERBOSE and num_processed % 100 == 0:
-            sys.stderr.write('.')
-            sys.stderr.flush()
-
-        file_failed_reads = correct_raw_data(
-            fn, genome_filename, mapper_exe, mapper_type, basecall_group,
-            basecall_subgroups, corrected_group, norm_type,
-            outlier_thresh, timeout, num_cpts_limit, overwrite)
+        file_failed_reads = align_reads(
+            fast5_fn, genome_fn, mapper_exe, mapper_type, basecall_group,
+            basecall_subgroups, corrected_group, basecalls_q, overwrite)
         for failed_read in file_failed_reads:
             failed_reads_q.put(failed_read)
 
     return
 
-def get_all_reads_data(
-        fast5_fns, genome_filename, mapper_exe, mapper_type,
+def resquiggle_all_reads(
+        fast5_fns, genome_fn, mapper_exe, mapper_type,
         basecall_group, basecall_subgroups, corrected_group, norm_type,
         outlier_thresh, timeout, num_cpts_limit, overwrite,
-        num_processes):
+        num_align_ps, num_resquiggle_ps):
     manager = mp.Manager()
     fast5_q = manager.Queue()
+    # set maximum number of parsed basecalls to sit in the middle queue
+    basecalls_q = manager.Queue(MAX_BASE_CALL_Q_SIZE)
     failed_reads_q = manager.Queue()
     num_reads = 0
     for fast5_fn in fast5_fns:
         num_reads += 1
         fast5_q.put(fast5_fn)
 
-    args = (fast5_q, failed_reads_q, genome_filename,
-            mapper_exe, mapper_type, basecall_group, basecall_subgroups,
-            corrected_group, norm_type, outlier_thresh, timeout,
-            num_cpts_limit, overwrite)
-    processes = []
-    for p_id in xrange(num_processes):
-        p = mp.Process(target=get_aligned_seq_worker, args=args)
+    algn_args = (fast5_q, basecalls_q, failed_reads_q, genome_fn,
+                 mapper_exe, mapper_type, basecall_group,
+                 basecall_subgroups, corrected_group, overwrite)
+    align_ps = []
+    for p_id in xrange(num_align_ps):
+        p = mp.Process(target=alignment_worker, args=algn_args)
         p.start()
-        processes.append(p)
+        align_ps.append(p)
+
+    rsqgl_args = (basecalls_q, failed_reads_q, corrected_group,
+                  norm_type, outlier_thresh, timeout, num_cpts_limit)
+    resquiggle_ps = []
+    for p_id in xrange(num_resquiggle_ps):
+        p = mp.Process(target=resquiggle_worker, args=rsqgl_args)
+        p.start()
+        resquiggle_ps.append(p)
 
     if VERBOSE: sys.stderr.write(
             'Correcting ' + str(num_reads) + ' files with ' +
             str(len(basecall_subgroups)) + ' subgroup(s)/read(s) each ' +
             '(Will print a dot for each 100 files completed).\n')
     failed_reads = defaultdict(list)
-    while any(p.is_alive() for p in processes):
+    while any(p.is_alive() for p in align_ps):
+        try:
+            errorType, fn = failed_reads_q.get(block=False)
+            failed_reads[errorType].append(fn)
+        except Queue.Empty:
+            sleep(1)
+            continue
+
+    # add None entried to basecalls_q to indicate that all reads have
+    # been basecalled and processed
+    for _ in xrange(num_resquiggle_ps):
+        basecalls_q.put((None, None))
+
+    while any(p.is_alive() for p in resquiggle_ps):
         try:
             errorType, fn = failed_reads_q.get(block=False)
             failed_reads[errorType].append(fn)
@@ -861,11 +940,18 @@ def resquiggle_main(args):
     outlier_thresh = args.outlier_threshold if (
         args.outlier_threshold > 0) else None
 
-    failed_reads = get_all_reads_data(
+    # resolve num_processor args
+    num_align_ps = args.processes if args.align_processes is None else \
+                   args.align_processes
+    num_resquiggle_ps = args.processes if args.resquiggle_processes is \
+                        None else args.resquiggle_processes
+
+    failed_reads = resquiggle_all_reads(
         files, args.genome_fasta, mapper_exe, mapper_type,
         args.basecall_group, args.basecall_subgroups,
         args.corrected_group, args.normalization_type, outlier_thresh,
-        args.timeout, args.cpts_limit, args.overwrite, args.processes)
+        args.timeout, args.cpts_limit, args.overwrite, num_align_ps,
+        num_resquiggle_ps)
     sys.stderr.write('Failed reads summary:\n' + '\n'.join(
         "\t" + err + " :\t" + str(len(fns))
         for err, fns in failed_reads.items()) + '\n')
