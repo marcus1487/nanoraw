@@ -31,6 +31,11 @@ rsqglproc_opt=('--resquiggle-processes', {
     'type':int,
     'help':'Number of processes to use for re-squiggling raw ' + \
     'data. Default: [--processes]'})
+batchsize_opt=('--alignment-batch-size', {
+    'default':10, 'type':int,
+    'help':'Batch size (number of reads) for alignment calls. ' + \
+    'Default: %(default)d'})
+
 timeout_opt=('--timeout', {
     'default':None, 'type':int,
     'help':'Timeout in seconds for the processing of a single ' +
@@ -305,6 +310,7 @@ def get_resquiggle_parser():
     multi_args.add_argument(rsqglproc_opt[0], **rsqglproc_opt[1])
 
     misc_args = parser.add_argument_group('Miscellaneous Arguments')
+    misc_args.add_argument(batchsize_opt[0], **batchsize_opt[1])
     misc_args.add_argument(rcpt_opt[0], **rcpt_opt[1])
     misc_args.add_argument(*quiet_opt[0], **quiet_opt[1])
     misc_args.add_argument(*help_opt[0], **help_opt[1])

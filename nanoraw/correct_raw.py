@@ -418,6 +418,36 @@ def fix_raw_starts_for_clipped_bases(
 
     return starts_rel_to_read, read_start_rel_to_raw, abs_event_start
 
+def fix_all_clipped_bases(batch_align_data, batch_reads_data):
+    clip_fix_align_data = []
+    for read_fn_sg, (alignVals, genome_loc, start_clipped_bases,
+                     end_clipped_bases) in batch_align_data.iteritems():
+        (read_start_rel_to_raw, starts_rel_to_read, basecalls,
+         channel_info, abs_event_start, read_id) = batch_reads_data[
+             read_fn_sg]
+        # fix raw start positions to match bases clipped in mapping
+        starts_rel_to_read, read_start_rel_to_raw, abs_event_start \
+            = fix_raw_starts_for_clipped_bases(
+                start_clipped_bases, end_clipped_bases,
+                starts_rel_to_read, read_start_rel_to_raw,
+                abs_event_start)
+
+        bc_subgroup, fast5_fn = read_fn_sg.split(':::')
+        read_info = readInfo(
+            read_id, abs_event_start / float(channel_info.sampling_rate),
+            bc_subgroup, start_clipped_bases, end_clipped_bases,
+            sum(b == "-" for b in zip(*alignVals)[0]),
+            sum(b == "-" for b in zip(*alignVals)[1]),
+            sum(rb == gb for rb, gb in alignVals),
+            sum(rb != gb for rb, gb in alignVals
+                if rb != '-' and gb != '-'))
+
+        clip_fix_align_data.append((fast5_fn, (
+            alignVals, genome_loc, starts_rel_to_read,
+            read_start_rel_to_raw, abs_event_start, read_info)))
+
+    return clip_fix_align_data
+
 def clip_m5_alignment(alignVals, start, strand, chrm):
     # clip read to first matching bases
     start_clipped_read_bases = 0
@@ -456,59 +486,69 @@ def clip_m5_alignment(alignVals, start, strand, chrm):
     return alignVals, start_clipped_read_bases, end_clipped_read_bases, \
         genome_loc
 
-def parse_m5_record(align_output):
-    # TDOD: handle multiple reads here for batching
-    alignment = dict(zip(
-        M5_FIELDS, align_output[0].strip().split()))
-
-    if len(alignment) != len(M5_FIELDS):
-        raise NotImplementedError, 'Alignment not produced.'
-
-    if alignment['tStrand'] != '+':
+def parse_m5_record(r_m5_record):
+    if r_m5_record['tStrand'] != '+':
         raise NotImplementedError, (
             'Mapping indicates negative strand reference mapping.')
 
-    if alignment['qStrand'] == "+":
-        alignVals = zip(alignment['qAlignedSeq'],
-                        alignment['tAlignedSeq'])
+    if r_m5_record['qStrand'] == "+":
+        alignVals = zip(r_m5_record['qAlignedSeq'],
+                        r_m5_record['tAlignedSeq'])
     else:
-        alignVals = zip(rev_comp(alignment['qAlignedSeq']),
-                        rev_comp(alignment['tAlignedSeq']))
+        alignVals = zip(rev_comp(r_m5_record['qAlignedSeq']),
+                        rev_comp(r_m5_record['tAlignedSeq']))
 
     alignVals, start_clipped_bases, end_clipped_bases, genome_loc \
-        = clip_m5_alignment(alignVals, int(alignment['tStart']),
-                            alignment['qStrand'], alignment['tName'])
+        = clip_m5_alignment(
+            alignVals, int(r_m5_record['tStart']),
+            r_m5_record['qStrand'], r_m5_record['tName'])
 
     return alignVals, genome_loc, start_clipped_bases, end_clipped_bases
 
-def parse_sam_record(align_output, genome_fn):
-    genome_index = SeqIO.index(genome_fn, 'fasta')
-    # TODO: handle multiple reads here for batching
-    alignments = []
+def parse_m5_output(align_output, batch_reads_data):
+    alignments = dict(
+        (read_fn_sg, None) for read_fn_sg in batch_reads_data.keys())
     for line in align_output:
-        if line.startswith('@'): continue
-        alignments.append(line.strip().split())
+        r_m5_record = dict(zip(M5_FIELDS, line.strip().split()))
+        if len(r_m5_record) != len(M5_FIELDS):
+            continue
+        # store the alignment if none is stored for this read or
+        # if this read has the lowest map quality thus far
+        if alignments[r_m5_record['qName']] is None or \
+           int(alignments[r_m5_record['qName']]['score']) < \
+           int(r_m5_record['score']):
+            alignments[r_m5_record['qName']] = r_m5_record
 
-    # some mappers don't include unmapped reads
-    if len(alignments) == 0:
-        raise NotImplementedError, 'Alignment not produced.'
-    alignment = dict(zip(SAM_FIELDS, alignments[0]))
-    # other mappers show read mapped to * reference
-    if alignment['rName'] == '*':
-        raise NotImplementedError, 'Alignment not produced.'
+    batch_align_failed_reads = []
+    batch_align_data = {}
+    for read_fn_sg, r_m5_record in alignments.iteritems():
+        if r_m5_record is None:
+            batch_align_failed_reads.append(
+                ('Alignment not produced.', read_fn_sg))
+        else:
+            try:
+                batch_align_data[read_fn_sg] = parse_m5_record(
+                    r_m5_record)
+            except Exception as e:
+                batch_align_failed_reads.append((str(e), read_fn_sg))
 
+    return batch_align_failed_reads, batch_align_data
+
+def parse_sam_record(r_sam_record, genome_index):
+    # parse cigar string
     cigar = [
         (int(reg_len), reg_type) for reg_len, reg_type in
-        CIGAR_PAT.findall(alignment['cigar'])]
+        CIGAR_PAT.findall(r_sam_record['cigar'])]
     if len(cigar) < 1:
         raise RuntimeError, 'Invalid cigar string produced.'
 
-    strand = '-' if int(alignment['flag']) & 0x10 else '+'
+    strand = '-' if int(r_sam_record['flag']) & 0x10 else '+'
     if strand == '-':
         cigar = cigar[::-1]
 
-    qSeq = alignment['seq'] if strand == '+' else rev_comp(
-        alignment['seq'])
+    # record clipped bases and remove from query seq as well as cigar
+    qSeq = r_sam_record['seq'] if strand == '+' else rev_comp(
+        r_sam_record['seq'])
     start_clipped_bases = 0
     end_clipped_bases = 0
     # handle clipping elements (H and S)
@@ -529,8 +569,8 @@ def parse_sam_record(align_output, genome_fn):
 
     tLen = sum([reg_len for reg_len, reg_type in cigar
                 if reg_type in 'MDN=X'])
-    tSeq = genome_index[alignment['rName']][
-        int(alignment['pos']) - 1:int(alignment['pos']) + tLen - 1]
+    tSeq = genome_index[r_sam_record['rName']][
+        int(r_sam_record['pos']) - 1:int(r_sam_record['pos']) + tLen - 1]
     if strand == '-': tSeq = rev_comp(tSeq)
 
     # check that cigar starts and ends with matched bases
@@ -554,6 +594,7 @@ def parse_sam_record(align_output, genome_fn):
     assert len(qSeq) == qLen, 'Read sequence from SAM and ' + \
         'cooresponding cigar string do not agree.'
 
+    # create pairwise alignment via zipped pairs
     alignVals = []
     for reg_len, reg_type in cigar:
         if reg_type in 'M=X':
@@ -568,8 +609,40 @@ def parse_sam_record(align_output, genome_fn):
             tSeq = tSeq[reg_len:]
 
     return (alignVals, genomeLoc(
-        int(alignment['pos']) - 1, strand, alignment['rName']),
+        int(r_sam_record['pos']) - 1, strand, r_sam_record['rName']),
             start_clipped_bases, end_clipped_bases)
+
+def parse_sam_output(align_output, batch_reads_data, genome_fn):
+    genome_index = SeqIO.index(genome_fn, 'fasta')
+    # create dictionary with empty slot to each read
+    alignments = dict(
+        (read_fn_sg, None) for read_fn_sg in batch_reads_data.keys())
+    for line in align_output:
+        if line.startswith('@'): continue
+        r_sam_record = dict(zip(SAM_FIELDS, line.strip().split()))
+        if len(r_sam_record) < len(SAM_FIELDS): continue
+        if r_sam_record['rName'] == '*': continue
+        # store the alignment if none is stored for this read or
+        # if this read has the lowest map quality thus far
+        if alignments[r_sam_record['qName']] is None or \
+           int(alignments[r_sam_record['qName']]['mapq']) < \
+           int(r_sam_record['mapq']):
+            alignments[r_sam_record['qName']] = r_sam_record
+
+    batch_align_failed_reads = []
+    batch_align_data = {}
+    for read_fn_sg, r_sam_record in alignments.iteritems():
+        if r_sam_record is None:
+            batch_align_failed_reads.append(
+                ('Alignment not produced.', read_fn_sg))
+        else:
+            try:
+                batch_align_data[read_fn_sg] = parse_sam_record(
+                    r_sam_record, genome_index)
+            except Exception as e:
+                batch_align_failed_reads.append((str(e), read_fn_sg))
+
+    return batch_align_failed_reads, batch_align_data
 
 def prep_graphmap_options(genome_fn, read_fn, out_fn, output_format):
     return ['align', '-r', genome_fn, '-d', read_fn, '-o', out_fn,
@@ -578,14 +651,19 @@ def prep_graphmap_options(genome_fn, read_fn, out_fn, output_format):
 def prep_bwa_mem_options(genome_fn, read_fn):
     return ['mem', '-x', 'ont2d', '-v', '1', genome_fn, read_fn]
 
-def align_to_genome(basecalls, genome_filename, mapper_exe,
+def align_to_genome(batch_reads_data, genome_filename, mapper_exe,
                     mapper_type, output_format='sam'):
-    read_fp = NamedTemporaryFile(
-        delete=False, suffix='.fasta')
-    read_fp.write(">" + ''.join(basecalls[:5]) + '\n' +
-                  ''.join(basecalls) + '\n')
-    read_fp.close()
-    out_fp = NamedTemporaryFile(delete=False)
+    # prepare fasta text with batch reads
+    batch_reads_fasta = ''
+    for read_fn_sg, (_, _, basecalls, _, _, _) in \
+        batch_reads_data.iteritems():
+        batch_reads_fasta += ">" + read_fn_sg + '\n' + \
+                             ''.join(basecalls) + '\n'
+
+    read_fp = NamedTemporaryFile(suffix='.fasta')
+    read_fp.write(batch_reads_fasta)
+    read_fp.flush()
+    out_fp = NamedTemporaryFile()
 
     # optionally suppress output from mapper with devnull sink
     with open(os.devnull, 'w') as FNULL:
@@ -607,22 +685,30 @@ def align_to_genome(basecalls, genome_filename, mapper_exe,
 
             out_fp.seek(0)
             align_output = out_fp.readlines()
+            # close files here so that they persist until
+            # after basecalling is finished
+            read_fp.close()
             out_fp.close()
         except:
-            raise OSError, (
-                'Problem running/parsing genome mapper. ' +
-                'Ensure you have a compatible version installed.')
+            # whole mapping call failed so all reads failed
+            return ([('Problem running/parsing genome mapper. ' +
+                      'Ensure you have a compatible version installed.',
+                      read_fn_sg) for read_fn_sg
+                     in batch_read_data.keys()], [])
 
     if output_format == 'sam':
-        alignVals, genome_loc, start_clipped_bases, end_clipped_bases \
-            = parse_sam_record(align_output, genome_filename)
+        batch_parse_failed_reads, batch_align_data = parse_sam_output(
+            align_output, batch_reads_data, genome_filename)
     elif output_format == 'm5':
-        alignVals, genome_loc, start_clipped_bases, end_clipped_bases \
-            = parse_m5_record(align_output)
+        batch_parse_failed_reads, batch_align_data = parse_m5_output(
+            align_output, batch_reads_data)
     else:
         raise RuntimeError, 'Mapper output type not supported.'
 
-    return alignVals, genome_loc, start_clipped_bases, end_clipped_bases
+    clip_fix_align_data = fix_all_clipped_bases(
+        batch_align_data, batch_reads_data)
+
+    return batch_parse_failed_reads, clip_fix_align_data
 
 def fix_stay_states(
         called_dat, starts_rel_to_read, basecalls,
@@ -726,30 +812,26 @@ def get_read_data(fast5_fn, basecall_group, basecall_subgroup):
             channel_info, abs_event_start, read_id)
 
 def align_and_parse(
-        fast5_fn, genome_fn, mapper_exe, mapper_type,
-        basecall_group, basecall_subgroup):
-    (read_start_rel_to_raw, starts_rel_to_read,
-     basecalls, channel_info, abs_event_start, read_id) = get_read_data(
-         fast5_fn, basecall_group, basecall_subgroup)
+        fast5s_to_process, genome_fn, mapper_exe, mapper_type,
+        basecall_group, basecall_subgroups):
+    batch_reads_data = {}
+    batch_get_data_failed_reads = []
+    for fast5_fn in fast5s_to_process:
+        for bc_subgroup in basecall_subgroups:
+            try:
+                read_data = get_read_data(
+                    fast5_fn, basecall_group, bc_subgroup)
+                batch_reads_data[
+                    bc_subgroup + ':::' + fast5_fn] = read_data
+            except Exception as e:
+                batch_get_data_failed_reads.append((
+                    str(e), bc_subgroup + ':::' + fast5_fn))
 
-    alignVals, genome_loc, start_clipped_bases, end_clipped_bases \
-        = align_to_genome(basecalls, genome_fn, mapper_exe, mapper_type)
-    starts_rel_to_read, read_start_rel_to_raw, abs_event_start \
-        = fix_raw_starts_for_clipped_bases(
-            start_clipped_bases, end_clipped_bases, starts_rel_to_read,
-            read_start_rel_to_raw, abs_event_start)
+    batch_align_failed_reads, batch_align_data = align_to_genome(
+        batch_reads_data, genome_fn, mapper_exe, mapper_type)
 
-    read_info = readInfo(
-        read_id, abs_event_start / float(channel_info.sampling_rate),
-        basecall_subgroup, start_clipped_bases, end_clipped_bases,
-        sum(b == "-" for b in zip(*alignVals)[0]),
-        sum(b == "-" for b in zip(*alignVals)[1]),
-        sum(rb == gb for rb, gb in alignVals),
-        sum(rb != gb for rb, gb in alignVals
-            if rb != '-' and gb != '-'))
-
-    return (alignVals, genome_loc, starts_rel_to_read,
-            read_start_rel_to_raw, abs_event_start, read_info)
+    return (batch_get_data_failed_reads + batch_align_failed_reads,
+            batch_align_data)
 
 def prep_fast5(fast5_fn, basecall_group, corrected_group,
                overwrite, in_place):
@@ -793,24 +875,27 @@ def prep_fast5(fast5_fn, basecall_group, corrected_group,
     return
 
 def align_reads(
-        fast5_fn, genome_fn, mapper_exe, mapper_type,
+        fast5_batch, genome_fn, mapper_exe, mapper_type,
         basecall_group, basecall_subgroups, corrected_group, basecalls_q,
         overwrite, in_place=True):
-    prep_fast5(fast5_fn, basecall_group, corrected_group,
-               overwrite, in_place)
+    batch_prep_failed_reads = []
+    fast5s_to_process = []
+    for fast5_fn in fast5_batch:
+        prep_result = prep_fast5(
+            fast5_fn, basecall_group, corrected_group,
+            overwrite, in_place)
+        if prep_result is None:
+            fast5s_to_process.append(fast5_fn)
+        else:
+            batch_prep_failed_reads.append(prep_result)
 
-    file_failed_reads = []
-    for basecall_subgroup in basecall_subgroups:
-        try:
-            align_data = align_and_parse(
-                fast5_fn, genome_fn, mapper_exe, mapper_type,
-                basecall_group, basecall_subgroup)
-            basecalls_q.put((fast5_fn, align_data))
-        except Exception as e:
-            file_failed_reads.append((
-                str(e), basecall_subgroup + ' :: ' + fast5_fn))
+    batch_align_failed_reads, batch_align_data = align_and_parse(
+        fast5s_to_process, genome_fn, mapper_exe, mapper_type,
+        basecall_group, basecall_subgroups)
+    for align_data in batch_align_data:
+        basecalls_q.put(align_data)
 
-    return file_failed_reads
+    return batch_prep_failed_reads + batch_align_failed_reads
 
 def alignment_worker(
         fast5_q, basecalls_q, failed_reads_q, genome_fn,
@@ -818,14 +903,15 @@ def alignment_worker(
         corrected_group, overwrite):
     while not fast5_q.empty():
         try:
-            fast5_fn = fast5_q.get(block=False)
+            fast5_batch = fast5_q.get(block=False)
         except Queue.Empty:
             break
 
-        file_failed_reads = align_reads(
-            fast5_fn, genome_fn, mapper_exe, mapper_type, basecall_group,
-            basecall_subgroups, corrected_group, basecalls_q, overwrite)
-        for failed_read in file_failed_reads:
+        batch_failed_reads = align_reads(
+            fast5_batch, genome_fn, mapper_exe, mapper_type,
+            basecall_group, basecall_subgroups, corrected_group,
+            basecalls_q, overwrite)
+        for failed_read in batch_failed_reads:
             failed_reads_q.put(failed_read)
 
     return
@@ -834,16 +920,23 @@ def resquiggle_all_reads(
         fast5_fns, genome_fn, mapper_exe, mapper_type,
         basecall_group, basecall_subgroups, corrected_group, norm_type,
         outlier_thresh, timeout, num_cpts_limit, overwrite,
-        num_align_ps, num_resquiggle_ps):
+        align_batch_size, num_align_ps, num_resquiggle_ps):
     manager = mp.Manager()
     fast5_q = manager.Queue()
     # set maximum number of parsed basecalls to sit in the middle queue
     basecalls_q = manager.Queue(MAX_BASE_CALL_Q_SIZE)
     failed_reads_q = manager.Queue()
     num_reads = 0
+    fast5_batch = []
     for fast5_fn in fast5_fns:
         num_reads += 1
-        fast5_q.put(fast5_fn)
+        fast5_batch.append(fast5_fn)
+        # put batches of reads in queue
+        if num_reads % align_batch_size == 0:
+            fast5_q.put(fast5_batch)
+            fast5_batch = []
+    if len(fast5_batch) > 0:
+        fast5_q.put(fast5_batch)
 
     algn_args = (fast5_q, basecalls_q, failed_reads_q, genome_fn,
                  mapper_exe, mapper_type, basecall_group,
@@ -950,8 +1043,8 @@ def resquiggle_main(args):
         files, args.genome_fasta, mapper_exe, mapper_type,
         args.basecall_group, args.basecall_subgroups,
         args.corrected_group, args.normalization_type, outlier_thresh,
-        args.timeout, args.cpts_limit, args.overwrite, num_align_ps,
-        num_resquiggle_ps)
+        args.timeout, args.cpts_limit, args.overwrite,
+        args.alignment_batch_size, num_align_ps, num_resquiggle_ps)
     sys.stderr.write('Failed reads summary:\n' + '\n'.join(
         "\t" + err + " :\t" + str(len(fns))
         for err, fns in failed_reads.items()) + '\n')
