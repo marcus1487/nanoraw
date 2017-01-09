@@ -1,6 +1,9 @@
 ## Summary
 This package provides tools for the analysis of raw nanopore sequencing data, including correction of basecalls and visualization.
 
+## Full Documentation
+Full documentation avaialable at Read the Docs: nanoraw.readthedocs.io
+
 ## Installation
 Install nanoraw via pip
 ```
