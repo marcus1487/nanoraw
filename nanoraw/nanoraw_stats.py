@@ -3,6 +3,7 @@ import sys, os
 import numpy as np
 
 from scipy import stats
+from collections import defaultdict
 
 def correct_multiple_testing(pvals):
     """ Use FDR Benjamini-Hochberg multiple testing correction
@@ -146,18 +147,27 @@ def parse_stats(stats_fn):
     all_stats = []
     with open(stats_fn) as stats_fp:
         curr_chrm, curr_strand = None, None
-        for line in stats_fp:
-            if line.startswith('>>>>'):
-                _, curr_chrm, curr_strand = line.strip().split("::")
-            else:
-                if curr_chrm is None or curr_strand is None:
-                    sys.stderr.write(
-                        'WARNING: Incorrectly formatted ' +
-                        'statistics file. No chrm or strand ' +
-                        'before statistics lines\n')
-                pos, pval, qval, cov1, cov2 = line.split()
-                all_stats.append((
-                    float(pval), float(qval), int(pos),
-                    curr_chrm, curr_strand, int(cov1), int(cov2)))
+        try:
+            for line in stats_fp:
+                if line.startswith('>>>>'):
+                    _, curr_chrm, curr_strand = line.strip().split("::")
+                else:
+                    if curr_chrm is None or curr_strand is None:
+                        sys.stderr.write(
+                            'WARNING: Incorrectly formatted ' +
+                            'statistics file. No chrm or strand ' +
+                            'before statistics lines\n')
+                    pos, pval, qval, cov1, cov2 = line.split()
+                    all_stats.append((
+                        float(pval), float(qval), int(pos),
+                        curr_chrm, curr_strand, int(cov1), int(cov2)))
+        except ValueError:
+            sys.stderr.write(
+                '*' * 60  + '\nERROR: Attempt to load statistics ' +
+                'file failed. May be an old version of statistics ' +
+                'file. Try deleting statistics file and ' +
+                'recalculating using current nanoraw version.\n' +
+                '*' * 60 + '\n')
+            sys.exit()
 
     return sorted(all_stats)

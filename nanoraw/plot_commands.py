@@ -182,7 +182,7 @@ def get_read_correction_data(
     fast5_data = h5py.File(filename, 'r')
     raw_data = fast5_data['/Raw/Reads'].values()[0]
     if ( '/Analyses/' + corr_basecall_group) not in fast5_data:
-        return None, None, None
+        return None, None, None, None
     corr_data = fast5_data['/Analyses/' + corr_basecall_group]
 
     read_id = raw_data.attrs['read_id']
@@ -784,10 +784,15 @@ def plot_corrections(
     if VERBOSE: sys.stderr.write('Preparing plot data.\n')
     OldSegDat, NewSegDat, SigDat, DiffDat = [], [], [], []
     for read_fn, reg_type in plot_intervals:
-        old_dat, new_dat, signal_dat, diff_dat \
-            = get_read_correction_data(
-                read_fn, reg_type, reg_width, corrected_group + '/' +
-                basecall_subgroup)
+        try:
+            old_dat, new_dat, signal_dat, diff_dat \
+                = get_read_correction_data(
+                    read_fn, reg_type, reg_width, corrected_group + '/' +
+                    basecall_subgroup)
+        # some FAST5 files give an error:
+        #     "Can't read data (Inflate() failed)"
+        except IOError:
+            continue
         if old_dat is None:
             # skip reads that don't have correction slots b/c they
             # couldn't be corrected
@@ -899,10 +904,15 @@ def plot_multi_corrections(
                 raw_start = int((r_data.segs[
                     len(r_data.segs) - (reg_center - r_data.start) - 1]
                                  - reg_width) + (reg_width / 2))
-            old_dat, new_dat, signal_dat, diff_dat \
-                = get_read_correction_data(
-                    r_data.fn, raw_start, reg_width, r_data.corr_group,
-                    reg_i, True)
+            try:
+                old_dat, new_dat, signal_dat, diff_dat \
+                    = get_read_correction_data(
+                        r_data.fn, raw_start, reg_width,
+                        r_data.corr_group, reg_i, True)
+            # some FAST5 files give an error:
+            #     "Can't read data (Inflate() failed)"
+            except IOError:
+                continue
             if old_dat is None:
                 # skip reads that don't have correction slots b/c they
                 # couldn't be corrected
@@ -1296,8 +1306,8 @@ def plot_kmer_centered(
 
     # TODO: convert to motif instead of kmer using parse_motif function
     kmer_locs = []
-    for chrm, seq in fasta_records.items():
-        for kmer_loc in re.finditer(kmer, seq):
+    for chrm, seq in fasta_records.iteritems():
+        for kmer_loc in re.finditer(kmer, seq.seq.tostring()):
             kmer_locs.append((chrm, kmer_loc.start()))
 
     if len(kmer_locs) == 0:
@@ -1623,7 +1633,7 @@ def plot_kmer_centered_signif(
             # of reads only from one chromosome/organism
             try:
                 reg_seq = fasta_records[chrm][
-                    pos-motif_len+1:pos+motif_len]
+                    pos-motif_len+1:pos+motif_len].seq.tostring()
             except (KeyError, IndexError):
                 continue
 
@@ -1720,7 +1730,8 @@ def write_most_signif(
     else:
         fasta_records = parse_fasta(fasta_fn)
         reg_seqs = [
-            (p_int, fasta_records[chrm][start:start+num_bases])
+            (p_int, fasta_records[chrm][
+                start:start+num_bases].seq.tostring())
             for p_int, (chrm, start, strand, reg_name)
             in plot_intervals]
 
@@ -1818,7 +1829,7 @@ def cluster_most_signif(
         else:
             fasta_records = parse_fasta(fasta_fn)
             reg_seqs = [
-                fasta_records[chrm][start:start+num_bases]
+                fasta_records[chrm][start:start+num_bases].seq.tostring()
                 for p_int, (chrm, start, strand, reg_name)
                 in uniq_p_intervals]
 
