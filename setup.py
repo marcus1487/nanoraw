@@ -8,7 +8,7 @@ setup(
     name = "nanoraw",
     version = "0.3.1",
     packages = ["nanoraw"],
-    install_requires = ['h5py', 'rpy2', 'numpy', 'scipy', 'Bio'],
+    install_requires = ['h5py', 'rpy2', 'numpy', 'scipy', 'biopython'],
 
     author = "Marcus Stoiber",
     author_email = "mhstoiber@lbl.gov",
@@ -23,6 +23,7 @@ setup(
             'nanoraw = nanoraw.__main__:main'
         ]
     },
+    include_package_data=True,
 
     test_suite='nose2.collector.collector',
     tests_require=['nose2'],

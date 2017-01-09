@@ -11,6 +11,7 @@ from copy import copy
 from time import sleep
 from collections import defaultdict
 from itertools import repeat, groupby
+from pkg_resources import resource_string
 
 # import nanoraw functions
 import nanoraw_stats
@@ -73,449 +74,6 @@ with os.fdopen(os.dup(fd), 'w') as old_stderr:
         USE_COWPLOT = False
     finally:
         _redirect_stderr(old_stderr)
-
-r.r('''
-plotSingleRun <- function(sigDat, quantDat, boxDat, eventDat,
-                          baseDat, TitleDat){
-    ## fix 0 baased coordinates passed in
-    sigDat$Position <- sigDat$Position + 1
-    quantDat$Position <- quantDat$Position + 1
-    boxDat$Position <- boxDat$Position + 1
-    eventDat$Position <- eventDat$Position + 1
-    baseDat$Position <- baseDat$Position + 1
-    regions <- sort(c(unique(as.character(sigDat$Region)),
-                      unique(as.character(quantDat$Region)),
-                      unique(as.character(boxDat$Region)),
-                      unique(as.character(eventDat$Region))))
-    for(reg_i in regions){
-        reg_base_dat <- baseDat[baseDat$Region==reg_i,]
-        title <- TitleDat[TitleDat$Region==reg_i,'Title']
-        if(reg_i %in% sigDat$Region){
-            reg_sig_dat <- sigDat[sigDat$Region == reg_i,]
-            base_pos <- min(reg_sig_dat$Signal)
-            p <- ggplot(reg_sig_dat) +
-                geom_path(aes(x=Position, y=Signal, group=Read),
-                          alpha=0.3, size=0.05, show.legend=FALSE)
-        } else if(reg_i %in% quantDat$Region) {
-            reg_quant_dat <- quantDat[quantDat$Region == reg_i,]
-            base_pos <- min(reg_quant_dat$Lower)
-            p <- ggplot(reg_quant_dat) +
-                geom_rect(aes(xmin=Position, xmax=Position+1,
-                              ymin=Lower, ymax=Upper),
-                          alpha=0.1, show.legend=FALSE) +
-                ylab('Signal')
-        } else if(reg_i %in% boxDat$Region) {
-            reg_box_dat <- boxDat[boxDat$Region == reg_i,]
-            base_pos <- min(reg_box_dat$SigMin)
-            p <- ggplot(reg_box_dat) +
-                geom_boxplot(
-                    aes(Position + 0.5, ymin=SigMin, lower=Sig25,
-                        middle=SigMed, upper=Sig75, ymax=SigMax),
-                    size=0.2, alpha=0.5, stat="identity",
-                    show.legend=FALSE) +
-                ylab('Signal') + xlab('Position')
-        } else {
-            reg_event_dat <- eventDat[eventDat$Region == reg_i,]
-            base_pos <- min(reg_event_dat$Signal)
-            p <- ggplot(reg_event_dat) +
-                geom_violin(aes(
-                    x=Position + 0.5, y=Signal, group=Position),
-                    size=0, show.legend=FALSE) +
-                ylab('Signal') + xlab('Position')
-        }
-        print(p + facet_grid(Strand ~ .) +
-              geom_text(aes(x=Position+0.5, y=base_pos,
-                            label=Base, color=Base),
-                        data=reg_base_dat,
-                        hjust=0.5, vjust=0, size=3, show.legend=FALSE) +
-              scale_color_manual(
-                  values=c('A'='#00CC00', 'C'='#0000CC', 'G'='#FFB300',
-                           'T'='#CC0000', '-'='black', 'N'='black')) +
-              geom_vline(
-                  xintercept=min(reg_base_dat$Position):
-                  (max(reg_base_dat$Position) + 1),
-                  size=0.01) + ggtitle(title) +
-              theme_bw() + theme(axis.text.x=element_text(hjust=0)))
-    }}
-''')
-plotSingleRun = r.globalenv['plotSingleRun']
-
-r.r('''
-plotGroupComp <- function(sigDat, quantDat, boxDat, eventDat,
-                          baseDat, TitleDat, QuantWidth){
-    ## fix 0 baased coordinates passed in
-    sigDat$Position <- sigDat$Position + 1
-    quantDat$Position <- quantDat$Position + 1
-    boxDat$Position <- boxDat$Position + 1
-    eventDat$Position <- eventDat$Position + 1
-    baseDat$Position <- baseDat$Position + 1
-    regions <- sort(c(unique(as.character(sigDat$Region)),
-                      unique(as.character(quantDat$Region)),
-                      unique(as.character(boxDat$Region)),
-                      unique(as.character(eventDat$Region))))
-    for(reg_i in regions){
-        reg_base_dat <- baseDat[baseDat$Region==reg_i,]
-        title <- TitleDat[TitleDat$Region==reg_i,'Title']
-        if(reg_i %in% sigDat$Region){
-            reg_sig_dat <- sigDat[sigDat$Region == reg_i,]
-            base_pos <- min(reg_sig_dat$Signal)
-            p <- ggplot(reg_sig_dat) +
-                geom_path(
-                    aes(x=Position, y=Signal, color=Group, group=Read),
-                    alpha=0.3, size=0.05, show.legend=FALSE)
-        } else if(reg_i %in% quantDat$Region) {
-            reg_quant_dat <- quantDat[quantDat$Region == reg_i,]
-            base_pos <- min(reg_quant_dat$Lower)
-            p <- ggplot(reg_quant_dat) +
-                geom_rect(aes(xmin=Position, xmax=Position + QuantWidth,
-                              ymin=Lower, ymax=Upper, fill=Group),
-                          alpha=0.1, show.legend=FALSE) +
-                ylab('Signal')
-        } else if (reg_i %in% boxDat$Region) {
-            reg_box_dat <- boxDat[boxDat$Region == reg_i,]
-            base_pos <- min(reg_box_dat$SigMin)
-            p <- ggplot(reg_box_dat) +
-                geom_boxplot(
-                    aes(Position + 0.5, ymin=SigMin, lower=Sig25,
-                        middle=SigMed, upper=Sig75, ymax=SigMax,
-                        fill=Group), size=0.2, alpha=0.3,
-                    stat="identity", show.legend=FALSE) +
-                ylab('Signal') + xlab('Position')
-        } else {
-            reg_event_dat <- eventDat[eventDat$Region == reg_i,]
-            base_pos <- min(reg_event_dat$Signal)
-            p <- ggplot(reg_event_dat) +
-                geom_violin(aes(x=Position + 0.5, y=Signal, fill=Group,
-                                group=paste0(Group, Position)),
-                            size=0, show.legend=FALSE) +
-                ylab('Signal') + xlab('Position')
-        }
-        print(p + facet_grid(Strand ~ .) +
-              geom_text(aes(x=Position+0.5, y=base_pos, label=Base,
-                            color=Base), data=reg_base_dat,
-                        hjust=0.5, vjust=0, size=3, show.legend=FALSE) +
-              scale_color_manual(
-                  values=c(
-                      'A'='#00CC00', 'C'='#0000CC', 'G'='#FFB300',
-                      'T'='#CC0000', '-'='black', 'N'='black',
-                      'Group1'='blue', 'Group2'='red')) +
-              scale_fill_manual(
-                  values=c('Group1'='blue', 'Group2'='red')) +
-              geom_vline(
-                  xintercept=
-                      min(reg_base_dat$Position):
-                  (max(reg_base_dat$Position) + 1),
-                  size=0.01) +
-              ggtitle(title) +
-              theme_bw() + theme(axis.text.x=element_text(hjust=0)))
-    }}
-''')
-plotGroupComp = r.globalenv['plotGroupComp']
-
-r.r('''
-plotKmerStats <- function(
-        PlotDat, BaseDat, StatsDat, PlotType, QuantWidth){
-    ylim <- 3.5
-    regions <- unique(PlotDat$Region)
-    midReg <- regions[(length(regions) + 1) / 2]
-    ps <- lapply(regions, function(region){
-        rBaseDat <- BaseDat[BaseDat$Region==region,]
-        rPlotDat <- PlotDat[PlotDat$Region==region,]
-        if(PlotType %in% c('Signal', 'Downsample')){
-            ## randomize so all of one group isn't on top
-            sRPlotDat <- split(rPlotDat, rPlotDat$Read)
-            rPlotDat <- do.call(rbind.data.frame, sample(sRPlotDat))
-            p <- ggplot(rPlotDat) + geom_path(
-                      aes(x=Position, y=Signal, color=Group, group=Read),
-                      alpha=0.5, size=0.1, show.legend=FALSE)
-        } else if(PlotType == 'Quantile'){
-            p <- ggplot(rPlotDat) +
-                geom_rect(aes(xmin=Position, xmax=Position + QuantWidth,
-                              ymin=Lower, ymax=Upper, fill=Group),
-                          alpha=0.2, show.legend=FALSE) +
-                scale_fill_manual(
-                    values=c('Group1'='blue', 'Group2'='red')) +
-                ylab('Signal')
-        } else if(PlotType == 'Boxplot'){
-            p <- ggplot(rPlotDat) +
-                geom_boxplot(
-                    aes(Position + 0.5, ymin=SigMin, lower=Sig25,
-                        middle=SigMed, upper=Sig75, ymax=SigMax,
-                        fill=Group), size=0.2, alpha=1,
-                    stat="identity", show.legend=FALSE) +
-                scale_fill_manual(
-                    values=c('Group1'='blue', 'Group2'='red')) +
-                ylab('Signal')
-        } else if(PlotType == 'Violin'){
-            p <- ggplot(rPlotDat) +
-                geom_violin(aes(x=Position + 0.5, y=Signal, fill=Group,
-                                group=paste0(Group, Position)),
-                            size=0, show.legend=FALSE) +
-                scale_fill_manual(
-                    values=c('Group1'='blue', 'Group2'='red')) +
-                ylab('Signal')
-        }
-        p <- p + geom_text(aes(x=Position+0.5, y=-ylim,
-                          label=Base, color=Base),
-                      data=rBaseDat,
-                      hjust=0.5, vjust=0, size=3, show.legend=FALSE) +
-            scale_color_manual(
-                values=c(
-                    'A'='#00CC00', 'C'='#0000CC', 'G'='#FFB300',
-                    'T'='#CC0000', '-'='black', 'N'='black',
-                    'Group1'='red', 'Group2'='black')) +
-            geom_vline(
-                xintercept=min(rBaseDat$Position):
-                (max(rBaseDat$Position) + 1), size=0.01) +
-           scale_x_continuous(expand=c(0,0)) +
-           coord_cartesian(ylim=c(-ylim, ylim)) +
-           theme_bw() +
-           theme(axis.text.x=element_blank(),
-                 axis.text.y=element_blank(),
-                 axis.title.x=element_blank(),
-                 axis.ticks.x=element_blank(),
-                 axis.ticks.y=element_blank(),
-                 plot.margin=margin(0,0,0,0,'lines'))
-        if(region != midReg){
-            p <- p + theme(axis.title.y=element_blank())
-        }
-        return(p)
-    })
-
-    maxStat <- max(StatsDat$NegLogPValue)
-    if(maxStat < 1){ tickVals <- c(0,0.2,0.4,0.6,0.8,1)
-    } else if(maxStat < 10){ tickVals <- seq(0,10,by=2)
-    } else { tickVals <- seq(0,100,by=5) }
-    ps[[length(ps) + 1]] <- ggplot(StatsDat) +
-        geom_violin(aes(
-            x=Position+0.5, y=NegLogPValue,
-            group=cut_width(Position, 0.9999)), size=0.1, fill='black') +
-        scale_x_continuous(expand=c(0,0)) +
-        scale_y_continuous(breaks=tickVals) +
-        xlab('Position') + theme_bw() +
-        theme(axis.text.x=element_text(hjust=0))
-    print(do.call(
-        plot_grid,
-        c(ps, list(ncol=1, align='v',
-                   rel_heights=c(rep(1, length(regions)), 3)))))
-}
-''')
-plotKmerStats = r.globalenv['plotKmerStats']
-
-r.r('''
-plotSigMDS <- function(sigDiffDists, matFn){
-    if(!is.na(matFn)){ save(sigDiffDists, file=matFn) }
-    fit <- cmdscale(as.dist(sigDiffDists), eig=TRUE, k=2)
-    gdat <- as.data.frame(fit$points)
-    colnames(gdat) <- c('Coordinate1', 'Coordinate2')
-    print(ggplot(gdat, aes(x=Coordinate1, y=Coordinate2)) +
-          geom_point(alpha=0.3, size=0.5) + theme_bw())
-}
-''')
-plotSigMDS = r.globalenv['plotSigMDS']
-
-r.r('''
-plotReadCorr <- function(OldSegDat, NewSegDat, SigDat, DiffDat){
-    OldSegDat <- cbind.data.frame(OldSegDat, Type='Signal')
-    NewSegDat <- cbind.data.frame(NewSegDat, Type='Signal')
-
-    for(readId in unique(OldSegDat$Read)){
-    rOldSegDat <- OldSegDat[OldSegDat$Read == readId,]
-    rNewSegDat <- NewSegDat[NewSegDat$Read == readId,]
-    rSigDat <- SigDat[SigDat$Read == readId,]
-    rDiffDat <- DiffDat[DiffDat$Read == readId,]
-    rSigDiffDat <- rbind.data.frame(
-        cbind.data.frame(rSigDat, Type='Signal'),
-        cbind.data.frame(rDiffDat, Type='Running Difference'))
-
-    sig_max <- max(rSigDat$Signal)
-    sig_min <- min(rSigDat$Signal)
-    sig_range <- sig_max - sig_min
-    print(ggplot(rSigDiffDat) +
-        geom_line(aes(x=Position, y=Signal), size=0.2) +
-        geom_segment(
-            data=rOldSegDat,
-            aes(x=Position, xend=Position, y=sig_max,
-                yend=sig_max - (sig_range * 0.3), color=IsDel)) +
-        geom_text(
-            data=rOldSegDat,
-            aes(x=Position, y=sig_max, label=Base, color=IsMismatch),
-            hjust=0, vjust=1, size=5) +
-        geom_segment(
-            data=rNewSegDat,
-            aes(x=Position, xend=Position, y=sig_min,
-                yend=sig_min + (sig_range * 0.3), color=IsIns)) +
-        geom_text(
-            data=rNewSegDat,
-            aes(x=Position, y=sig_min, label=Base),
-            hjust=0, vjust=0, size=5) +
-        facet_grid(Type ~ ., scales='free') +
-        scale_color_manual(values=c('FALSE'='black', 'TRUE'='red')) +
-        theme_bw() + theme(legend.position='none',
-                           axis.title.y=element_blank()))
-}}
-''')
-plotReadCorr = r.globalenv['plotReadCorr']
-
-r.r('''
-plotMultiReadCorr <- function(OldSegDat, NewSegDat, SigDat){
-    for(regId in unique(OldSegDat$Region)){
-        rOldSegDat <- OldSegDat[OldSegDat$Region == regId,]
-        rNewSegDat <- NewSegDat[NewSegDat$Region == regId,]
-        rSigDat <- SigDat[SigDat$Region == regId,]
-
-        regCenter <- median(SigDat$Position) + 1
-        sig_max <- max(rSigDat$Signal)
-        sig_min <- min(rSigDat$Signal)
-        sig_range <- sig_max - sig_min
-        print(ggplot(rSigDat) +
-              geom_line(aes(x=Position, y=Signal), size=0.2) +
-              geom_vline(aes(xintercept=regCenter), color='red') +
-              geom_segment(
-                  data=rOldSegDat,
-                  aes(x=Position, xend=Position, y=sig_max,
-                      yend=sig_max - (sig_range * 0.3), color=IsDel)) +
-              geom_text(
-                  data=rOldSegDat,
-                  aes(x=Position, y=sig_max, label=Base,
-                      color=IsMismatch), hjust=0, vjust=1, size=5) +
-              geom_segment(
-                  data=rNewSegDat,
-                  aes(x=Position, xend=Position, y=sig_min,
-                      yend=sig_min + (sig_range * 0.3), color=IsIns)) +
-              geom_text(
-                  data=rNewSegDat,
-                  aes(x=Position, y=sig_min, label=Base),
-                  hjust=0, vjust=0, size=5) +
-              facet_grid(Read ~ .) +
-              scale_color_manual(
-                  values=c('FALSE'='black', 'TRUE'='red')) +
-              theme_bw() + theme(legend.position='none'))
-    }}
-''')
-plotMultiReadCorr = r.globalenv['plotMultiReadCorr']
-
-r.r('''
-plotMultiReadCorrNoOrig <- function(NewSegDat, SigDat){
-    for(regId in unique(NewSegDat$Region)){
-        rNewSegDat <- NewSegDat[NewSegDat$Region == regId,]
-        rSigDat <- SigDat[SigDat$Region == regId,]
-
-        regCenter <- median(SigDat$Position) + 1
-        sig_max <- max(rSigDat$Signal)
-        sig_min <- min(rSigDat$Signal)
-        sig_range <- sig_max - sig_min
-        print(ggplot(rSigDat) +
-              geom_line(aes(x=Position, y=Signal), size=0.2) +
-              geom_vline(aes(xintercept=regCenter), color='red') +
-              geom_segment(
-                  data=rNewSegDat,
-                  aes(x=Position, xend=Position, y=sig_min,
-                      yend=sig_min + (sig_range * 0.3), color=IsIns)) +
-              geom_text(
-                  data=rNewSegDat,
-                  aes(x=Position, y=sig_min, label=Base, color=Base),
-                  hjust=0, vjust=0, size=5) +
-              facet_grid(Read ~ .) +
-              scale_color_manual(
-                  values=c(
-                      'A'='#00CC00', 'C'='#0000CC', 'G'='#FFB300',
-                      'T'='#CC0000', '-'='black', 'N'='black',
-                      'FALSE'='black', 'TRUE'='red')) +
-              theme_bw() + theme(legend.position='none'))
-    }}
-''')
-plotMultiReadCorrNoOrig = r.globalenv['plotMultiReadCorrNoOrig']
-
-r.r('''
-    plotKmerDist <- function(dat, baseDat){
-    mainP <- ggplot(dat) +
-        #geom_boxplot(aes(x=Kmer, y=Signal, color=Base)) +
-        #scale_color_manual(
-        #    values=c('#00CC00', '#0000CC', '#FFB300', '#CC0000')) +
-        geom_violin(aes(x=Kmer, y=Signal, fill=Base), size=0) +
-        scale_fill_manual(
-            values=c('#00CC00', '#0000CC', '#FFB300', '#CC0000')) +
-        theme_bw() + theme(
-            axis.text.x=element_text(angle=60, hjust=1, size=8),
-            legend.position='bottom')
-    if (is.na(baseDat)){
-        print(mainP)
-    } else {
-    mainL <- get_legend(mainP)
-    mainP <- mainP + theme(legend.position='none')
-    baseP <- ggplot(baseDat) +
-        geom_tile(aes(x=Kmer, y=Position, fill=Base)) +
-        scale_fill_manual(
-            values=c('A'='#00CC00', 'C'='#0000CC',
-                     'G'='#FFB300', 'T'='#CC0000')) +
-        theme_bw() + theme(
-            axis.text.x=element_text(angle=60, hjust=1, size=8),
-            legend.position='none')
-    mainP <- mainP + theme(axis.text.x=element_blank(),
-                           axis.title.x=element_blank())
-    if (nchar(as.character(dat$Kmer[1])) > 3){
-        mainP <- mainP + theme(axis.text.x=element_blank())
-        baseP <- baseP + theme(axis.text.x=element_blank())
-    }
-    print(plot_grid(plot_grid(mainP, baseP, ncol=1,
-                    rel_heights=c(5,1), align='v'),
-          mainL, ncol=1, rel_heights=c(10,1)))
-}}
-''')
-plotKmerDist = r.globalenv['plotKmerDist']
-
-r.r('''
-plotKmerDistWReadPath <- function(dat, baseDat){
-    mainP <- ggplot(dat) +
-        #geom_boxplot(aes(x=Kmer, y=Signal, color=Base)) +
-        #scale_color_manual(
-        #    values=c('#00CC00', '#0000CC', '#FFB300', '#CC0000')) +
-        geom_violin(aes(x=Kmer, y=Signal, fill=Base), size=0) +
-        scale_fill_manual(
-            values=c('#00CC00', '#0000CC', '#FFB300', '#CC0000')) +
-        theme_bw() +
-        theme(axis.text.x=element_text(angle=60, hjust=1, size=8),
-              legend.position='bottom')
-    readP <- ggplot(dat) +
-        geom_path(aes(x=Kmer, y=Signal, group=Read), alpha=0.05) +
-        theme_bw() +
-        theme(axis.text.x=element_text(angle=60, hjust=1, size=8)) +
-        scale_color_manual(
-        values=c('#00CC00', '#0000CC', '#FFB300', '#CC0000'))
-    if (is.na(baseDat)){
-        print(mainP)
-        print(readP)
-    } else {
-    mainL <- get_legend(mainP)
-    mainP <- mainP + theme(legend.position='none')
-    baseP <- ggplot(baseDat) +
-        geom_tile(aes(x=Kmer, y=Position, fill=Base)) +
-        scale_fill_manual(
-            values=c('A'='#00CC00', 'C'='#0000CC',
-                     'G'='#FFB300', 'T'='#CC0000')) +
-        theme_bw() + theme(
-            axis.text.x=element_text(angle=60, hjust=1, size=8),
-            legend.position='none')
-    mainP <- mainP + theme(axis.text.x=element_blank(),
-                           axis.title.x=element_blank())
-    readP <- readP + theme(axis.text.x=element_blank(),
-                           axis.title.x=element_blank())
-    if (nchar(as.character(dat$Kmer[1])) > 3){
-        mainP <- mainP + theme(axis.text.x=element_blank())
-        readP <- readP + theme(axis.text.x=element_blank())
-        baseP <- baseP + theme(axis.text.x=element_blank())
-    }
-    print(plot_grid(plot_grid(mainP, baseP, ncol=1,
-                              rel_heights=c(5,1), align='v'),
-          mainL, ncol=1, rel_heights=c(10,1)))
-    print(plot_grid(plot_grid(readP, baseP, ncol=1,
-                              rel_heights=c(5,1), align='v'),
-          mainL, ncol=1, rel_heights=c(10,1)))
-}}
-''')
-plotKmerDistWReadPath = r.globalenv['plotKmerDistWReadPath']
-
 
 
 ############################################
@@ -602,14 +160,13 @@ def plot_kmer_dist(files, corrected_group, basecall_subgroups,
         baseDat = r.NA_Character
 
     if VERBOSE: sys.stderr.write('Plotting.\n')
+    r.r(resource_string(__name__, 'R_scripts/plotKmerDist.R'))
+    r.r('pdf("' + pdf_fn + '", height=7, width=10)')
     if read_mean:
-        r.r('pdf("' + pdf_fn + '", height=7, width=10)')
-        plotKmerDistWReadPath(kmerDat, baseDat)
-        r.r('dev.off()')
+        r.globalenv['plotKmerDistWReadPath'](kmerDat, baseDat)
     else:
-        r.r('pdf("' + pdf_fn + '", height=7, width=10)')
-        plotKmerDist(kmerDat, baseDat)
-        r.r('dev.off()')
+        r.globalenv['plotKmerDist'](kmerDat, baseDat)
+    r.r('dev.off()')
 
     return
 
@@ -1252,8 +809,9 @@ def plot_corrections(
     DiffDat = r.DataFrame.rbind(*DiffDat)
 
     if VERBOSE: sys.stderr.write('Plotting.\n')
+    r.r(resource_string(__name__, 'R_scripts/plotReadCorr.R'))
     r.r('pdf("' + pdf_fn + '", height=7, width=11)')
-    plotReadCorr(OldSegDat, NewSegDat, SigDat, DiffDat)
+    r.globalenv['plotReadCorr'](OldSegDat, NewSegDat, SigDat, DiffDat)
     r.r('dev.off()')
 
     return
@@ -1363,11 +921,12 @@ def plot_multi_corrections(
     SigDat = r.DataFrame.rbind(*SigDat)
 
     if VERBOSE: sys.stderr.write('Plotting.\n')
+    r.r(resource_string(__name__, 'R_scripts/plotMultiReadCorr.R'))
     r.r('pdf("' + pdf_fn + '", height=5, width=11)')
     if include_orig_bcs:
-        plotMultiReadCorr(OldSegDat, NewSegDat, SigDat)
+        r.globalenv['plotMultiReadCorr'](OldSegDat, NewSegDat, SigDat)
     else:
-        plotMultiReadCorrNoOrig(NewSegDat, SigDat)
+        r.globalenv['plotMultiReadCorrNoOrig'](NewSegDat, SigDat)
     r.r('dev.off()')
 
     return
@@ -1417,9 +976,10 @@ def plot_single_sample(
          overplot_thresh, 'Group1'))
 
     if VERBOSE: sys.stderr.write('Plotting.\n')
+    r.r(resource_string(__name__, 'R_scripts/plotSingleRun.R'))
     r.r('pdf("' + pdf_fn + '", height=5, width=11)')
-    plotSingleRun(SignalData, QuantData, BoxData, EventData,
-                  BasesData, Titles)
+    r.globalenv['plotSingleRun'](SignalData, QuantData, BoxData,
+                                 EventData, BasesData, Titles)
     r.r('dev.off()')
 
     return
@@ -1520,12 +1080,14 @@ def plot_two_samples(
          overplot_thresh, 'Group2'), 0.5)
 
     if VERBOSE: sys.stderr.write('Plotting.\n')
+    r.r(resource_string(__name__, 'R_scripts/plotGroupComp.R'))
     r.r('pdf("' + pdf_fn + '", height=5, width=11)')
-    plotGroupComp(r.DataFrame.rbind(SignalData1, SignalData2),
-                  r.DataFrame.rbind(QuantData1, QuantData2),
-                  r.DataFrame.rbind(BoxData1, BoxData2),
-                  r.DataFrame.rbind(EventData1, EventData2),
-                  BasesData, Titles, 0.4)
+    r.globalenv['plotGroupComp'](
+        r.DataFrame.rbind(SignalData1, SignalData2),
+        r.DataFrame.rbind(QuantData1, QuantData2),
+        r.DataFrame.rbind(BoxData1, BoxData2),
+        r.DataFrame.rbind(EventData1, EventData2),
+        BasesData, Titles, 0.4)
     r.r('dev.off()')
 
     if seqs_fn is not None:
@@ -1600,9 +1162,10 @@ def plot_kmer_centered_with_stats(
         'NegLogPValue':r.FloatVector(zip(*pval_locs)[1])})
 
     if VERBOSE: sys.stderr.write('Plotting.\n')
+    r.r(resource_string(__name__, 'R_scripts/plotKmerStats.R'))
     r.r('pdf("' + pdf_fn + '", height=3, width=5)')
-    plotKmerStats(PlotData, BasesData,
-                  StatsData, overplot_type, 0.4)
+    r.globalenv['plotKmerStats'](PlotData, BasesData,
+                                 StatsData, overplot_type, 0.4)
     r.r('dev.off()')
 
     return
@@ -2319,8 +1882,9 @@ def cluster_most_signif(
         r_struct_fn = r.NA_Character
 
     if VERBOSE: sys.stderr.write('Plotting (and saving data).\n')
+    r.r(resource_string(__name__, 'R_scripts/plotSigMDS.R'))
     r.r('pdf("' + pdf_fn + '", height=7, width=7)')
-    plotSigMDS(reg_sig_diff_dists, r_struct_fn)
+    r.globalenv['plotSigMDS'](reg_sig_diff_dists, r_struct_fn)
     r.r('dev.off()')
 
     return
