@@ -9,10 +9,11 @@ import multiprocessing as mp
 
 from copy import copy
 from time import sleep
-from scipy import stats
 from collections import defaultdict
 from itertools import repeat, groupby
 
+# import nanoraw functions
+import nanoraw_stats
 from nanoraw_helper import (
     normalize_raw_signal, parse_fast5s, parse_fasta, rev_comp,
     parse_obs_filter, filter_reads)
@@ -1728,8 +1729,7 @@ def plot_kmer_centered(
         fasta_fn, deepest_coverage, obs_filter):
     if VERBOSE: sys.stderr.write(
             'Identifying genomic k-mer locations.\n')
-    with open(fasta_fn) as fasta_fp:
-        fasta_records = parse_fasta(fasta_fp)
+    fasta_records = parse_fasta(fasta_fn)
 
     # TODO: convert to motif instead of kmer using parse_motif function
     kmer_locs = []
@@ -1897,174 +1897,16 @@ def plot_max_diff(
 
     return
 
-def correct_multiple_testing(pvals):
-    """ Use FDR Benjamini-Hochberg multiple testing correction
-    """
-    pvals = np.asarray(pvals)
-
-    pvals_sortind = np.argsort(pvals)
-    pvals_sorted = pvals[pvals_sortind]
-    sortrevind = pvals_sortind.argsort()
-
-    pvals_corrected_raw = pvals_sorted / (np.arange(
-        1,len(pvals)+1)/float(len(pvals)))
-    pvals_corrected = np.minimum.accumulate(
-        pvals_corrected_raw[::-1])[::-1]
-    pvals_corrected[pvals_corrected>1] = 1
-
-    return pvals_corrected[sortrevind]
-
-def calc_fm_pval(pvals):
-    return 1.0 - stats.chi2.cdf(
-        np.sum(np.log(pvals)) * -2,
-        pvals.shape[0] * 2)
-
-def calc_fishers_method(pos_pvals, offset):
-    pvals_np = np.empty(pos_pvals[-1][1] + 1)
-    pvals_np[:] = np.NAN
-    pvals_np[[list(zip(*pos_pvals)[1])]] = zip(*pos_pvals)[0]
-
-    fishers_pvals = [
-        (calc_fm_pval(pvals_np[pos - offset:pos + offset + 1]),
-         pos, cov1, cov2)
-        for _, pos, cov1, cov2 in pos_pvals
-        if pos - offset >= 0 and pos + offset + 1 <= pvals_np.shape[0]
-        and not np.any(np.isnan(
-            pvals_np[pos - offset:pos + offset + 1]))]
-
-    return fishers_pvals
-
-def mann_whitney_u_test(samp1, samp2):
-    s1_len = samp1.shape[0]
-    s2_len = samp2.shape[0]
-    tot_len = s1_len + s2_len
-
-    all_vals = np.concatenate([samp1, samp2])
-    ranks = np.empty(tot_len, int)
-    ranks[all_vals.argsort()] = np.arange(1, tot_len + 1)
-    s1_ranks_sum = ranks[:s1_len].sum()
-    #s2_ranks_sum = ranks[s1_len:].sum()
-
-    u1 = s1_ranks_sum - (s1_len * (s1_len + 1)) / 2
-    #u2 = s2_ranks_sum - (s2_len * (s2_len + 1)) / 2
-
-    mu = s1_len * s2_len / 2
-    rhou = np.sqrt(s1_len * s2_len * (s1_len + s2_len + 1) / 12)
-
-    z = np.abs(u1 - mu) / rhou
-
-    pval = stats.norm.cdf(-z) * 2.0
-
-    return pval
-
-def parse_stats(stats_fn):
-    all_stats = []
-    with open(stats_fn) as stats_fp:
-        curr_chrm, curr_strand = None, None
-        for line in stats_fp:
-            if line.startswith('>>>>'):
-                _, curr_chrm, curr_strand = line.strip().split("::")
-            else:
-                if curr_chrm is None or curr_strand is None:
-                    sys.stderr.write(
-                        'WARNING: Incorrectly formatted ' +
-                        'statistics file. No chrm or strand ' +
-                        'before statistics lines\n')
-                pos, pval, qval, cov1, cov2 = line.split()
-                all_stats.append((
-                    float(pval), float(qval), int(pos),
-                    curr_chrm, curr_strand, int(cov1), int(cov2)))
-
-    return sorted(all_stats)
-
-def get_all_significance(
-        base_events1, base_events2, test_type, min_test_vals,
-        all_stats_fn, fishers_method_offset):
-    if VERBOSE: sys.stderr.write(
-            'Test significance of difference in base signal.\n')
-    # get num_region most significantly different regions from
-    # each chrm then find global most signif after
-    position_pvals = []
-    for chrm_strand in set(base_events1).intersection(base_events2):
-        chrm, strand = chrm_strand
-        if test_type == 'ttest':
-            chrm_pvals = [
-                (np.abs(stats.ttest_ind(
-                    base_events1[chrm_strand][pos],
-                    base_events2[chrm_strand][pos])[1]), pos,
-                base_events1[chrm_strand][pos].shape[0],
-                base_events2[chrm_strand][pos].shape[0])
-                for pos in sorted(set(
-                    base_events1[chrm_strand]).intersection(
-                    base_events2[chrm_strand]))
-                if min(base_events1[chrm_strand][pos].shape[0],
-                       base_events2[chrm_strand][pos].shape[0])
-                >= min_test_vals]
-        elif test_type == 'mw_utest':
-            # store z-scores from u-test
-            chrm_pvals = [
-                (mann_whitney_u_test(
-                    base_events1[chrm_strand][pos],
-                    base_events2[chrm_strand][pos]), pos,
-                base_events1[chrm_strand][pos].shape[0],
-                base_events2[chrm_strand][pos].shape[0])
-                for pos in sorted(set(
-                    base_events1[chrm_strand]).intersection(
-                        base_events2[chrm_strand]))
-                if min(base_events1[chrm_strand][pos].shape[0],
-                       base_events2[chrm_strand][pos].shape[0])
-                >= min_test_vals]
-        else:
-            raise RuntimeError, ('Invalid significance test type ' +
-                                 'provided: ' + str(test_type))
-
-        if len(chrm_pvals) == 0: continue
-        if fishers_method_offset is not None:
-            chrm_pvals = calc_fishers_method(
-                chrm_pvals, fishers_method_offset)
-
-        position_pvals.extend(
-            (pval, pos, chrm, strand, cov1, cov2)
-            for pval, pos, cov1, cov2 in chrm_pvals)
-
-    if len(position_pvals) == 0:
-        sys.stderr.write(
-            '*' * 60 + '\nERROR: No regions contain minimum ' +
-            'number of reads.\n' + '*' * 60 + '\n')
-        sys.exit()
-
-    position_pvals = sorted(position_pvals)
-    fdr_corr_pvals = correct_multiple_testing(zip(*position_pvals)[0])
-    all_stats = [(pval, qval, pos, chrm, strand, cov1, cov2)
-                 for qval, (pval, pos, chrm, strand, cov1, cov2) in
-                 zip(fdr_corr_pvals, position_pvals)]
-
-    if all_stats_fn is not None:
-        chrm_strand_stats = defaultdict(list)
-        for pval, qval, pos, chrm, strand, cov1, cov2 in all_stats:
-            chrm_strand_stats[(chrm, strand)].append((
-                pos, pval, qval, cov1, cov2))
-        with open(all_stats_fn, 'w') as stats_fp:
-            for (chrm, strand), pos_stats in chrm_strand_stats.items():
-                stats_fp.write('>>>>::' + chrm + '::' + strand + '\n')
-                stats_fp.write('\n'.join([
-                    '{:d}\t{:.2g}\t{:.2g}\t{:d}\t{:d}'.format(
-                        pos, pval, qval, cov1, cov2)
-                    for pos, pval, qval, cov1, cov2 in
-                    sorted(pos_stats)]) + '\n')
-
-    return all_stats
-
 def get_most_signif_regions(
         base_events1, base_events2, test_type, num_bases, num_regions,
         qval_thresh=None, min_test_vals=2, stats_fn=None,
         fishers_method_offset=None):
     if stats_fn is None or not os.path.isfile(stats_fn):
-        all_stats = get_all_significance(
+        all_stats = nanoraw_stats.get_all_significance(
             base_events1, base_events2, test_type, min_test_vals,
             stats_fn, fishers_method_offset)
     else:
-        all_stats = parse_stats(stats_fn)
+        all_stats = nanoraw_stats.parse_stats(stats_fn)
 
     # applied threshold for scores on each chromosome, so now
     # we include all here
@@ -2189,11 +2031,11 @@ def plot_kmer_centered_signif(
         base_events1 = get_base_events(raw_read_coverage1, chrm_sizes)
         base_events2 = get_base_events(raw_read_coverage2, chrm_sizes)
 
-        all_stats = get_all_significance(
+        all_stats = nanoraw_stats.get_all_significance(
             base_events1, base_events2, test_type, min_test_vals,
             stats_fn, fishers_method_offset)
     else:
-        all_stats = parse_stats(stats_fn)
+        all_stats = nanoraw_stats.parse_stats(stats_fn)
 
     all_stats_dict = dict(
         ((chrm, strand, pos), (pval, qval))
@@ -2205,8 +2047,7 @@ def plot_kmer_centered_signif(
     if VERBOSE: sys.stderr.write(
             'Finding signficant regions with motif.\n')
     if fasta_fn is not None:
-        with open(fasta_fn) as fasta_fp:
-            fasta_records = parse_fasta(fasta_fp)
+        fasta_records = parse_fasta(fasta_fn)
     motif_regions_data = []
     for pval, qval, pos, chrm, strand, cov1, cov2 in all_stats:
         if fasta_fn is None:
@@ -2314,8 +2155,7 @@ def write_most_signif(
             plot_intervals, raw_read_coverage1, raw_read_coverage2,
             num_bases, corrected_group)
     else:
-        with open(fasta_fn) as fasta_fp:
-            fasta_records = parse_fasta(fasta_fp)
+        fasta_records = parse_fasta(fasta_fn)
         reg_seqs = [
             (p_int, fasta_records[chrm][start:start+num_bases])
             for p_int, (chrm, start, strand, reg_name)
@@ -2413,8 +2253,7 @@ def cluster_most_signif(
                 uniq_p_intervals, raw_read_coverage1, raw_read_coverage2,
                 num_bases, corrected_group))[1]
         else:
-            with open(fasta_fn) as fasta_fp:
-                fasta_records = parse_fasta(fasta_fp)
+            fasta_records = parse_fasta(fasta_fn)
             reg_seqs = [
                 fasta_records[chrm][start:start+num_bases]
                 for p_int, (chrm, start, strand, reg_name)
@@ -2612,6 +2451,7 @@ def max_diff_main(args):
 def signif_diff_main(args):
     global VERBOSE
     VERBOSE = not args.quiet
+    nanoraw_stats.VERBOSE = VERBOSE
 
     files1, files2 = get_files_lists(
         args.fast5_basedirs, args.fast5_basedirs2)
@@ -2638,6 +2478,7 @@ def kmer_signif_diff_main(args):
 
     global VERBOSE
     VERBOSE = not args.quiet
+    nanoraw_stats.VERBOSE = VERBOSE
 
     files1, files2 = get_files_lists(
         args.fast5_basedirs, args.fast5_basedirs2)
@@ -2657,6 +2498,7 @@ def kmer_signif_diff_main(args):
 def write_signif_diff_main(args):
     global VERBOSE
     VERBOSE = not args.quiet
+    nanoraw_stats.VERBOSE = VERBOSE
 
     files1, files2 = get_files_lists(
         args.fast5_basedirs, args.fast5_basedirs2)
@@ -2674,6 +2516,7 @@ def write_signif_diff_main(args):
 def cluster_signif_diff_main(args):
     global VERBOSE
     VERBOSE = not args.quiet
+    nanoraw_stats.VERBOSE = VERBOSE
 
     files1, files2 = get_files_lists(
         args.fast5_basedirs, args.fast5_basedirs2)

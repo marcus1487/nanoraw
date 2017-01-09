@@ -183,11 +183,11 @@ def normalize_raw_signal(
 
     return raw_signal, scaleValues(shift, scale, lower_lim, upper_lim)
 
-def parse_fasta(fasta_fp):
+def parse_fasta(fasta_fn):
     # could consider a conditional dependence on pyfaix if on-memory
     # indexing is required for larger genomes
     # Biopython's record level indexing will do for now...
-    return SeqIO.index(fasta_fp,'fasta')
+    return SeqIO.index(fasta_fn,'fasta')
 
 # Old fasta parser method
 """ 
