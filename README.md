@@ -51,13 +51,15 @@ nanoraw [command] [options]
 
 - HDF5 (<http://micro.stanford.edu/wiki/Install_HDF5#Install>)
 - graphmap (<https://github.com/isovic/graphmap>)
+OR
+- BWA-MEM (<https://bio-bwa.sourceforge.net/>)
 
 #### python Requirements (handled by pip):
 - numpy
 - scipy
 - h5py
+- Biopython
 - rpy2 (along with an R installation)
-- Bio (Biopython)
 
 #### Optional R Requirements (install with `install.packages([package_name])` from an R prompt):
 - changepoint (for using R's changepoint package for re-segmentation)
