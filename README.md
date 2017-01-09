@@ -52,7 +52,7 @@ nanoraw [command] [options]
 - HDF5 (<http://micro.stanford.edu/wiki/Install_HDF5#Install>)
 - graphmap (<https://github.com/isovic/graphmap>)
 OR
-- BWA-MEM (<https://bio-bwa.sourceforge.net/>)
+- BWA-MEM (<http://bio-bwa.sourceforge.net/>)
 
 #### python Requirements (handled by pip):
 - numpy
