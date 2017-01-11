@@ -90,9 +90,15 @@ printf "\n\n********* Testing mutliple sample statistical testing genome-anchore
 nanoraw plot_max_difference --fast5-basedirs $g1Dir \
         --fast5-basedirs2 $g2Dir --2d \
         --num-bases 21 --overplot-threshold 1000
+rm testing.significance_values.txt
 nanoraw plot_most_significant --fast5-basedirs $g1Dir \
         --fast5-basedirs2 $g2Dir --2d \
-        --num-bases 21 --overplot-threshold 1000
+        --num-bases 21 --overplot-threshold 1000 \
+        --statistics-filename testing.significance_values.txt
+nanoraw plot_most_significant --fast5-basedirs $g1Dir \
+        --fast5-basedirs2 $g2Dir --2d \
+        --num-bases 21 --overplot-threshold 1000 \
+        --statistics-filename testing.significance_values.txt
 nanoraw plot_kmer_with_stats --fast5-basedirs $g1Dir \
         --fast5-basedirs2 $g2Dir --motif ATC --2d \
         --overplot-threshold 1000 --test-type mw_utest

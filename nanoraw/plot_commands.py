@@ -1412,17 +1412,8 @@ def plot_max_diff(
 
     return
 
-def get_most_signif_regions(
-        base_events1, base_events2, test_type, num_bases, num_regions,
-        qval_thresh=None, min_test_vals=2, stats_fn=None,
-        fishers_method_offset=None):
-    if stats_fn is None or not os.path.isfile(stats_fn):
-        all_stats = nanoraw_stats.get_all_significance(
-            base_events1, base_events2, test_type, min_test_vals,
-            stats_fn, fishers_method_offset)
-    else:
-        all_stats = nanoraw_stats.parse_stats(stats_fn)
-
+def get_most_signif_regions(all_stats, num_bases, num_regions,
+                            qval_thresh=None):
     # applied threshold for scores on each chromosome, so now
     # we include all here
     if qval_thresh is not None:
@@ -1454,10 +1445,7 @@ def plot_most_signif(
     # regions before calculating raw read coverage
     if not calc_stats:
         if VERBOSE: sys.stderr.write('Loading statistics from file.\n')
-        plot_intervals = get_most_signif_regions(
-            None, None, test_type, num_bases,
-            num_regions, qval_thresh, min_test_vals, stats_fn,
-            fishers_method_offset)
+        all_stats = nanoraw_stats.parse_stats(stats_fn)
 
     if VERBOSE: sys.stderr.write('Parsing files.\n')
     raw_read_coverage1 = parse_fast5s(
@@ -1469,11 +1457,12 @@ def plot_most_signif(
 
     if calc_stats:
         if VERBOSE: sys.stderr.write('Calculating statistics.\n')
-        plot_intervals = get_most_signif_regions(
-            raw_read_coverage1, raw_read_coverage2, test_type, num_bases,
-            num_regions, qval_thresh, min_test_vals, stats_fn,
-            fishers_method_offset)
+        all_stats = nanoraw_stats.get_all_significance(
+            raw_read_coverage1, raw_read_coverage2, test_type,
+            min_test_vals, stats_fn, fishers_method_offset)
 
+    plot_intervals = get_most_signif_regions(
+        all_stats, num_bases, num_regions, qval_thresh)
     plot_two_samples(
         plot_intervals, raw_read_coverage1, raw_read_coverage2,
         num_bases, overplot_thresh, overplot_type, corrected_group,
@@ -1610,10 +1599,7 @@ def write_most_signif(
     calc_stats = stats_fn is None or not os.path.isfile(stats_fn)
     if not calc_stats:
         if VERBOSE: sys.stderr.write('Loading statistics from file.\n')
-        plot_intervals = get_most_signif_regions(
-            None, None, test_type, num_bases,
-            num_regions, qval_thresh, min_test_vals, stats_fn,
-            fishers_method_offset)
+        all_stats = nanoraw_stats.parse_stats(stats_fn)
 
     if VERBOSE: sys.stderr.write('Parsing files.\n')
     raw_read_coverage1 = parse_fast5s(
@@ -1625,11 +1611,12 @@ def write_most_signif(
 
     if calc_stats:
         if VERBOSE: sys.stderr.write('Calculating statistics.\n')
-        plot_intervals = get_most_signif_regions(
-            raw_read_coverage1, raw_read_coverage2, test_type, num_bases,
-            num_regions, qval_thresh, min_test_vals, stats_fn,
-            fishers_method_offset)
+        all_stats = nanoraw_stats.get_all_significance(
+            raw_read_coverage1, raw_read_coverage2, test_type,
+            min_test_vals, stats_fn, fishers_method_offset)
 
+    plot_intervals = get_most_signif_regions(
+        all_stats, num_bases, num_regions, qval_thresh)
     if fasta_fn is None:
         reg_seqs = get_region_sequences(
             plot_intervals, raw_read_coverage1, raw_read_coverage2,
@@ -1688,10 +1675,7 @@ def cluster_most_signif(
     calc_stats = stats_fn is None or not os.path.isfile(stats_fn)
     if not calc_stats:
         if VERBOSE: sys.stderr.write('Loading statistics from file.\n')
-        plot_intervals = get_most_signif_regions(
-            None, None, test_type, num_bases,
-            num_regions, qval_thresh, min_test_vals, stats_fn,
-            fishers_method_offset)
+        all_stats = nanoraw_stats.parse_stats(stats_fn)
 
     if VERBOSE: sys.stderr.write('Parsing files.\n')
     raw_read_coverage1 = parse_fast5s(
@@ -1713,10 +1697,12 @@ def cluster_most_signif(
 
     if calc_stats:
         if VERBOSE: sys.stderr.write('Calculating statistics.\n')
-        plot_intervals = get_most_signif_regions(
-            raw_read_coverage1, raw_read_coverage2, test_type, num_bases,
-            num_regions, qval_thresh, min_test_vals, stats_fn,
-            fishers_method_offset)
+        all_stats = nanoraw_stats.get_all_significance(
+            raw_read_coverage1, raw_read_coverage2, test_type,
+            min_test_vals, stats_fn, fishers_method_offset)
+
+    plot_intervals = get_most_signif_regions(
+        all_stats, num_bases, num_regions, qval_thresh)
 
     # unique genomic regions filter
     uniq_p_intervals = []
