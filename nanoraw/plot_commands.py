@@ -17,7 +17,7 @@ from pkg_resources import resource_string
 import nanoraw_stats
 from nanoraw_helper import (
     normalize_raw_signal, parse_fast5s, parse_fasta, rev_comp,
-    parse_obs_filter, filter_reads, get_base_means)
+    parse_motif, parse_obs_filter, filter_reads, get_base_means)
 
 VERBOSE = False
 
@@ -1488,17 +1488,6 @@ def get_region_sequences(
 
     return zip(zip(*merged_reg_data)[0], all_reg_base_data)
 
-def parse_motif(motif):
-    invalid_chars = re.findall('[^ACGTBDHKMNRSVWY]', motif)
-    if len(invalid_chars) > 0:
-       sys.stderr.write(
-           '********* ERROR ********* Invalid characters in motif: ' +
-           ', '.join(invalid_chars) + ' *********\n')
-       sys.exit()
-
-    return re.compile(''.join(
-        SINGLE_LETTER_CODE[letter] for letter in motif))
-
 def plot_kmer_centered_signif(
         files1, files2, num_regions, corrected_group, basecall_subgroups,
         overplot_thresh, overplot_type, pdf_fn, motif, context_width,
@@ -1643,30 +1632,6 @@ def write_most_signif(
 
     return
 
-def sliding_window_dist(sig_diffs1, sig_diffs2, num_bases):
-    return np.sqrt(min(np.sum(np.square(
-        sig_diffs1[i1:i1+num_bases] - sig_diffs2[i2:i2+num_bases]))
-                       for i1 in range(len(sig_diffs1) - num_bases)
-                       for i2 in range(len(sig_diffs2) - num_bases)))
-
-def euclidian_dist(sig_diffs1, sig_diffs2):
-    return np.sqrt(np.sum(np.square(sig_diffs1 - sig_diffs2)))
-
-def get_pairwise_dists(reg_sig_diffs, index_q, dists_q, num_bases):
-    while not index_q.empty():
-        try:
-            index = index_q.get(block=False)
-        except Queue.Empty:
-            break
-
-        row_dists = np.array(
-            [euclidian_dist(reg_sig_diffs[index], reg_sig_diffs[j])
-             for j in range(0,index+1)] +
-            [0 for _ in range(index+1, len(reg_sig_diffs))])
-        dists_q.put((index, row_dists))
-
-    return
-
 def cluster_most_signif(
         files1, files2, num_regions, qval_thresh, corrected_group,
         basecall_subgroups, pdf_fn, num_bases, test_type, obs_filter,
@@ -1733,14 +1698,24 @@ def cluster_most_signif(
                 for p_int, (chrm, start, strand, reg_name)
                 in uniq_p_intervals]
 
+    if VERBOSE: sys.stderr.write('Getting base signal.\n')
+    chrm_sizes = dict(
+        (chrm, max(
+            [r_data.end for r_data in raw_read_coverage1[(chrm, '+')] +
+             raw_read_coverage1[(chrm, '-')]] +
+            [r_data.end for r_data in raw_read_coverage2[(chrm, '+')] +
+             raw_read_coverage2[(chrm, '-')]]))
+        for chrm in zip(*set(raw_read_coverage1).intersection(
+                raw_read_coverage2))[0])
+
+    base_means1 = get_base_means(raw_read_coverage1, chrm_sizes)
+    base_means2 = get_base_means(raw_read_coverage2, chrm_sizes)
+
     if VERBOSE: sys.stderr.write('Getting region signal difference.\n')
-    # TODO: removed base events function so this no longer works
-    # main functions removed for now
     reg_sig_diffs = [
-        np.array([
-            np.median(base_events1[(chrm, strand)][pos]) -
-            np.median(base_events2[(chrm, strand)][pos])
-            for pos in range(start, start + num_bases)])
+        np.nan_to_num(
+            base_means1[(chrm, strand)][start:start+num_bases] -
+            base_means2[(chrm, strand)][start:start+num_bases])
         for chrm, start, strand, _ in zip(*uniq_p_intervals)[1]]
 
     # some code to output reg signal for discovery plotting
@@ -1762,7 +1737,8 @@ def cluster_most_signif(
     args = (reg_sig_diffs, index_q, dists_q, num_bases)
     processes = []
     for p_id in xrange(num_processes):
-        p = mp.Process(target=get_pairwise_dists, args=args)
+        p = mp.Process(target=nanoraw_stats.get_pairwise_dists,
+                       args=args)
         p.start()
         processes.append(p)
 

@@ -34,6 +34,17 @@ def comp_base(base):
 def rev_comp(seq):
     return ''.join(comp_base(b) for b in seq[::-1])
 
+def parse_motif(motif):
+    invalid_chars = re.findall('[^ACGTBDHKMNRSVWY]', motif)
+    if len(invalid_chars) > 0:
+       sys.stderr.write(
+           '********* ERROR ********* Invalid characters in motif: ' +
+           ', '.join(invalid_chars) + ' *********\n')
+       sys.exit()
+
+    return re.compile(''.join(
+        SINGLE_LETTER_CODE[letter] for letter in motif))
+
 def parse_obs_filter(obs_filter):
     if obs_filter is None:
         return None

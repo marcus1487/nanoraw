@@ -181,6 +181,33 @@ def parse_stats(stats_fn):
 
     return sorted(all_stats)
 
+
+# functions for distances between event means
+def sliding_window_dist(sig_diffs1, sig_diffs2, num_bases):
+    return np.sqrt(min(np.sum(np.square(
+        sig_diffs1[i1:i1+num_bases] - sig_diffs2[i2:i2+num_bases]))
+                       for i1 in range(len(sig_diffs1) - num_bases)
+                       for i2 in range(len(sig_diffs2) - num_bases)))
+
+def euclidian_dist(sig_diffs1, sig_diffs2):
+    return np.sqrt(np.sum(np.square(sig_diffs1 - sig_diffs2)))
+
+def get_pairwise_dists(reg_sig_diffs, index_q, dists_q, num_bases):
+    while not index_q.empty():
+        try:
+            index = index_q.get(block=False)
+        except Queue.Empty:
+            break
+
+        row_dists = np.array(
+            [euclidian_dist(reg_sig_diffs[index], reg_sig_diffs[j])
+             for j in range(0,index+1)] +
+            [0 for _ in range(index+1, len(reg_sig_diffs))])
+        dists_q.put((index, row_dists))
+
+    return
+
+
 if __name__ == '__main__':
     raise NotImplementedError, (
         'This is a module. See commands with `nanoraw -h`')

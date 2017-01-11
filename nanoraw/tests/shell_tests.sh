@@ -128,14 +128,14 @@ nanoraw plot_multi_correction --fast5-basedirs $g1Dir \
         --genome-locations $strandGenomeLocs
 
 printf "\n\n********* Testing other plotting commands **********\n"
-#nanoraw cluster_most_significant --fast5-basedirs $g1Dir \
-#        --fast5-basedirs2 $g2Dir --2d \
-#        --genome-fasta $genomeFn --num-regions 100
-#nanoraw cluster_most_significant --fast5-basedirs $g1Dir \
-#        --fast5-basedirs2 $g2Dir --2d \
-#        --genome-fasta $genomeFn --num-regions 100 \
-#        --r-data-filename testing.cluster_data.RData \
-#        --statistics-filename testing.significance_values.txt
+nanoraw cluster_most_significant --fast5-basedirs $g1Dir \
+        --fast5-basedirs2 $g2Dir --2d \
+        --genome-fasta $genomeFn --num-regions 100
+nanoraw cluster_most_significant --fast5-basedirs $g1Dir \
+        --fast5-basedirs2 $g2Dir --2d \
+        --genome-fasta $genomeFn --num-regions 100 \
+        --r-data-filename testing.cluster_data.RData \
+        --statistics-filename testing.significance_values.txt
 nanoraw plot_kmer --fast5-basedirs $g1Dir
 nanoraw plot_kmer --fast5-basedirs $g1Dir --read-mean
 
