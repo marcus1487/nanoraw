@@ -11,7 +11,7 @@ from Bio import SeqIO
 
 readData = namedtuple('readData', (
     'start', 'end', 'segs', 'read_start_rel_to_raw',
-    'strand', 'means', 'stdevs', 'fn', 'corr_group'))
+    'strand', 'fn', 'corr_group'))
 channelInfo = namedtuple(
     'channelInfo',
     ('offset', 'range', 'digitisation', 'number', 'sampling_rate'))
@@ -74,9 +74,7 @@ def filter_reads(raw_read_coverage, obs_filter):
 
     return filt_raw_read_cov
 
-
-def parse_fast5s(files, corrected_group, basecall_subgroups,
-                 get_means=False, get_stdevs=False):
+def parse_fast5s(files, corrected_group, basecall_subgroups):
     raw_read_coverage = defaultdict(list)
     for read_fn, basecall_subgroup in [
             (fn, bc_grp)for fn in files
@@ -97,25 +95,26 @@ def parse_fast5s(files, corrected_group, basecall_subgroups,
             align_data = dict(corr_data['Alignment'].attrs.items())
             read_start_rel_to_raw = corr_data['Events'].attrs[
                 'read_start_rel_to_raw']
+            # TODO: add raw read end to FAST5 so Events does not have
+            # to be loaded at all
             event_data = corr_data['Events'].value
             events_end = event_data[-1]['start'] + event_data[-1][
                 'length']
             segs = np.concatenate([event_data['start'], [events_end,]])
-            base_means = event_data['norm_mean'] if get_means else None
-            base_stdevs = event_data['norm_stdev'] if get_stdevs \
-                          else None
         except:
             sys.stderr.write(
                 '********** WARNING: Corrupted corrected events in ' +
                 read_fn + '. ********\n')
             continue
-        raw_read_coverage[align_data['mapped_chrom']].append(
-            readData(
-                align_data['mapped_start'],
-                align_data['mapped_start'] + len(segs) - 1,
-                segs, read_start_rel_to_raw,
-                align_data['mapped_strand'], base_means, base_stdevs,
-                read_fn, corrected_group + '/' + basecall_subgroup))
+        raw_read_coverage[(
+            align_data['mapped_chrom'],
+            align_data['mapped_strand'])].append(
+                readData(
+                    align_data['mapped_start'],
+                    align_data['mapped_start'] + len(segs) - 1,
+                    segs, read_start_rel_to_raw,
+                    align_data['mapped_strand'], read_fn,
+                    corrected_group + '/' + basecall_subgroup))
 
         read_data.close()
 
@@ -209,3 +208,88 @@ def parse_fasta(fasta_fn):
 
     return fasta_records
 """
+
+def get_reads_base_means(chrm_strand_reads, chrm_len, rev_strand):
+    base_sums = np.zeros(chrm_len)
+    base_cov = np.zeros(chrm_len, dtype=np.int_)
+    for r_data in chrm_strand_reads:
+        # extract read means data so data across all chrms is not
+        # in RAM at one time
+        try:
+            read_data = h5py.File(r_data.fn, 'r')
+        except IOError:
+            # probably truncated file
+            continue
+        events_slot = '/'.join((
+            '/Analyses', r_data.corr_group, 'Events'))
+        if events_slot not in read_data:
+            continue
+        read_means = read_data[events_slot]['norm_mean']
+
+        if rev_strand:
+            read_means = read_means[::-1]
+        base_sums[r_data.start:
+                  r_data.start + len(read_means)] += read_means
+        base_cov[r_data.start:r_data.start + len(read_means)] += 1
+
+    return base_sums / base_cov
+
+def get_base_means(raw_read_coverage, chrm_sizes):
+    # ignore divide by zero errors that occur where there is no
+    # coverage. Need to correct nan values after subtracting two sets of
+    # coverage so leave as nan for now
+    old_err_settings = np.seterr(all='ignore')
+    # take the mean over all signal overlapping each base
+    mean_base_signal = {}
+    for chrm, strand in [(c, s) for c in chrm_sizes.keys()
+                         for s in ('+', '-')]:
+        mean_base_signal[(chrm, strand)] = get_reads_base_means(
+            raw_read_coverage[(chrm, strand)], chrm_sizes[chrm],
+            strand == '-')
+    _ = np.seterr(**old_err_settings)
+
+    return mean_base_signal
+
+def get_reads_events(chrm_strand_reads, rev_strand):
+    # note that this function assumes that all reads come from the same
+    # chromosome and strand
+    chrm_strand_base_means = []
+    for r_data in chrm_strand_reads:
+        # extract read means data so data across all chrms is not
+        # in RAM at one time
+        try:
+            read_data = h5py.File(r_data.fn, 'r')
+        except IOError:
+            # probably truncated file
+            continue
+        events_slot = '/'.join((
+            '/Analyses', r_data.corr_group, 'Events'))
+        if events_slot not in read_data:
+            continue
+        read_means = read_data[events_slot]['norm_mean']
+        if rev_strand:
+            read_means = read_means[::-1]
+        chrm_strand_base_means.append((
+            read_means, r_data.start, r_data.end))
+
+    if len(chrm_strand_base_means) == 0: return None
+
+    chrm_signal = np.concatenate(zip(*chrm_strand_base_means)[0])
+    chrm_pos = np.concatenate(
+        [np.arange(r_data[1], r_data[2])
+         for r_data in chrm_strand_base_means])
+    # get order of all bases from position array
+    as_chrm_pos = np.argsort(chrm_pos)
+    # then sort the signal array by genomic position and
+    # split into event means by base
+    chrm_strand_base_events = dict(zip(
+        np.unique(chrm_pos[as_chrm_pos]),
+        np.split(chrm_signal[as_chrm_pos], np.where(
+            np.concatenate([[0,], np.diff(
+                chrm_pos[as_chrm_pos])]) > 0)[0])))
+
+    return chrm_strand_base_events
+
+if __name__ == '__main__':
+    raise NotImplementedError, (
+        'This is a module. See commands with `nanoraw -h`')

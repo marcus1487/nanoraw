@@ -5,6 +5,8 @@ import numpy as np
 from scipy import stats
 from collections import defaultdict
 
+from nanoraw_helper import get_reads_events
+
 def correct_multiple_testing(pvals):
     """ Use FDR Benjamini-Hochberg multiple testing correction
     """
@@ -66,41 +68,48 @@ def mann_whitney_u_test(samp1, samp2):
     return pval
 
 def get_all_significance(
-        base_events1, base_events2, test_type, min_test_vals,
+        raw_read_coverage1, raw_read_coverage2, test_type, min_test_vals,
         all_stats_fn, fishers_method_offset):
     if VERBOSE: sys.stderr.write(
             'Test significance of difference in base signal.\n')
     # get num_region most significantly different regions from
     # each chrm then find global most signif after
     position_pvals = []
-    for chrm_strand in set(base_events1).intersection(base_events2):
+    for chrm_strand in set(raw_read_coverage1).intersection(
+            raw_read_coverage2):
         chrm, strand = chrm_strand
+        # get base events across all reads per chromosome/strand
+        # so that all events aren't stored in RAM
+        chrm_strand_base_events1 = get_reads_events(
+            raw_read_coverage1[chrm_strand], strand == '-')
+        chrm_strand_base_events2 = get_reads_events(
+            raw_read_coverage2[chrm_strand], strand == '-')
         if test_type == 'ttest':
             chrm_pvals = [
                 (np.abs(stats.ttest_ind(
-                    base_events1[chrm_strand][pos],
-                    base_events2[chrm_strand][pos])[1]), pos,
-                base_events1[chrm_strand][pos].shape[0],
-                base_events2[chrm_strand][pos].shape[0])
+                    chrm_strand_base_events1[pos],
+                    chrm_strand_base_events2[pos])[1]), pos,
+                chrm_strand_base_events1[pos].shape[0],
+                chrm_strand_base_events2[pos].shape[0])
                 for pos in sorted(set(
-                    base_events1[chrm_strand]).intersection(
-                    base_events2[chrm_strand]))
-                if min(base_events1[chrm_strand][pos].shape[0],
-                       base_events2[chrm_strand][pos].shape[0])
+                    chrm_strand_base_events1).intersection(
+                    chrm_strand_base_events2))
+                if min(chrm_strand_base_events1[pos].shape[0],
+                       chrm_strand_base_events2[pos].shape[0])
                 >= min_test_vals]
         elif test_type == 'mw_utest':
             # store z-scores from u-test
             chrm_pvals = [
                 (mann_whitney_u_test(
-                    base_events1[chrm_strand][pos],
-                    base_events2[chrm_strand][pos]), pos,
-                base_events1[chrm_strand][pos].shape[0],
-                base_events2[chrm_strand][pos].shape[0])
+                    chrm_strand_base_events1[pos],
+                    chrm_strand_base_events2[pos]), pos,
+                chrm_strand_base_events1[pos].shape[0],
+                chrm_strand_base_events2[pos].shape[0])
                 for pos in sorted(set(
-                    base_events1[chrm_strand]).intersection(
-                        base_events2[chrm_strand]))
-                if min(base_events1[chrm_strand][pos].shape[0],
-                       base_events2[chrm_strand][pos].shape[0])
+                    chrm_strand_base_events1).intersection(
+                        chrm_strand_base_events2))
+                if min(chrm_strand_base_events1[pos].shape[0],
+                       chrm_strand_base_events2[pos].shape[0])
                 >= min_test_vals]
         else:
             raise RuntimeError, ('Invalid significance test type ' +
@@ -171,3 +180,7 @@ def parse_stats(stats_fn):
             sys.exit()
 
     return sorted(all_stats)
+
+if __name__ == '__main__':
+    raise NotImplementedError, (
+        'This is a module. See commands with `nanoraw -h`')

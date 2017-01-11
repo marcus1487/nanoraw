@@ -17,7 +17,7 @@ from pkg_resources import resource_string
 import nanoraw_stats
 from nanoraw_helper import (
     normalize_raw_signal, parse_fast5s, parse_fasta, rev_comp,
-    parse_obs_filter, filter_reads)
+    parse_obs_filter, filter_reads, get_base_means)
 
 VERBOSE = False
 
@@ -650,30 +650,12 @@ def get_base_r_data(all_reg_data, all_reg_base_data):
 def get_coverage(raw_read_coverage):
     if VERBOSE: sys.stderr.write('Calculating read coverage.\n')
     read_coverage = {}
-    for chrom, reads_data in raw_read_coverage.items():
+    for (chrm, strand), reads_data in raw_read_coverage.items():
         max_end = max(r_data.end for r_data in reads_data)
-        chrom_coverage = np.zeros(max_end, dtype=np.int_)
+        chrm_coverage = np.zeros(max_end, dtype=np.int_)
         for r_data in reads_data:
-            chrom_coverage[r_data.start:r_data.end] += 1
-        read_coverage[chrom] = chrom_coverage
-
-    return read_coverage
-
-def get_strand_coverage(raw_read_coverage):
-    if VERBOSE: sys.stderr.write('Calculating read coverage.\n')
-    read_coverage = {}
-    for chrom, reads_data in raw_read_coverage.items():
-        max_end = max(r_data.end for r_data in reads_data)
-        plus_chrom_coverage = np.zeros(max_end, dtype=np.int_)
-        minus_chrom_coverage = np.zeros(max_end, dtype=np.int_)
-        for r_data in reads_data:
-            if r_data.strand == '+':
-                plus_chrom_coverage[r_data.start:r_data.end] += 1
-            else:
-                minus_chrom_coverage[r_data.start:r_data.end] += 1
-
-        read_coverage[(chrom, '+')] = plus_chrom_coverage
-        read_coverage[(chrom, '-')] = minus_chrom_coverage
+            chrm_coverage[r_data.start:r_data.end] += 1
+        read_coverage[(chrm, strand)] = chrm_coverage
 
     return read_coverage
 
@@ -686,11 +668,12 @@ def get_region_reads(
         # note that this includes partial overlaps as these contribute
         # to coverage and other statistics so can't really restrict to
         # full coverage as previous versions of code did
-        all_reg_data.append((region_i, interval_start, chrm, [
-            r_data for r_data in raw_read_coverage[chrm]
-            if not (r_data.start >= interval_start + num_bases or
-                    r_data.end < interval_start + 1)]
-                             if chrm in raw_read_coverage else []))
+        all_reg_data.append((
+            region_i, interval_start, chrm, [
+                r_data for r_data in raw_read_coverage[(chrm, strand)]
+                if not (r_data.start >= interval_start + num_bases or
+                        r_data.end < interval_start + 1)]
+            if (chrm, strand) in raw_read_coverage else []))
 
     no_cov_regions = [
         (len(r_data) == 0, chrm + ':' + str(start))
@@ -712,65 +695,6 @@ def get_region_reads(
                        if no_cov]) + '\n')
 
     return all_reg_data, plot_intervals
-
-def get_base_means(raw_read_coverage, chrm_sizes):
-    # create lists for each base to contain all signal segments
-    # which overlap that base
-    base_signal = dict(
-        ((chrm, strand), {'base_sums':np.zeros(chrm_len),
-                          'base_cov':np.zeros(chrm_len, dtype=np.int_)})
-        for chrm, chrm_len in chrm_sizes.items()
-        for strand in ('+', '-'))
-
-    # calculate signal on each strand separately
-    for chrm in chrm_sizes.keys():
-        for r_data in raw_read_coverage[chrm]:
-            strand = r_data.strand
-            read_means = (r_data.means if strand == '+'
-                          else r_data.means[::-1])
-            base_signal[(chrm, strand)]['base_sums'][
-                r_data.start:r_data.start +
-                len(read_means)] += read_means
-            base_signal[(chrm, strand)]['base_cov'][
-                r_data.start:r_data.start + len(read_means)] += 1
-
-    # take the mean over all signal overlapping each base
-    old_err_settings = np.seterr(all='ignore')
-    mean_base_signal = {}
-    for chrm_strand, chrm_sum_cov in base_signal.items():
-        # TODO: change to filtering NA values instead of setting to
-        # zero as this just finds regions with no coverage for
-        # pA or raw normalizarions
-        mean_base_signal[chrm_strand] = np.nan_to_num(
-            chrm_sum_cov['base_sums'] / chrm_sum_cov['base_cov'])
-    foo = np.seterr(**old_err_settings)
-
-    return mean_base_signal
-
-def get_base_events(raw_read_coverage, chrm_sizes):
-    base_events = {}
-    for chrm, strand in [(c, s) for c in chrm_sizes.keys()
-                         for s in ('+', '-')]:
-        reads = [
-            (r_data.means if strand == '+' else r_data.means[::-1],
-             r_data.start, r_data.end)
-            for r_data in raw_read_coverage[chrm]
-            if r_data.strand == strand]
-        if len(reads) == 0: continue
-        chrm_signal = np.concatenate(zip(*reads)[0])
-        chrm_pos = np.concatenate(
-            [np.arange(r_data[1], r_data[2]) for r_data in reads])
-        # get order of all bases from position array
-        as_chrm_pos = np.argsort(chrm_pos)
-        # then sort the signal array by genomic position and
-        # split into event means by base
-        base_events[(chrm, strand)] = dict(zip(
-            np.unique(chrm_pos[as_chrm_pos]),
-            np.split(chrm_signal[as_chrm_pos], np.where(
-                np.concatenate([[0,], np.diff(
-                    chrm_pos[as_chrm_pos])]) > 0)[0])))
-
-    return base_events
 
 
 
@@ -827,7 +751,7 @@ def plot_multi_corrections(
         genome_locations):
     raw_read_coverage = parse_fast5s(
         files, corrected_group, basecall_subgroups)
-    read_coverage = get_strand_coverage(raw_read_coverage)
+    read_coverage = get_coverage(raw_read_coverage)
     coverage_regions = []
     for chrom_strand, chrom_coverage in read_coverage.items():
         chrm_coverage_regions = [
@@ -891,7 +815,7 @@ def plot_multi_corrections(
         reg_num_reads = 0
         ## get num_reads_per_region reads from this region
         reg_reads = [
-            r_data for r_data in raw_read_coverage[chrm]
+            r_data for r_data in raw_read_coverage[(chrm, strand)]
             if r_data.start <= reg_center - (reg_width / 2.0) and
             r_data.end > reg_center + (reg_width / 2.0) and
             r_data.strand == strand]
@@ -1196,14 +1120,14 @@ def plot_max_coverage(
 
     if files2 is None:
         coverage_regions = []
-        for chrom, chrom_coverage in read_coverage.items():
+        for (chrom, strand), chrom_coverage in read_coverage.items():
             chrm_coverage_regions = [
                 (x, len(list(y))) for x, y in groupby(chrom_coverage)]
             coverage_regions.extend(zip(
                 zip(*chrm_coverage_regions)[0],
                 np.cumsum(np.insert(
                     zip(*chrm_coverage_regions)[1], 0, 0)),
-                repeat(chrom), repeat('')))
+                repeat(chrom), repeat(strand)))
 
             plot_intervals = zip(
                 ['{:03d}'.format(rn) for rn in range(num_regions)],
@@ -1222,10 +1146,10 @@ def plot_max_coverage(
         read_coverage2 = get_coverage(raw_read_coverage2)
         coverage_regions = []
         # only process chromosomes in both read groups
-        for chrom in set(read_coverage.keys()).intersection(
-                read_coverage2.keys()):
-            chrom_coverage = read_coverage[chrom]
-            chrom_coverage2 = read_coverage2[chrom]
+        for (chrom, strand) in set(read_coverage).intersection(
+                read_coverage2):
+            chrom_coverage = read_coverage[(chrom, strand)]
+            chrom_coverage2 = read_coverage2[(chrom, strand)]
             if chrom_coverage.shape[0] >= chrom_coverage2.shape[0]:
                 merged_chrom_cov = np.pad(
                     chrom_coverage2, (0,chrom_coverage.shape[0] -
@@ -1243,7 +1167,7 @@ def plot_max_coverage(
                 zip(*chrm_coverage_regions)[0],
                 np.cumsum(np.insert(
                     zip(*chrm_coverage_regions)[1], 0, 0)),
-                repeat(chrom), repeat('')))
+                repeat(chrom), repeat(strand)))
 
             plot_intervals = zip(
                 ['{:03d}'.format(rn) for rn in range(num_regions)],
@@ -1273,7 +1197,7 @@ def plot_genome_locations(
         ('{:03d}'.format(i), (
             chrm, max(0, int(int(pos) -
                              np.floor(num_bases / 2.0) - 1)),
-            '', '')) for i, (chrm, pos) in enumerate(
+            '+', '')) for i, (chrm, pos) in enumerate(
                 genome_locations)]
 
     if VERBOSE: sys.stderr.write('Parsing files.\n')
@@ -1303,22 +1227,27 @@ def plot_kmer_centered(
     if VERBOSE: sys.stderr.write(
             'Identifying genomic k-mer locations.\n')
     fasta_records = parse_fasta(fasta_fn)
+    def get_kmer_locs(covered_chrms):
+        # TODO: convert to motif instead of kmer using parse_motif
+        # TODO: search over negative strand as well
+        kmer_locs = []
+        for chrm, seq in fasta_records.iteritems():
+            if chrm not in covered_chrms: continue
+            for kmer_loc in re.finditer(kmer, seq.seq.tostring()):
+                kmer_locs.append((chrm, kmer_loc.start()))
 
-    # TODO: convert to motif instead of kmer using parse_motif function
-    kmer_locs = []
-    for chrm, seq in fasta_records.iteritems():
-        for kmer_loc in re.finditer(kmer, seq.seq.tostring()):
-            kmer_locs.append((chrm, kmer_loc.start()))
+        if len(kmer_locs) == 0:
+            sys.stderr.write(
+                'Kmer (' + kmer + ') not found in genome.\n')
+            sys.exit()
+        elif len(kmer_locs) < num_regions:
+            sys.stderr.write(
+                'WARNING: Kmer (' + kmer + ') only found ' +
+                str(len(kmer_locs)) + 'times in genome.\n')
+            num_region = len(kmer_locs)
+        np.random.shuffle(kmer_locs)
 
-    if len(kmer_locs) == 0:
-        sys.stderr.write('Kmer (' + kmer + ') not found in genome.\n')
-        sys.exit()
-    elif len(kmer_locs) < num_regions:
-        sys.stderr.write(
-            'WARNING: Kmer (' + kmer + ') only found ' +
-            str(len(kmer_locs)) + 'times in genome.\n')
-        num_region = len(kmer_locs)
-    np.random.shuffle(kmer_locs)
+        return kmer_locs
 
     if VERBOSE: sys.stderr.write('Parsing files.\n')
     raw_read_coverage = parse_fast5s(
@@ -1331,6 +1260,12 @@ def plot_kmer_centered(
             files2, corrected_group, basecall_subgroups)
         raw_read_coverage2 = filter_reads(
             raw_read_coverage2, obs_filter)
+
+        covered_chrms = set(zip(*raw_read_coverage)[0]).intersection(
+            zip(*raw_read_coverage2)[0])
+        # filter out kmer_locs to chromosomes not covered
+        kmer_locs = get_kmer_locs(covered_chrms)
+
         if deepest_coverage:
             read_coverage2 = get_coverage(raw_read_coverage2)
         if deepest_coverage:
@@ -1338,8 +1273,10 @@ def plot_kmer_centered(
                     'Finding deepest coverage regions.\n')
             def get_cov(chrm, pos):
                 try:
-                    return min(read_coverage[chrm][pos],
-                               read_coverage2[chrm][pos])
+                    return min(read_coverage[(chrm, '+')][pos],
+                               read_coverage[(chrm, '-')][pos],
+                               read_coverage2[(chrm, '+')][pos],
+                               read_coverage2[(chrm, '-')][pos])
                 except (IndexError, KeyError):
                     return 0
             kmer_locs_cov = sorted([
@@ -1355,37 +1292,40 @@ def plot_kmer_centered(
             plot_intervals = zip(
                 ['{:03d}'.format(rn) for rn in range(num_regions)],
                 ((chrm, max(pos - int(
-                    (num_bases - len(kmer) + 1) / 2.0), 0), '', '')
+                    (num_bases - len(kmer) + 1) / 2.0), 0), '+', '')
                  for cov, chrm, pos in kmer_locs_cov))
         else:
-            # only look at chromosomes with coverage
-            covered_chrms = set(raw_read_coverage).intersection(
-                raw_read_coverage2)
-            kmer_locs = [(chrm, pos) for chrm, pos in kmer_locs
-                         if chrm in covered_chrms]
             # zip over iterator of regions that have at least a
             # read overlapping so we don't have to check all reads
             plot_intervals = zip(
                 ['{:03d}'.format(rn) for rn in range(num_regions)],
                 ((chrm, max(pos - int(
-                    (num_bases - len(kmer) + 1) / 2.0), 0), '', '')
+                    (num_bases - len(kmer) + 1) / 2.0), 0), strand, '')
                  for chrm, pos in kmer_locs
+                 for strand in ('+', '-')
                  if (any(r_data.start < pos < r_data.end
-                         for r_data in raw_read_coverage[chrm]) and
+                         for r_data in raw_read_coverage[
+                                 (chrm, strand)]) and
                      any(r_data2.start < pos < r_data2.end
-                         for r_data2 in raw_read_coverage2[chrm]))))
+                         for r_data2 in raw_read_coverage2[
+                                 (chrm, strand)]))))
 
         plot_two_samples(
             plot_intervals, raw_read_coverage, raw_read_coverage2,
             num_bases, overplot_thresh, overplot_type, corrected_group,
             pdf_fn)
     else:
+        covered_chrms = set(zip(*raw_read_coverage)[0])
+        # filter out kmer_locs to chromosomes not covered
+        kmer_locs = get_kmer_locs(covered_chrms)
+
         if deepest_coverage:
             if VERBOSE: sys.stderr.write(
                     'Finding deepest coverage regions.\n')
             def get_cov(chrm, pos):
                 try:
-                    return read_coverage[chrm][pos]
+                    return min(read_coverage[(chrm, '+')][pos],
+                               read_coverage[(chrm, '-')][pos])
                 except IndexError, KeyError:
                     return 0
             kmer_locs_cov = [
@@ -1395,23 +1335,20 @@ def plot_kmer_centered(
             plot_intervals = zip(
                 ['{:03d}'.format(rn) for rn in range(num_regions)],
                 ((chrm, max(pos - int(
-                    (num_bases - len(kmer) + 1) / 2.0), 0), '', '')
+                    (num_bases - len(kmer) + 1) / 2.0), 0), '+', '')
                  for cov, chrm, pos in sorted(
                          kmer_locs_cov, reverse=True)))
         else:
-            # only look at chromosomes with coverage
-            covered_chrms = set(raw_read_coverage.keys())
-            kmer_locs = [(chrm, pos) for chrm, pos in kmer_locs
-                         if chrm in covered_chrms]
             # zip over iterator of regions that have at least a
             # read overlapping so we don't have to check all reads
             plot_intervals = zip(
                 ['{:03d}'.format(rn) for rn in range(num_regions)],
                 ((chrm, max(pos - int(
-                    (num_bases - len(kmer) + 1) / 2.0), 0), '', '')
+                    (num_bases - len(kmer) + 1) / 2.0), 0), '+', '')
                  for chrm, pos in kmer_locs
                  if any(r_data.start < pos < r_data.end
-                        for r_data in raw_read_coverage[chrm])))
+                        for r_data in raw_read_coverage[(chrm, '+')] +
+                        raw_read_coverage[(chrm, '-')])))
 
         plot_single_sample(
             plot_intervals, raw_read_coverage, num_bases,
@@ -1425,17 +1362,20 @@ def plot_max_diff(
         obs_filter):
     if VERBOSE: sys.stderr.write('Parsing files.\n')
     raw_read_coverage1 = parse_fast5s(
-        files1, corrected_group, basecall_subgroups, True)
+        files1, corrected_group, basecall_subgroups)
     raw_read_coverage2 = parse_fast5s(
-        files2, corrected_group, basecall_subgroups, True)
+        files2, corrected_group, basecall_subgroups)
     raw_read_coverage1 = filter_reads(raw_read_coverage1, obs_filter)
     raw_read_coverage2 = filter_reads(raw_read_coverage2, obs_filter)
 
-    chrm_sizes = dict((chrm, max(
-        [r_data.end for r_data in raw_read_coverage1[chrm]] +
-        [r_data.end for r_data in raw_read_coverage2[chrm]]))
-                      for chrm in set(raw_read_coverage1).intersection(
-                          raw_read_coverage2))
+    chrm_sizes = dict(
+        (chrm, max(
+            [r_data.end for r_data in raw_read_coverage1[(chrm, '+')] +
+             raw_read_coverage1[(chrm, '-')]] +
+            [r_data.end for r_data in raw_read_coverage2[(chrm, '+')] +
+             raw_read_coverage2[(chrm, '-')]]))
+        for chrm in zip(*set(raw_read_coverage1).intersection(
+                raw_read_coverage2))[0])
 
     if VERBOSE: sys.stderr.write('Getting base signal.\n')
     base_means1 = get_base_means(raw_read_coverage1, chrm_sizes)
@@ -1448,9 +1388,11 @@ def plot_max_diff(
     largest_diff_indices = []
     for chrm, chrm_size in chrm_sizes.items():
         for strand in ('+', '-'):
-            chrm_diffs = np.concatenate([
+            # calculate difference and set no coverage (nan) values
+            # to zero
+            chrm_diffs = np.nan_to_num(
                 np.abs(base_means1[(chrm, strand)] -
-                       base_means2[(chrm, strand)])])
+                       base_means2[(chrm, strand)]))
             chrm_max_diff_regs = np.argsort(
                 chrm_diffs)[::-1][:num_regions]
             largest_diff_indices.extend((
@@ -1507,35 +1449,28 @@ def plot_most_signif(
         overplot_thresh, pdf_fn, seqs_fn, num_bases, overplot_type,
         test_type, obs_filter, qval_thresh, min_test_vals, stats_fn,
         fishers_method_offset):
-    if VERBOSE: sys.stderr.write('Parsing files.\n')
     calc_stats = stats_fn is None or not os.path.isfile(stats_fn)
+    # if we are loading stats from file. Try to load the plotting
+    # regions before calculating raw read coverage
+    if not calc_stats:
+        if VERBOSE: sys.stderr.write('Loading statistics from file.\n')
+        plot_intervals = get_most_signif_regions(
+            None, None, test_type, num_bases,
+            num_regions, qval_thresh, min_test_vals, stats_fn,
+            fishers_method_offset)
 
+    if VERBOSE: sys.stderr.write('Parsing files.\n')
     raw_read_coverage1 = parse_fast5s(
-        files1, corrected_group, basecall_subgroups, calc_stats)
+        files1, corrected_group, basecall_subgroups)
     raw_read_coverage2 = parse_fast5s(
-        files2, corrected_group, basecall_subgroups, calc_stats)
+        files2, corrected_group, basecall_subgroups)
     raw_read_coverage1 = filter_reads(raw_read_coverage1, obs_filter)
     raw_read_coverage2 = filter_reads(raw_read_coverage2, obs_filter)
 
     if calc_stats:
-        chrm_sizes = dict((chrm, max(
-            [r_data.end for r_data in raw_read_coverage1[chrm]] +
-            [r_data.end for r_data in raw_read_coverage2[chrm]]))
-                          for chrm in set(
-                              raw_read_coverage1).intersection(
-                                  raw_read_coverage2))
-
-        if VERBOSE: sys.stderr.write('Getting base signal.\n')
-        base_events1 = get_base_events(raw_read_coverage1, chrm_sizes)
-        base_events2 = get_base_events(raw_read_coverage2, chrm_sizes)
-
+        if VERBOSE: sys.stderr.write('Calculating statistics.\n')
         plot_intervals = get_most_signif_regions(
-            base_events1, base_events2, test_type, num_bases,
-            num_regions, qval_thresh, min_test_vals, stats_fn,
-            fishers_method_offset)
-    else:
-        plot_intervals = get_most_signif_regions(
-            None, None, test_type, num_bases,
+            raw_read_coverage1, raw_read_coverage2, test_type, num_bases,
             num_regions, qval_thresh, min_test_vals, stats_fn,
             fishers_method_offset)
 
@@ -1579,36 +1514,28 @@ def plot_kmer_centered_signif(
         files1, files2, num_regions, corrected_group, basecall_subgroups,
         overplot_thresh, overplot_type, pdf_fn, motif, context_width,
         test_type, obs_filter, min_test_vals, num_stat_values, stats_fn,
-        fasta_fn, fishers_method_offset):
-    if VERBOSE: sys.stderr.write('Parsing files.\n')
+        fishers_method_offset):
     motif_pat = parse_motif(motif)
     motif_len = len(motif)
 
     calc_stats = stats_fn is None or not os.path.isfile(stats_fn)
+    if not calc_stats:
+        if VERBOSE: sys.stderr.write('Loading statistics from file.\n')
+        all_stats = nanoraw_stats.parse_stats(stats_fn)
+
+    if VERBOSE: sys.stderr.write('Parsing files.\n')
     raw_read_coverage1 = parse_fast5s(
-        files1, corrected_group, basecall_subgroups, calc_stats)
+        files1, corrected_group, basecall_subgroups)
     raw_read_coverage2 = parse_fast5s(
-        files2, corrected_group, basecall_subgroups, calc_stats)
+        files2, corrected_group, basecall_subgroups)
     raw_read_coverage1 = filter_reads(raw_read_coverage1, obs_filter)
     raw_read_coverage2 = filter_reads(raw_read_coverage2, obs_filter)
 
     if calc_stats:
-        chrm_sizes = dict((chrm, max(
-            [r_data.end for r_data in raw_read_coverage1[chrm]] +
-            [r_data.end for r_data in raw_read_coverage2[chrm]]))
-                          for chrm in set(
-                              raw_read_coverage1).intersection(
-                                  raw_read_coverage2))
-
-        if VERBOSE: sys.stderr.write('Getting base signal.\n')
-        base_events1 = get_base_events(raw_read_coverage1, chrm_sizes)
-        base_events2 = get_base_events(raw_read_coverage2, chrm_sizes)
-
+        if VERBOSE: sys.stderr.write('Calculating statistics.\n')
         all_stats = nanoraw_stats.get_all_significance(
-            base_events1, base_events2, test_type, min_test_vals,
-            stats_fn, fishers_method_offset)
-    else:
-        all_stats = nanoraw_stats.parse_stats(stats_fn)
+            raw_read_coverage1, raw_read_coverage2, test_type,
+            min_test_vals, stats_fn, fishers_method_offset)
 
     all_stats_dict = dict(
         ((chrm, strand, pos), (pval, qval))
@@ -1619,23 +1546,12 @@ def plot_kmer_centered_signif(
 
     if VERBOSE: sys.stderr.write(
             'Finding signficant regions with motif.\n')
-    if fasta_fn is not None:
-        fasta_records = parse_fasta(fasta_fn)
     motif_regions_data = []
     for pval, qval, pos, chrm, strand, cov1, cov2 in all_stats:
-        if fasta_fn is None:
-            reg_seq = get_region_sequences(
-                [('0', (chrm, pos - motif_len + 1, strand, pval)),],
-                raw_read_coverage1, raw_read_coverage2,
-                (motif_len * 2) - 1, corrected_group)[0][1]
-        else:
-            # skip regions not found in fasta to allow for selection
-            # of reads only from one chromosome/organism
-            try:
-                reg_seq = fasta_records[chrm][
-                    pos-motif_len+1:pos+motif_len].seq.tostring()
-            except (KeyError, IndexError):
-                continue
+        reg_seq = get_region_sequences(
+            [('0', (chrm, pos - motif_len + 1, strand, pval)),],
+            raw_read_coverage1, raw_read_coverage2,
+            (motif_len * 2) - 1, corrected_group)[0][1]
 
         reg_match = motif_pat.search(reg_seq)
         if reg_match:
@@ -1691,35 +1607,26 @@ def write_most_signif(
         files1, files2, num_regions, qval_thresh, corrected_group,
         basecall_subgroups, seqs_fn, num_bases, test_type, obs_filter,
         min_test_vals, stats_fn, fasta_fn, fishers_method_offset):
-    if VERBOSE: sys.stderr.write('Parsing files.\n')
     calc_stats = stats_fn is None or not os.path.isfile(stats_fn)
+    if not calc_stats:
+        if VERBOSE: sys.stderr.write('Loading statistics from file.\n')
+        plot_intervals = get_most_signif_regions(
+            None, None, test_type, num_bases,
+            num_regions, qval_thresh, min_test_vals, stats_fn,
+            fishers_method_offset)
 
+    if VERBOSE: sys.stderr.write('Parsing files.\n')
     raw_read_coverage1 = parse_fast5s(
-        files1, corrected_group, basecall_subgroups, calc_stats)
+        files1, corrected_group, basecall_subgroups)
     raw_read_coverage2 = parse_fast5s(
-        files2, corrected_group, basecall_subgroups, calc_stats)
+        files2, corrected_group, basecall_subgroups)
     raw_read_coverage1 = filter_reads(raw_read_coverage1, obs_filter)
     raw_read_coverage2 = filter_reads(raw_read_coverage2, obs_filter)
 
     if calc_stats:
-        chrm_sizes = dict((chrm, max(
-            [r_data.end for r_data in raw_read_coverage1[chrm]] +
-            [r_data.end for r_data in raw_read_coverage2[chrm]]))
-                          for chrm in set(
-                              raw_read_coverage1).intersection(
-                                  raw_read_coverage2))
-
-        if VERBOSE: sys.stderr.write('Getting base signal.\n')
-        base_events1 = get_base_events(raw_read_coverage1, chrm_sizes)
-        base_events2 = get_base_events(raw_read_coverage2, chrm_sizes)
-
+        if VERBOSE: sys.stderr.write('Calculating statistics.\n')
         plot_intervals = get_most_signif_regions(
-            base_events1, base_events2, test_type, num_bases,
-            num_regions, qval_thresh, min_test_vals, stats_fn,
-            fishers_method_offset)
-    else:
-        plot_intervals = get_most_signif_regions(
-            None, None, test_type, num_bases,
+            raw_read_coverage1, raw_read_coverage2, test_type, num_bases,
             num_regions, qval_thresh, min_test_vals, stats_fn,
             fishers_method_offset)
 
@@ -1778,32 +1685,39 @@ def cluster_most_signif(
         basecall_subgroups, pdf_fn, num_bases, test_type, obs_filter,
         min_test_vals, r_struct_fn, num_processes, fasta_fn, stats_fn,
         fishers_method_offset):
+    calc_stats = stats_fn is None or not os.path.isfile(stats_fn)
+    if not calc_stats:
+        if VERBOSE: sys.stderr.write('Loading statistics from file.\n')
+        plot_intervals = get_most_signif_regions(
+            None, None, test_type, num_bases,
+            num_regions, qval_thresh, min_test_vals, stats_fn,
+            fishers_method_offset)
+
     if VERBOSE: sys.stderr.write('Parsing files.\n')
     raw_read_coverage1 = parse_fast5s(
-        files1, corrected_group, basecall_subgroups, True)
+        files1, corrected_group, basecall_subgroups)
     raw_read_coverage2 = parse_fast5s(
-        files2, corrected_group, basecall_subgroups, True)
+        files2, corrected_group, basecall_subgroups)
     raw_read_coverage1 = filter_reads(raw_read_coverage1, obs_filter)
     raw_read_coverage2 = filter_reads(raw_read_coverage2, obs_filter)
 
-    chrm_sizes = dict((chrm, max(
-        [r_data.end for r_data in raw_read_coverage1[chrm]] +
-        [r_data.end for r_data in raw_read_coverage2[chrm]]))
-                      for chrm in set(raw_read_coverage1).intersection(
-                          raw_read_coverage2))
-
-    if VERBOSE: sys.stderr.write('Getting base signal.\n')
-    base_events1 = get_base_events(raw_read_coverage1, chrm_sizes)
-    base_events2 = get_base_events(raw_read_coverage2, chrm_sizes)
+    # calculate positions covered by at least one read in both sets
+    read_coverage1 = get_coverage(raw_read_coverage1)
+    read_coverage2 = get_coverage(raw_read_coverage2)
     covered_poss = dict(
-        (chrm_strand, set(base_events1[chrm_strand]).intersection(
-            base_events2[chrm_strand]))
-        for chrm_strand in set(base_events1).intersection(base_events2))
+        (chrm_strand, set(
+            np.where(read_coverage1[chrm_strand] > 0)[0]).intersection(
+                np.where(read_coverage2[chrm_strand] > 0)[0]))
+        for chrm_strand in set(read_coverage1).intersection(
+                read_coverage2))
 
-    plot_intervals = get_most_signif_regions(
-        base_events1, base_events2, test_type, num_bases,
-        num_regions, qval_thresh, min_test_vals, stats_fn,
-        fishers_method_offset)
+    if calc_stats:
+        if VERBOSE: sys.stderr.write('Calculating statistics.\n')
+        plot_intervals = get_most_signif_regions(
+            raw_read_coverage1, raw_read_coverage2, test_type, num_bases,
+            num_regions, qval_thresh, min_test_vals, stats_fn,
+            fishers_method_offset)
+
     # unique genomic regions filter
     uniq_p_intervals = []
     used_intervals = defaultdict(set)
@@ -1834,6 +1748,8 @@ def cluster_most_signif(
                 in uniq_p_intervals]
 
     if VERBOSE: sys.stderr.write('Getting region signal difference.\n')
+    # TODO: removed base events function so this no longer works
+    # main functions removed for now
     reg_sig_diffs = [
         np.array([
             np.median(base_events1[(chrm, strand)][pos]) -
@@ -2065,8 +1981,7 @@ def kmer_signif_diff_main(args):
         args.num_context, args.test_type,
         parse_obs_filter(args.obs_per_base_filter),
         args.minimum_test_reads, args.num_statistics,
-        args.statistics_filename, args.genome_fasta,
-        args.fishers_method_offset)
+        args.statistics_filename, args.fishers_method_offset)
 
     return
 
@@ -2109,4 +2024,4 @@ def cluster_signif_diff_main(args):
 
 if __name__ == '__main__':
     raise NotImplementedError, (
-        'This is a module. Run with `nanoraw plot_signal -h`')
+        'This is a module. See commands with `nanoraw -h`')

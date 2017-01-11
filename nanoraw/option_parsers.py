@@ -236,10 +236,11 @@ obsfilt_opt=('--obs-per-base-filter', {
     'pctl <200 obs and max <5k obs would be "99:200 100:5000".'})
 
 # write wiggle opts
-wigfn_opt=('--wiggle-filename', {
-    'default':'Nanopore_read_coverage.wig',
-    'help':"Output wiggle read coverage file. Note that this will " +
-    "also be the track name in the def line. Default: %(default)s"})
+wigfn_opt=('--wiggle-basename', {
+    'default':'Nanopore_read_coverage',
+    'help':"Output wiggle read coverage files (plus and minus " + \
+    "strand). Note that this will also be the track name in the " + \
+    "def line. Default: %(default)s"})
 
 # misc opts
 pdf_opt=('--pdf-filename', {
@@ -535,9 +536,6 @@ def get_signif_kmer_parser():
     testt_args.add_argument(testtype_opt[0], **testtype_opt[1])
     testt_args.add_argument(fmo_opt[0], **fmo_opt[1])
 
-    fasta_args = parser.add_argument_group('FASTA Sequence Argument')
-    fasta_args.add_argument(fasta_opt[0], **fasta_opt[1])
-
     misc_args = parser.add_argument_group('Miscellaneous Arguments')
     misc_args.add_argument(
         pdf_opt[0],
@@ -751,4 +749,5 @@ def get_kmer_dist_parser():
 
 
 if __name__ == '__main__':
-    raise NotImplementedError, 'This is a module.'
+    raise NotImplementedError, (
+        'This is a module. See commands with `nanoraw -h`')
