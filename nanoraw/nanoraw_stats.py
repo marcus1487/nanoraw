@@ -7,6 +7,8 @@ from collections import defaultdict
 
 from nanoraw_helper import get_reads_events
 
+VERBOSE = False
+
 def correct_multiple_testing(pvals):
     """ Use FDR Benjamini-Hochberg multiple testing correction
     """
@@ -151,6 +153,29 @@ def get_all_significance(
                     sorted(pos_stats)]) + '\n')
 
     return all_stats
+
+def get_most_signif_regions(all_stats, num_bases, num_regions,
+                            qval_thresh=None):
+    # applied threshold for scores on each chromosome, so now
+    # we include all here
+    if qval_thresh is not None:
+        num_regions = np.argmax(
+            [x > qval_thresh for x in zip(*all_stats)[1]])
+        if num_regions == 0:
+            sys.stderr.write(
+                '*' * 60 + '\nERROR: No regions identified q-value ' +
+                'below thresh. Minumum q-value: {:.2g}\n'.format(
+                    all_stats[0][1]) + '*' * 60 + '\n')
+            sys.exit()
+
+    plot_intervals = zip(
+        ['{:03d}'.format(rn) for rn in range(num_regions)],
+        [(chrm, max(pos - int(num_bases / 2.0), 0), strand,
+          '(q-value:{0:.2g} p-value:{1:.2g})'.format(qval, pval))
+         for pval, qval, pos, chrm, strand, cov1, cov2 in
+         all_stats[:num_regions]])
+
+    return plot_intervals
 
 def parse_stats(stats_fn):
     all_stats = []

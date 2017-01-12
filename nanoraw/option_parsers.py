@@ -237,10 +237,21 @@ obsfilt_opt=('--obs-per-base-filter', {
 
 # write wiggle opts
 wigfn_opt=('--wiggle-basename', {
-    'default':'Nanopore_read_coverage',
-    'help':"Output wiggle read coverage files (plus and minus " + \
-    "strand). Note that this will also be the track name in the " + \
-    "def line. Default: %(default)s"})
+    'default':'Nanopore_data',
+    'help':'Basename for output files. Two files (plus and minus ' + \
+    'strand) will be produced for each --wiggle-types supplied. ' + \
+    'Filenames will be formatted as "[wiggle-basename].' + \
+    '[wiggle-type].[group1/2]?.[plus/minus].wig". Default: %(default)s'})
+wigtypes_opt=('--wiggle-types', {
+    'default':['coverage', 'pvals'], 'nargs':'+',
+    'choices':['coverage', 'signal', 'signal_sd', 'length',
+               'pvals', 'qvals', 'difference'],
+    'help':'Data types for which wiggles should be created (select ' + \
+    'one or more data types). Choices: coverage, signal, signal_sd, ' + \
+    'length, pvals, qvals (both negative log10), difference. Note ' + \
+    'that signal, signal_sd and length (number of observations ' + \
+    'per base) are means over all reads at each base. ' + \
+    'Default: "coverage, pvals"'})
 
 # misc opts
 pdf_opt=('--pdf-filename', {
@@ -348,7 +359,8 @@ def get_max_cov_parser():
         pdf_opt[0], default='Nanopore_read_coverage.max_coverage.pdf',
         **pdf_opt[1])
     misc_args.add_argument(numreg_opt[0], default=10, **numreg_opt[1])
-    misc_args.add_argument(numbases_opt[0], default=51, **numbases_opt[1])
+    misc_args.add_argument(
+        numbases_opt[0], default=51, **numbases_opt[1])
     misc_args.add_argument(*quiet_opt[0], **quiet_opt[1])
     misc_args.add_argument(*help_opt[0], **help_opt[1])
 
@@ -383,7 +395,8 @@ def get_genome_loc_parser():
         pdf_opt[0],
         default='Nanopore_read_coverage.genome_locations.pdf',
         **pdf_opt[1])
-    misc_args.add_argument(numbases_opt[0], default=51, **numbases_opt[1])
+    misc_args.add_argument(
+        numbases_opt[0], default=51, **numbases_opt[1])
     misc_args.add_argument(*quiet_opt[0], **quiet_opt[1])
     misc_args.add_argument(*help_opt[0], **help_opt[1])
 
@@ -396,7 +409,7 @@ def get_kmer_loc_parser():
         add_help=False)
     req_args = parser.add_argument_group('Required Argument')
     req_args.add_argument(fast5dir_opt[0], **fast5dir_opt[1])
-    req_args.add_argument(kmer_opt[0], **kmer_opt[1])
+    req_args.add_argument(motif_opt[0], required=True, **motif_opt[1])
     req_args.add_argument(fasta_opt[0], required=True, **fasta_opt[1])
 
     alt_args = parser.add_argument_group('Comparison Group Argument')
@@ -456,7 +469,8 @@ def get_max_diff_parser():
         **pdf_opt[1])
     misc_args.add_argument(seqs_opt[0], **seqs_opt[1])
     misc_args.add_argument(numreg_opt[0], default=10, **numreg_opt[1])
-    misc_args.add_argument(numbases_opt[0], default=51, **numbases_opt[1])
+    misc_args.add_argument(
+        numbases_opt[0], default=51, **numbases_opt[1])
     misc_args.add_argument(*quiet_opt[0], **quiet_opt[1])
     misc_args.add_argument(*help_opt[0], **help_opt[1])
 
@@ -488,6 +502,7 @@ def get_signif_diff_parser():
     testt_args = parser.add_argument_group('Significance Test Arguments')
     testt_args.add_argument(testtype_opt[0], **testtype_opt[1])
     testt_args.add_argument(fmo_opt[0], **fmo_opt[1])
+    testt_args.add_argument(minreads_opt[0], **minreads_opt[1])
 
     misc_args = parser.add_argument_group('Miscellaneous Arguments')
     misc_args.add_argument(
@@ -496,7 +511,6 @@ def get_signif_diff_parser():
         **pdf_opt[1])
     misc_args.add_argument(statfn_opt[0], **statfn_opt[1])
     misc_args.add_argument(qvalthresh_opt[0], **qvalthresh_opt[1])
-    misc_args.add_argument(minreads_opt[0], **minreads_opt[1])
     misc_args.add_argument(seqs_opt[0], **seqs_opt[1])
     misc_args.add_argument(numreg_opt[0], default=10, **numreg_opt[1])
     misc_args.add_argument(numbases_opt[0],
@@ -535,6 +549,7 @@ def get_signif_kmer_parser():
     testt_args = parser.add_argument_group('Significance Test Arguments')
     testt_args.add_argument(testtype_opt[0], **testtype_opt[1])
     testt_args.add_argument(fmo_opt[0], **fmo_opt[1])
+    testt_args.add_argument(minreads_opt[0], **minreads_opt[1])
 
     misc_args = parser.add_argument_group('Miscellaneous Arguments')
     misc_args.add_argument(
@@ -542,51 +557,9 @@ def get_signif_kmer_parser():
         default='Nanopore_read_coverage.statistics_around_kmer.pdf',
         **pdf_opt[1])
     misc_args.add_argument(statfn_opt[0], **statfn_opt[1])
-    misc_args.add_argument(minreads_opt[0], **minreads_opt[1])
     misc_args.add_argument(numreg_opt[0], default=5, **numreg_opt[1])
     misc_args.add_argument(cntxt_opt[0], **cntxt_opt[1])
     misc_args.add_argument(numstat_opt[0], **numstat_opt[1])
-    misc_args.add_argument(*quiet_opt[0], **quiet_opt[1])
-    misc_args.add_argument(*help_opt[0], **help_opt[1])
-
-    return parser
-
-def get_write_signif_diff_parser():
-    parser = argparse.ArgumentParser(
-        description='Write FASTA file with genomic sequence ' +
-        'surrounding bases with most significant difference in ' +
-        'signal values between two groups of reads.',
-        add_help=False)
-    req_args = parser.add_argument_group('Required Argument')
-    req_args.add_argument(fast5dir_opt[0], **fast5dir_opt[1])
-    req_args.add_argument(altfast5dir_opt[0], required=True,
-                          **altfast5dir_opt[1])
-
-    fast5_args = parser.add_argument_group('FAST5 Data Arguments')
-    fast5_args.add_argument(corrgrp_opt[0], **corrgrp_opt[1])
-    bcsub_args = fast5_args.add_mutually_exclusive_group()
-    bcsub_args.add_argument(bcsubgrps_opt[0], **bcsubgrps_opt[1])
-    bcsub_args.add_argument(twod_opt[0], **twod_opt[1])
-
-    filter_args = parser.add_argument_group('Read Filtering Arguments')
-    filter_args.add_argument(obsfilt_opt[0], **obsfilt_opt[1])
-
-    testt_args = parser.add_argument_group('Significance Test Arguments')
-    testt_args.add_argument(testtype_opt[0], **testtype_opt[1])
-    testt_args.add_argument(fmo_opt[0], **fmo_opt[1])
-
-    fasta_args = parser.add_argument_group('FASTA Sequence Argument')
-    fasta_args.add_argument(fasta_opt[0], **fasta_opt[1])
-
-    misc_args = parser.add_argument_group('Miscellaneous Arguments')
-    misc_args.add_argument(
-        seqs_opt[0], default='Nanopore_most_significant_regions.fasta',
-        **seqs_opt[1])
-    misc_args.add_argument(statfn_opt[0], **statfn_opt[1])
-    misc_args.add_argument(numreg_opt[0], default=10, **numreg_opt[1])
-    misc_args.add_argument(qvalthresh_opt[0], **qvalthresh_opt[1])
-    misc_args.add_argument(minreads_opt[0], **minreads_opt[1])
-    misc_args.add_argument(numbases_opt[0], default=51, **numbases_opt[1])
     misc_args.add_argument(*quiet_opt[0], **quiet_opt[1])
     misc_args.add_argument(*help_opt[0], **help_opt[1])
 
@@ -614,6 +587,7 @@ def get_cluster_signif_diff_parser():
     testt_args = parser.add_argument_group('Significance Test Arguments')
     testt_args.add_argument(testtype_opt[0], **testtype_opt[1])
     testt_args.add_argument(fmo_opt[0], **fmo_opt[1])
+    testt_args.add_argument(minreads_opt[0], **minreads_opt[1])
 
     fasta_args = parser.add_argument_group('FASTA Sequence Argument')
     fasta_args.add_argument(fasta_opt[0], **fasta_opt[1])
@@ -629,34 +603,7 @@ def get_cluster_signif_diff_parser():
     misc_args.add_argument(rdata_opt[0], **rdata_opt[1])
     misc_args.add_argument(numreg_opt[0], default=10, **numreg_opt[1])
     misc_args.add_argument(qvalthresh_opt[0], **qvalthresh_opt[1])
-    misc_args.add_argument(minreads_opt[0], **minreads_opt[1])
     misc_args.add_argument(numbases_opt[0], default=5, **numbases_opt[1])
-    misc_args.add_argument(*quiet_opt[0], **quiet_opt[1])
-    misc_args.add_argument(*help_opt[0], **help_opt[1])
-
-    return parser
-
-def get_wiggle_parser():
-    parser = argparse.ArgumentParser(
-        description='Plot raw signal from from two samples where ' +
-        'FAST5 files were corrected with `nanoraw genome_resquiggle`.',
-        add_help=False)
-    req_args = parser.add_argument_group('Required Argument')
-    req_args.add_argument(fast5dir_opt[0], **fast5dir_opt[1])
-
-    out_args = parser.add_argument_group('Output Argument')
-    out_args.add_argument(wigfn_opt[0], **wigfn_opt[1])
-
-    fast5_args = parser.add_argument_group('FAST5 Data Arguments')
-    fast5_args.add_argument(corrgrp_opt[0], **corrgrp_opt[1])
-    bcsub_args = fast5_args.add_mutually_exclusive_group()
-    bcsub_args.add_argument(bcsubgrps_opt[0], **bcsubgrps_opt[1])
-    bcsub_args.add_argument(twod_opt[0], **twod_opt[1])
-
-    filter_args = parser.add_argument_group('Read Filtering Arguments')
-    filter_args.add_argument(obsfilt_opt[0], **obsfilt_opt[1])
-
-    misc_args = parser.add_argument_group('Miscellaneous Arguments')
     misc_args.add_argument(*quiet_opt[0], **quiet_opt[1])
     misc_args.add_argument(*help_opt[0], **help_opt[1])
 
@@ -742,6 +689,84 @@ def get_kmer_dist_parser():
         **pdf_opt[1])
     misc_args.add_argument(
         numreads_opt[0], default=500, **numreads_opt[1])
+    misc_args.add_argument(*quiet_opt[0], **quiet_opt[1])
+    misc_args.add_argument(*help_opt[0], **help_opt[1])
+
+    return parser
+
+def get_wiggle_parser():
+    parser = argparse.ArgumentParser(
+        description='Plot raw signal from from two samples where ' +
+        'FAST5 files were corrected with `nanoraw genome_resquiggle`.',
+        add_help=False)
+    req_args = parser.add_argument_group('Required Argument')
+    req_args.add_argument(fast5dir_opt[0], **fast5dir_opt[1])
+
+    alt_args = parser.add_argument_group('Comparison Group Argument')
+    alt_args.add_argument(altfast5dir_opt[0], **altfast5dir_opt[1])
+
+    out_args = parser.add_argument_group('Output Arguments')
+    out_args.add_argument(wigfn_opt[0], **wigfn_opt[1])
+    out_args.add_argument(wigtypes_opt[0], **wigtypes_opt[1])
+
+    fast5_args = parser.add_argument_group('FAST5 Data Arguments')
+    fast5_args.add_argument(corrgrp_opt[0], **corrgrp_opt[1])
+    bcsub_args = fast5_args.add_mutually_exclusive_group()
+    bcsub_args.add_argument(bcsubgrps_opt[0], **bcsubgrps_opt[1])
+    bcsub_args.add_argument(twod_opt[0], **twod_opt[1])
+
+    filter_args = parser.add_argument_group('Read Filtering Arguments')
+    filter_args.add_argument(obsfilt_opt[0], **obsfilt_opt[1])
+
+    testt_args = parser.add_argument_group('Significance Test Arguments')
+    testt_args.add_argument(testtype_opt[0], **testtype_opt[1])
+    testt_args.add_argument(fmo_opt[0], **fmo_opt[1])
+    testt_args.add_argument(minreads_opt[0], **minreads_opt[1])
+
+    misc_args = parser.add_argument_group('Miscellaneous Arguments')
+    misc_args.add_argument(statfn_opt[0], **statfn_opt[1])
+    misc_args.add_argument(*quiet_opt[0], **quiet_opt[1])
+    misc_args.add_argument(*help_opt[0], **help_opt[1])
+
+    return parser
+
+def get_write_signif_diff_parser():
+    parser = argparse.ArgumentParser(
+        description='Write FASTA file with genomic sequence ' +
+        'surrounding bases with most significant difference in ' +
+        'signal values between two groups of reads.',
+        add_help=False)
+    req_args = parser.add_argument_group('Required Argument')
+    req_args.add_argument(fast5dir_opt[0], **fast5dir_opt[1])
+    req_args.add_argument(altfast5dir_opt[0], required=True,
+                          **altfast5dir_opt[1])
+
+    fast5_args = parser.add_argument_group('FAST5 Data Arguments')
+    fast5_args.add_argument(corrgrp_opt[0], **corrgrp_opt[1])
+    bcsub_args = fast5_args.add_mutually_exclusive_group()
+    bcsub_args.add_argument(bcsubgrps_opt[0], **bcsubgrps_opt[1])
+    bcsub_args.add_argument(twod_opt[0], **twod_opt[1])
+
+    filter_args = parser.add_argument_group('Read Filtering Arguments')
+    filter_args.add_argument(obsfilt_opt[0], **obsfilt_opt[1])
+
+    testt_args = parser.add_argument_group('Significance Test Arguments')
+    testt_args.add_argument(testtype_opt[0], **testtype_opt[1])
+    testt_args.add_argument(fmo_opt[0], **fmo_opt[1])
+    testt_args.add_argument(minreads_opt[0], **minreads_opt[1])
+
+    fasta_args = parser.add_argument_group('FASTA Sequence Argument')
+    fasta_args.add_argument(fasta_opt[0], **fasta_opt[1])
+
+    misc_args = parser.add_argument_group('Miscellaneous Arguments')
+    misc_args.add_argument(
+        seqs_opt[0], default='Nanopore_most_significant_regions.fasta',
+        **seqs_opt[1])
+    misc_args.add_argument(statfn_opt[0], **statfn_opt[1])
+    misc_args.add_argument(numreg_opt[0], default=10, **numreg_opt[1])
+    misc_args.add_argument(qvalthresh_opt[0], **qvalthresh_opt[1])
+    misc_args.add_argument(
+        numbases_opt[0], default=51, **numbases_opt[1])
     misc_args.add_argument(*quiet_opt[0], **quiet_opt[1])
     misc_args.add_argument(*help_opt[0], **help_opt[1])
 

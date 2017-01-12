@@ -1,23 +1,19 @@
 import os, sys
 
-import re
 import h5py
 import Queue
 
 import numpy as np
 import multiprocessing as mp
 
-from copy import copy
 from time import sleep
 from collections import defaultdict
 from itertools import repeat, groupby
 from pkg_resources import resource_string
 
 # import nanoraw functions
-import nanoraw_stats
-from nanoraw_helper import (
-    normalize_raw_signal, parse_fast5s, parse_fasta, rev_comp,
-    parse_motif, parse_obs_filter, filter_reads, get_base_means)
+import nanoraw_stats as ns
+import nanoraw_helper as nh
 
 VERBOSE = False
 
@@ -26,13 +22,6 @@ SMALLEST_PVAL = 1e-15
 # quantiles and especially violin plots at leat 3 values
 # to be meaningful
 QUANT_MIN = 3
-
-# single base conversion for motifs
-SINGLE_LETTER_CODE = {
-    'A':'A', 'C':'C', 'G':'G', 'T':'T', 'B':'[CGT]',
-    'D':'[AGT]', 'H':'[ACT]', 'K':'[GT]', 'M':'[AC]',
-    'N':'[ACGT]', 'R':'[AG]', 'S':'[CG]', 'V':'[ACG]',
-    'W':'[AT]', 'Y':'[CT]'}
 
 # plotting names for strands
 FWD_STRAND = 'Forward Strand'
@@ -206,7 +195,7 @@ def get_read_correction_data(
     scale = corr_data.attrs['scale']
     lower_lim = corr_data.attrs['lower_lim']
     upper_lim = corr_data.attrs['upper_lim']
-    norm_reg_signal, scale_values = normalize_raw_signal(
+    norm_reg_signal, scale_values = nh.normalize_raw_signal(
         raw_data['Signal'].value, raw_offset + reg_start, reg_width,
         shift=shift, scale=scale, lower_lim=lower_lim,
         upper_lim=upper_lim)
@@ -494,7 +483,7 @@ def get_signal(read_fn, read_start_rel_to_raw, num_obs, corrected_group):
         scale = corr_subgrp.attrs['scale']
         lower_lim = corr_subgrp.attrs['lower_lim']
         upper_lim = corr_subgrp.attrs['upper_lim']
-        r_sig, scale_values = normalize_raw_signal(
+        r_sig, scale_values = nh.normalize_raw_signal(
             fast5_data['/Raw/Reads'].values()[0]['Signal'],
             read_start_rel_to_raw, num_obs, shift=shift, scale=scale,
             lower_lim=lower_lim, upper_lim=upper_lim)
@@ -599,7 +588,7 @@ def get_reg_base_data(all_reg_data, corrected_group, num_bases):
                     'Analyses/' + full_cov_read.corr_group +
                     '/Events']['base'])
             r_base_data = (seq if full_cov_read.strand == "+"
-                           else rev_comp(seq))
+                           else nh.rev_comp(seq))
             reg_base_data = r_base_data[
                 interval_start - full_cov_read.start:
                 interval_start - full_cov_read.start + num_bases]
@@ -614,7 +603,7 @@ def get_reg_base_data(all_reg_data, corrected_group, num_bases):
                         'Analyses/' + read_data.corr_group +
                         '/Events']['base'])
                 if read_data.strand == "-":
-                    seq = rev_comp(seq)
+                    seq = nh.rev_comp(seq)
                 if read_data.start > interval_start:
                     # handle reads that start in the middle of a region
                     start_overlap = (interval_start + num_bases -
@@ -646,18 +635,6 @@ def get_base_r_data(all_reg_data, all_reg_base_data):
         'Position':r.FloatVector(BaseStart),
         'Base':r.StrVector(Bases),
         'Region':r.StrVector(BaseRegion)})
-
-def get_coverage(raw_read_coverage):
-    if VERBOSE: sys.stderr.write('Calculating read coverage.\n')
-    read_coverage = {}
-    for (chrm, strand), reads_data in raw_read_coverage.items():
-        max_end = max(r_data.end for r_data in reads_data)
-        chrm_coverage = np.zeros(max_end, dtype=np.int_)
-        for r_data in reads_data:
-            chrm_coverage[r_data.start:r_data.end] += 1
-        read_coverage[(chrm, strand)] = chrm_coverage
-
-    return read_coverage
 
 def get_region_reads(
         plot_intervals, raw_read_coverage, num_bases,
@@ -749,9 +726,9 @@ def plot_multi_corrections(
         files, num_reads_per_plot, num_regions, reg_width,
         corrected_group, basecall_subgroups, pdf_fn, include_orig_bcs,
         genome_locations):
-    raw_read_coverage = parse_fast5s(
+    raw_read_coverage = nh.parse_fast5s(
         files, corrected_group, basecall_subgroups)
-    read_coverage = get_coverage(raw_read_coverage)
+    read_coverage = nh.get_coverage(raw_read_coverage)
     coverage_regions = []
     for chrom_strand, chrom_coverage in read_coverage.items():
         chrm_coverage_regions = [
@@ -1033,7 +1010,7 @@ def plot_two_samples(
                     p_int for p_reg_i, p_int in plot_intervals
                     if p_reg_i == reg_i)
                 if strand == '-':
-                    reg_seq = rev_comp(reg_seq)
+                    reg_seq = nh.rev_comp(reg_seq)
                 seqs_fp.write('>{0}::{1:d}::{2} {3}\n{4}\n'.format(
                     chrm, start, strand, stat, ''.join(reg_seq)))
 
@@ -1113,10 +1090,10 @@ def plot_max_coverage(
         files, files2, num_regions, corrected_group, basecall_subgroups,
         overplot_thresh, pdf_fn, num_bases, overplot_type, obs_filter):
     if VERBOSE: sys.stderr.write('Parsing files.\n')
-    raw_read_coverage = parse_fast5s(
+    raw_read_coverage = nh.parse_fast5s(
         files, corrected_group, basecall_subgroups)
-    raw_read_coverage = filter_reads(raw_read_coverage, obs_filter)
-    read_coverage = get_coverage(raw_read_coverage)
+    raw_read_coverage = nh.filter_reads(raw_read_coverage, obs_filter)
+    read_coverage = nh.get_coverage(raw_read_coverage)
 
     if files2 is None:
         coverage_regions = []
@@ -1139,11 +1116,11 @@ def plot_max_coverage(
             plot_intervals, raw_read_coverage, num_bases,
             overplot_thresh, overplot_type, corrected_group, pdf_fn)
     else:
-        raw_read_coverage2 = parse_fast5s(
+        raw_read_coverage2 = nh.parse_fast5s(
             files2, corrected_group, basecall_subgroups)
-        raw_read_coverage2 = filter_reads(
+        raw_read_coverage2 = nh.filter_reads(
             raw_read_coverage2, obs_filter)
-        read_coverage2 = get_coverage(raw_read_coverage2)
+        read_coverage2 = nh.get_coverage(raw_read_coverage2)
         coverage_regions = []
         # only process chromosomes in both read groups
         for (chrom, strand) in set(read_coverage).intersection(
@@ -1201,14 +1178,14 @@ def plot_genome_locations(
                 genome_locations)]
 
     if VERBOSE: sys.stderr.write('Parsing files.\n')
-    raw_read_coverage = parse_fast5s(
+    raw_read_coverage = nh.parse_fast5s(
         files, corrected_group, basecall_subgroups)
-    raw_read_coverage = filter_reads(raw_read_coverage, obs_filter)
+    raw_read_coverage = nh.filter_reads(raw_read_coverage, obs_filter)
 
     if files2 is not None:
-        raw_read_coverage2 = parse_fast5s(
+        raw_read_coverage2 = nh.parse_fast5s(
             files2, corrected_group, basecall_subgroups)
-        raw_read_coverage2 = filter_reads(raw_read_coverage2, obs_filter)
+        raw_read_coverage2 = nh.filter_reads(raw_read_coverage2, obs_filter)
         plot_two_samples(
             plot_intervals, raw_read_coverage, raw_read_coverage2,
             num_bases, overplot_thresh, overplot_type, corrected_group,
@@ -1222,52 +1199,55 @@ def plot_genome_locations(
 
 def plot_kmer_centered(
         files, files2, num_regions, corrected_group, basecall_subgroups,
-        overplot_thresh, pdf_fn, num_bases, overplot_type, kmer,
+        overplot_thresh, pdf_fn, num_bases, overplot_type, motif,
         fasta_fn, deepest_coverage, obs_filter):
     if VERBOSE: sys.stderr.write(
             'Identifying genomic k-mer locations.\n')
-    fasta_records = parse_fasta(fasta_fn)
-    def get_kmer_locs(covered_chrms):
-        # TODO: convert to motif instead of kmer using parse_motif
+    fasta_records = nh.parse_fasta(fasta_fn)
+    motif_pat = nh.parse_motif(motif)
+    motif_len = len(motif)
+    def get_motif_locs(covered_chrms):
         # TODO: search over negative strand as well
-        kmer_locs = []
+        motif_locs = []
         for chrm, seq in fasta_records.iteritems():
             if chrm not in covered_chrms: continue
-            for kmer_loc in re.finditer(kmer, seq.seq.tostring()):
-                kmer_locs.append((chrm, kmer_loc.start()))
+            for motif_loc in motif_pat.finditer(seq.seq.tostring()):
+                motif_locs.append((chrm, motif_loc.start()))
 
-        if len(kmer_locs) == 0:
+        if len(motif_locs) == 0:
             sys.stderr.write(
-                'Kmer (' + kmer + ') not found in genome.\n')
+                'Motif (' + motif_pat.pattern +
+                ') not found in genome.\n')
             sys.exit()
-        elif len(kmer_locs) < num_regions:
+        elif len(motif_locs) < num_regions:
             sys.stderr.write(
-                'WARNING: Kmer (' + kmer + ') only found ' +
-                str(len(kmer_locs)) + 'times in genome.\n')
-            num_region = len(kmer_locs)
-        np.random.shuffle(kmer_locs)
+                'WARNING: Motif (' + motif_pat.pattern +
+                ') only found ' + str(len(motif_locs)) +
+                'times in genome.\n')
+            num_region = len(motif_locs)
+        np.random.shuffle(motif_locs)
 
-        return kmer_locs
+        return motif_locs
 
     if VERBOSE: sys.stderr.write('Parsing files.\n')
-    raw_read_coverage = parse_fast5s(
+    raw_read_coverage = nh.parse_fast5s(
         files, corrected_group, basecall_subgroups)
-    raw_read_coverage = filter_reads(raw_read_coverage, obs_filter) 
+    raw_read_coverage = nh.filter_reads(raw_read_coverage, obs_filter) 
     if deepest_coverage:
-        read_coverage = get_coverage(raw_read_coverage)
+        read_coverage = nh.get_coverage(raw_read_coverage)
     if files2 is not None:
-        raw_read_coverage2 = parse_fast5s(
+        raw_read_coverage2 = nh.parse_fast5s(
             files2, corrected_group, basecall_subgroups)
-        raw_read_coverage2 = filter_reads(
+        raw_read_coverage2 = nh.filter_reads(
             raw_read_coverage2, obs_filter)
 
         covered_chrms = set(zip(*raw_read_coverage)[0]).intersection(
             zip(*raw_read_coverage2)[0])
-        # filter out kmer_locs to chromosomes not covered
-        kmer_locs = get_kmer_locs(covered_chrms)
+        # filter out motif_locs to chromosomes not covered
+        motif_locs = get_motif_locs(covered_chrms)
 
         if deepest_coverage:
-            read_coverage2 = get_coverage(raw_read_coverage2)
+            read_coverage2 = nh.get_coverage(raw_read_coverage2)
         if deepest_coverage:
             if VERBOSE: sys.stderr.write(
                     'Finding deepest coverage regions.\n')
@@ -1279,10 +1259,10 @@ def plot_kmer_centered(
                                read_coverage2[(chrm, '-')][pos])
                 except (IndexError, KeyError):
                     return 0
-            kmer_locs_cov = sorted([
+            motif_locs_cov = sorted([
                 (get_cov(chrm, pos), chrm, pos)
-                for chrm, pos in kmer_locs], reverse=True)
-            if kmer_locs_cov[0][0] == 0:
+                for chrm, pos in motif_locs], reverse=True)
+            if motif_locs_cov[0][0] == 0:
                 sys.stderr.write(
                     '*' * 60 + '\nk-mer not covered ' +
                     'by both groups at any positions.\n'
@@ -1293,7 +1273,7 @@ def plot_kmer_centered(
                 ['{:03d}'.format(rn) for rn in range(num_regions)],
                 ((chrm, max(pos - int(
                     (num_bases - len(kmer) + 1) / 2.0), 0), '+', '')
-                 for cov, chrm, pos in kmer_locs_cov))
+                 for cov, chrm, pos in motif_locs_cov))
         else:
             # zip over iterator of regions that have at least a
             # read overlapping so we don't have to check all reads
@@ -1301,7 +1281,7 @@ def plot_kmer_centered(
                 ['{:03d}'.format(rn) for rn in range(num_regions)],
                 ((chrm, max(pos - int(
                     (num_bases - len(kmer) + 1) / 2.0), 0), strand, '')
-                 for chrm, pos in kmer_locs
+                 for chrm, pos in motif_locs
                  for strand in ('+', '-')
                  if (any(r_data.start < pos < r_data.end
                          for r_data in raw_read_coverage[
@@ -1316,8 +1296,8 @@ def plot_kmer_centered(
             pdf_fn)
     else:
         covered_chrms = set(zip(*raw_read_coverage)[0])
-        # filter out kmer_locs to chromosomes not covered
-        kmer_locs = get_kmer_locs(covered_chrms)
+        # filter out motif_locs to chromosomes not covered
+        motif_locs = get_motif_locs(covered_chrms)
 
         if deepest_coverage:
             if VERBOSE: sys.stderr.write(
@@ -1328,16 +1308,16 @@ def plot_kmer_centered(
                                read_coverage[(chrm, '-')][pos])
                 except IndexError, KeyError:
                     return 0
-            kmer_locs_cov = [
+            motif_locs_cov = [
                 (get_cov(chrm, pos), chrm, pos)
-                for chrm, pos in kmer_locs]
+                for chrm, pos in motif_locs]
 
             plot_intervals = zip(
                 ['{:03d}'.format(rn) for rn in range(num_regions)],
                 ((chrm, max(pos - int(
                     (num_bases - len(kmer) + 1) / 2.0), 0), '+', '')
                  for cov, chrm, pos in sorted(
-                         kmer_locs_cov, reverse=True)))
+                         motif_locs_cov, reverse=True)))
         else:
             # zip over iterator of regions that have at least a
             # read overlapping so we don't have to check all reads
@@ -1345,7 +1325,7 @@ def plot_kmer_centered(
                 ['{:03d}'.format(rn) for rn in range(num_regions)],
                 ((chrm, max(pos - int(
                     (num_bases - len(kmer) + 1) / 2.0), 0), '+', '')
-                 for chrm, pos in kmer_locs
+                 for chrm, pos in motif_locs
                  if any(r_data.start < pos < r_data.end
                         for r_data in raw_read_coverage[(chrm, '+')] +
                         raw_read_coverage[(chrm, '-')])))
@@ -1361,12 +1341,12 @@ def plot_max_diff(
         overplot_thresh, pdf_fn, seqs_fn, num_bases, overplot_type,
         obs_filter):
     if VERBOSE: sys.stderr.write('Parsing files.\n')
-    raw_read_coverage1 = parse_fast5s(
+    raw_read_coverage1 = nh.parse_fast5s(
         files1, corrected_group, basecall_subgroups)
-    raw_read_coverage2 = parse_fast5s(
+    raw_read_coverage2 = nh.parse_fast5s(
         files2, corrected_group, basecall_subgroups)
-    raw_read_coverage1 = filter_reads(raw_read_coverage1, obs_filter)
-    raw_read_coverage2 = filter_reads(raw_read_coverage2, obs_filter)
+    raw_read_coverage1 = nh.filter_reads(raw_read_coverage1, obs_filter)
+    raw_read_coverage2 = nh.filter_reads(raw_read_coverage2, obs_filter)
 
     chrm_sizes = dict(
         (chrm, max(
@@ -1378,8 +1358,8 @@ def plot_max_diff(
                 raw_read_coverage2))[0])
 
     if VERBOSE: sys.stderr.write('Getting base signal.\n')
-    base_means1 = get_base_means(raw_read_coverage1, chrm_sizes)
-    base_means2 = get_base_means(raw_read_coverage2, chrm_sizes)
+    base_means1 = nh.get_base_means(raw_read_coverage1, chrm_sizes)
+    base_means2 = nh.get_base_means(raw_read_coverage2, chrm_sizes)
 
     if VERBOSE: sys.stderr.write(
             'Get differences between base signal.\n')
@@ -1412,29 +1392,6 @@ def plot_max_diff(
 
     return
 
-def get_most_signif_regions(all_stats, num_bases, num_regions,
-                            qval_thresh=None):
-    # applied threshold for scores on each chromosome, so now
-    # we include all here
-    if qval_thresh is not None:
-        num_regions = np.argmax(
-            [x > qval_thresh for x in zip(*all_stats)[1]])
-        if num_regions == 0:
-            sys.stderr.write(
-                '*' * 60 + '\nERROR: No regions identified q-value ' +
-                'below thresh. Minumum q-value: {:.2g}\n'.format(
-                    all_stats[0][1]) + '*' * 60 + '\n')
-            sys.exit()
-
-    plot_intervals = zip(
-        ['{:03d}'.format(rn) for rn in range(num_regions)],
-        [(chrm, max(pos - int(num_bases / 2.0), 0), strand,
-          '(q-value:{0:.2g} p-value:{1:.2g})'.format(qval, pval))
-         for pval, qval, pos, chrm, strand, cov1, cov2 in
-         all_stats[:num_regions]])
-
-    return plot_intervals
-
 def plot_most_signif(
         files1, files2, num_regions, corrected_group, basecall_subgroups,
         overplot_thresh, pdf_fn, seqs_fn, num_bases, overplot_type,
@@ -1445,19 +1402,19 @@ def plot_most_signif(
     # regions before calculating raw read coverage
     if not calc_stats:
         if VERBOSE: sys.stderr.write('Loading statistics from file.\n')
-        all_stats = nanoraw_stats.parse_stats(stats_fn)
+        all_stats = ns.parse_stats(stats_fn)
 
     if VERBOSE: sys.stderr.write('Parsing files.\n')
-    raw_read_coverage1 = parse_fast5s(
+    raw_read_coverage1 = nh.parse_fast5s(
         files1, corrected_group, basecall_subgroups)
-    raw_read_coverage2 = parse_fast5s(
+    raw_read_coverage2 = nh.parse_fast5s(
         files2, corrected_group, basecall_subgroups)
-    raw_read_coverage1 = filter_reads(raw_read_coverage1, obs_filter)
-    raw_read_coverage2 = filter_reads(raw_read_coverage2, obs_filter)
+    raw_read_coverage1 = nh.filter_reads(raw_read_coverage1, obs_filter)
+    raw_read_coverage2 = nh.filter_reads(raw_read_coverage2, obs_filter)
 
     if calc_stats:
         if VERBOSE: sys.stderr.write('Calculating statistics.\n')
-        all_stats = nanoraw_stats.get_all_significance(
+        all_stats = ns.get_all_significance(
             raw_read_coverage1, raw_read_coverage2, test_type,
             min_test_vals, stats_fn, fishers_method_offset)
 
@@ -1493,25 +1450,25 @@ def plot_kmer_centered_signif(
         overplot_thresh, overplot_type, pdf_fn, motif, context_width,
         test_type, obs_filter, min_test_vals, num_stat_values, stats_fn,
         fishers_method_offset):
-    motif_pat = parse_motif(motif)
+    motif_pat = nh.parse_motif(motif)
     motif_len = len(motif)
 
     calc_stats = stats_fn is None or not os.path.isfile(stats_fn)
     if not calc_stats:
         if VERBOSE: sys.stderr.write('Loading statistics from file.\n')
-        all_stats = nanoraw_stats.parse_stats(stats_fn)
+        all_stats = ns.parse_stats(stats_fn)
 
     if VERBOSE: sys.stderr.write('Parsing files.\n')
-    raw_read_coverage1 = parse_fast5s(
+    raw_read_coverage1 = nh.parse_fast5s(
         files1, corrected_group, basecall_subgroups)
-    raw_read_coverage2 = parse_fast5s(
+    raw_read_coverage2 = nh.parse_fast5s(
         files2, corrected_group, basecall_subgroups)
-    raw_read_coverage1 = filter_reads(raw_read_coverage1, obs_filter)
-    raw_read_coverage2 = filter_reads(raw_read_coverage2, obs_filter)
+    raw_read_coverage1 = nh.filter_reads(raw_read_coverage1, obs_filter)
+    raw_read_coverage2 = nh.filter_reads(raw_read_coverage2, obs_filter)
 
     if calc_stats:
         if VERBOSE: sys.stderr.write('Calculating statistics.\n')
-        all_stats = nanoraw_stats.get_all_significance(
+        all_stats = ns.get_all_significance(
             raw_read_coverage1, raw_read_coverage2, test_type,
             min_test_vals, stats_fn, fishers_method_offset)
 
@@ -1581,57 +1538,6 @@ def plot_kmer_centered_signif(
 
     return
 
-def write_most_signif(
-        files1, files2, num_regions, qval_thresh, corrected_group,
-        basecall_subgroups, seqs_fn, num_bases, test_type, obs_filter,
-        min_test_vals, stats_fn, fasta_fn, fishers_method_offset):
-    calc_stats = stats_fn is None or not os.path.isfile(stats_fn)
-    if not calc_stats:
-        if VERBOSE: sys.stderr.write('Loading statistics from file.\n')
-        all_stats = nanoraw_stats.parse_stats(stats_fn)
-
-    if VERBOSE: sys.stderr.write('Parsing files.\n')
-    raw_read_coverage1 = parse_fast5s(
-        files1, corrected_group, basecall_subgroups)
-    raw_read_coverage2 = parse_fast5s(
-        files2, corrected_group, basecall_subgroups)
-    raw_read_coverage1 = filter_reads(raw_read_coverage1, obs_filter)
-    raw_read_coverage2 = filter_reads(raw_read_coverage2, obs_filter)
-
-    if calc_stats:
-        if VERBOSE: sys.stderr.write('Calculating statistics.\n')
-        all_stats = nanoraw_stats.get_all_significance(
-            raw_read_coverage1, raw_read_coverage2, test_type,
-            min_test_vals, stats_fn, fishers_method_offset)
-
-    plot_intervals = get_most_signif_regions(
-        all_stats, num_bases, num_regions, qval_thresh)
-    if fasta_fn is None:
-        reg_seqs = get_region_sequences(
-            plot_intervals, raw_read_coverage1, raw_read_coverage2,
-            num_bases, corrected_group)
-    else:
-        fasta_records = parse_fasta(fasta_fn)
-        reg_seqs = [
-            (p_int, fasta_records[chrm][
-                start:start+num_bases].seq.tostring())
-            for p_int, (chrm, start, strand, reg_name)
-            in plot_intervals]
-
-    # get reads overlapping each region
-    if VERBOSE: sys.stderr.write('Outputting region seqeuences.\n')
-    with open(seqs_fn, 'w') as seqs_fp:
-        for reg_i, reg_seq in reg_seqs:
-            chrm, start, strand, stat = next(
-                p_int for p_reg_i, p_int in plot_intervals
-                if p_reg_i == reg_i)
-            if strand == '-':
-                reg_seq = rev_comp(reg_seq)
-            seqs_fp.write('>{0}::{1:d}::{2} {3}\n{4}\n'.format(
-                chrm, start, strand, stat, ''.join(reg_seq)))
-
-    return
-
 def cluster_most_signif(
         files1, files2, num_regions, qval_thresh, corrected_group,
         basecall_subgroups, pdf_fn, num_bases, test_type, obs_filter,
@@ -1640,19 +1546,19 @@ def cluster_most_signif(
     calc_stats = stats_fn is None or not os.path.isfile(stats_fn)
     if not calc_stats:
         if VERBOSE: sys.stderr.write('Loading statistics from file.\n')
-        all_stats = nanoraw_stats.parse_stats(stats_fn)
+        all_stats = ns.parse_stats(stats_fn)
 
     if VERBOSE: sys.stderr.write('Parsing files.\n')
-    raw_read_coverage1 = parse_fast5s(
+    raw_read_coverage1 = nh.parse_fast5s(
         files1, corrected_group, basecall_subgroups)
-    raw_read_coverage2 = parse_fast5s(
+    raw_read_coverage2 = nh.parse_fast5s(
         files2, corrected_group, basecall_subgroups)
-    raw_read_coverage1 = filter_reads(raw_read_coverage1, obs_filter)
-    raw_read_coverage2 = filter_reads(raw_read_coverage2, obs_filter)
+    raw_read_coverage1 = nh.filter_reads(raw_read_coverage1, obs_filter)
+    raw_read_coverage2 = nh.filter_reads(raw_read_coverage2, obs_filter)
 
     # calculate positions covered by at least one read in both sets
-    read_coverage1 = get_coverage(raw_read_coverage1)
-    read_coverage2 = get_coverage(raw_read_coverage2)
+    read_coverage1 = nh.get_coverage(raw_read_coverage1)
+    read_coverage2 = nh.get_coverage(raw_read_coverage2)
     covered_poss = dict(
         (chrm_strand, set(
             np.where(read_coverage1[chrm_strand] > 0)[0]).intersection(
@@ -1662,7 +1568,7 @@ def cluster_most_signif(
 
     if calc_stats:
         if VERBOSE: sys.stderr.write('Calculating statistics.\n')
-        all_stats = nanoraw_stats.get_all_significance(
+        all_stats = ns.get_all_significance(
             raw_read_coverage1, raw_read_coverage2, test_type,
             min_test_vals, stats_fn, fishers_method_offset)
 
@@ -1692,7 +1598,7 @@ def cluster_most_signif(
                 uniq_p_intervals, raw_read_coverage1, raw_read_coverage2,
                 num_bases, corrected_group))[1]
         else:
-            fasta_records = parse_fasta(fasta_fn)
+            fasta_records = nh.parse_fasta(fasta_fn)
             reg_seqs = [
                 fasta_records[chrm][start:start+num_bases].seq.tostring()
                 for p_int, (chrm, start, strand, reg_name)
@@ -1708,8 +1614,8 @@ def cluster_most_signif(
         for chrm in zip(*set(raw_read_coverage1).intersection(
                 raw_read_coverage2))[0])
 
-    base_means1 = get_base_means(raw_read_coverage1, chrm_sizes)
-    base_means2 = get_base_means(raw_read_coverage2, chrm_sizes)
+    base_means1 = nh.get_base_means(raw_read_coverage1, chrm_sizes)
+    base_means2 = nh.get_base_means(raw_read_coverage2, chrm_sizes)
 
     if VERBOSE: sys.stderr.write('Getting region signal difference.\n')
     reg_sig_diffs = [
@@ -1737,7 +1643,7 @@ def cluster_most_signif(
     args = (reg_sig_diffs, index_q, dists_q, num_bases)
     processes = []
     for p_id in xrange(num_processes):
-        p = mp.Process(target=nanoraw_stats.get_pairwise_dists,
+        p = mp.Process(target=ns.get_pairwise_dists,
                        args=args)
         p.start()
         processes.append(p)
@@ -1784,16 +1690,12 @@ def cluster_most_signif(
 #### Non-genome based plotting mains ####
 #########################################
 
-def get_files_list(basedirs):
-    return [os.path.join(base_dir, fn)
-            for base_dir in basedirs
-            for fn in os.listdir(base_dir)]
-
 def plot_correction_main(args):
     global VERBOSE
     VERBOSE = not args.quiet
+    nh.VERBOSE = VERBOSE
 
-    files = get_files_list(args.fast5_basedirs)
+    files = nh.get_files_list(args.fast5_basedirs)
     plot_intervals = zip(files, repeat(args.region_type))
     plot_corrections(
         plot_intervals, args.num_obs, args.num_reads,
@@ -1804,11 +1706,12 @@ def plot_correction_main(args):
 def plot_multi_correction_main(args):
     global VERBOSE
     VERBOSE = not args.quiet
+    nh.VERBOSE = VERBOSE
 
     # make sure the signal is an odd for region centering
     num_regions = args.num_regions if args.num_regions % 2 == 0 else \
                   args.num_regions + 1
-    files = get_files_list(args.fast5_basedirs)
+    files = nh.get_files_list(args.fast5_basedirs)
     plot_multi_corrections(
         files, args.num_reads_per_plot, num_regions, args.num_obs,
         args.corrected_group, args.basecall_subgroups, args.pdf_filename,
@@ -1819,8 +1722,9 @@ def plot_multi_correction_main(args):
 def kmer_dist_main(args):
     global VERBOSE
     VERBOSE = not args.quiet
+    nh.VERBOSE = VERBOSE
 
-    files = get_files_list(args.fast5_basedirs)
+    files = nh.get_files_list(args.fast5_basedirs)
     plot_kmer_dist(
         files, args.corrected_group, args.basecall_subgroups,
         args.read_mean, args.upstream_bases, args.downstream_bases,
@@ -1834,79 +1738,78 @@ def kmer_dist_main(args):
 #### Signal plot parsers and main methods ####
 ##############################################
 
-def get_files_lists(basedirs1, basedirs2):
-    files1 = get_files_list(basedirs1)
-    files2 = get_files_list(basedirs2) if basedirs2 else None
-
-    return files1, files2
-
 def max_cov_main(args):
     global VERBOSE
     VERBOSE = not args.quiet
+    nh.VERBOSE = VERBOSE
 
-    files1, files2 = get_files_lists(
+    files1, files2 = nh.get_files_lists(
         args.fast5_basedirs, args.fast5_basedirs2)
 
     plot_max_coverage(
         files1, files2, args.num_regions, args.corrected_group,
         args.basecall_subgroups, args.overplot_threshold,
         args.pdf_filename, args.num_bases, args.overplot_type,
-        parse_obs_filter(args.obs_per_base_filter))
+        nh.parse_obs_filter(args.obs_per_base_filter))
 
     return
 
 def genome_loc_main(args):
     global VERBOSE
     VERBOSE = not args.quiet
+    nh.VERBOSE = VERBOSE
 
-    files1, files2 = get_files_lists(
+    files1, files2 = nh.get_files_lists(
         args.fast5_basedirs, args.fast5_basedirs2)
 
     plot_genome_locations(
         files1, files2, args.corrected_group, args.basecall_subgroups,
         args.overplot_threshold, args.pdf_filename,
         args.num_bases, args.overplot_type, args.genome_locations,
-        parse_obs_filter(args.obs_per_base_filter))
+        nh.parse_obs_filter(args.obs_per_base_filter))
 
     return
 
 def kmer_loc_main(args):
     global VERBOSE
     VERBOSE = not args.quiet
+    nh.VERBOSE = VERBOSE
 
-    files1, files2 = get_files_lists(
+    files1, files2 = nh.get_files_lists(
         args.fast5_basedirs, args.fast5_basedirs2)
 
     plot_kmer_centered(
         files1, files2, args.num_regions, args.corrected_group,
         args.basecall_subgroups, args.overplot_threshold,
         args.pdf_filename, args.num_bases, args.overplot_type,
-        args.kmer, args.genome_fasta, args.deepest_coverage,
-        parse_obs_filter(args.obs_per_base_filter))
+        args.motif, args.genome_fasta, args.deepest_coverage,
+        nh.parse_obs_filter(args.obs_per_base_filter))
 
     return
 
 def max_diff_main(args):
     global VERBOSE
     VERBOSE = not args.quiet
+    nh.VERBOSE = VERBOSE
 
-    files1, files2 = get_files_lists(
+    files1, files2 = nh.get_files_lists(
         args.fast5_basedirs, args.fast5_basedirs2)
 
     plot_max_diff(
         files1, files2, args.num_regions, args.corrected_group,
         args.basecall_subgroups, args.overplot_threshold,
         args.pdf_filename, args.sequences_filename, args.num_bases,
-        args.overplot_type, parse_obs_filter(args.obs_per_base_filter))
+        args.overplot_type, nh.parse_obs_filter(args.obs_per_base_filter))
 
     return
 
 def signif_diff_main(args):
     global VERBOSE
     VERBOSE = not args.quiet
-    nanoraw_stats.VERBOSE = VERBOSE
+    nh.VERBOSE = VERBOSE
+    ns.VERBOSE = VERBOSE
 
-    files1, files2 = get_files_lists(
+    files1, files2 = nh.get_files_lists(
         args.fast5_basedirs, args.fast5_basedirs2)
 
     plot_most_signif(
@@ -1914,7 +1817,7 @@ def signif_diff_main(args):
         args.basecall_subgroups, args.overplot_threshold,
         args.pdf_filename, args.sequences_filename, args.num_bases,
         args.overplot_type, args.test_type,
-        parse_obs_filter(args.obs_per_base_filter),
+        nh.parse_obs_filter(args.obs_per_base_filter),
         args.q_value_threshold, args.minimum_test_reads,
         args.statistics_filename, args.fishers_method_offset)
 
@@ -1931,9 +1834,10 @@ def kmer_signif_diff_main(args):
 
     global VERBOSE
     VERBOSE = not args.quiet
-    nanoraw_stats.VERBOSE = VERBOSE
+    nh.VERBOSE = VERBOSE
+    ns.VERBOSE = VERBOSE
 
-    files1, files2 = get_files_lists(
+    files1, files2 = nh.get_files_lists(
         args.fast5_basedirs, args.fast5_basedirs2)
 
     plot_kmer_centered_signif(
@@ -1941,43 +1845,26 @@ def kmer_signif_diff_main(args):
         args.basecall_subgroups, args.overplot_threshold,
         args.overplot_type, args.pdf_filename, args.motif,
         args.num_context, args.test_type,
-        parse_obs_filter(args.obs_per_base_filter),
+        nh.parse_obs_filter(args.obs_per_base_filter),
         args.minimum_test_reads, args.num_statistics,
         args.statistics_filename, args.fishers_method_offset)
-
-    return
-
-def write_signif_diff_main(args):
-    global VERBOSE
-    VERBOSE = not args.quiet
-    nanoraw_stats.VERBOSE = VERBOSE
-
-    files1, files2 = get_files_lists(
-        args.fast5_basedirs, args.fast5_basedirs2)
-
-    write_most_signif(
-        files1, files2, args.num_regions, args.q_value_threshold,
-        args.corrected_group, args.basecall_subgroups,
-        args.sequences_filename, args.num_bases, args.test_type,
-        parse_obs_filter(args.obs_per_base_filter),
-        args.minimum_test_reads, args.statistics_filename,
-        args.genome_fasta, args.fishers_method_offset)
 
     return
 
 def cluster_signif_diff_main(args):
     global VERBOSE
     VERBOSE = not args.quiet
-    nanoraw_stats.VERBOSE = VERBOSE
+    nh.VERBOSE = VERBOSE
+    ns.VERBOSE = VERBOSE
 
-    files1, files2 = get_files_lists(
+    files1, files2 = nh.get_files_lists(
         args.fast5_basedirs, args.fast5_basedirs2)
 
     cluster_most_signif(
         files1, files2, args.num_regions, args.q_value_threshold,
         args.corrected_group, args.basecall_subgroups,
         args.pdf_filename, args.num_bases, args.test_type,
-        parse_obs_filter(args.obs_per_base_filter),
+        nh.parse_obs_filter(args.obs_per_base_filter),
         args.minimum_test_reads, args.r_data_filename, args.processes,
         args.genome_fasta, args.statistics_filename,
         args.fishers_method_offset)

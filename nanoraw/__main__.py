@@ -2,9 +2,9 @@ import sys
 
 import option_parsers
 
-import correct_raw
+import resquiggle
 import plot_commands
-import analyze_coverage
+import text_output_commands
 
 from collections import OrderedDict
 
@@ -18,7 +18,7 @@ def main(args=None):
             ('genome_resquiggle','Re-annotate raw signal with ' +
              'genomic aignement of existing basecalls.',
              option_parsers.get_resquiggle_parser(),
-             correct_raw.resquiggle_main)]),
+             resquiggle.resquiggle_main)]),
         ('Genome Anchored Plotting Commands:', [
             ('plot_max_coverage',
              'Plot signal in regions with the maximum coverage.',
@@ -65,15 +65,15 @@ def main(args=None):
              option_parsers.get_kmer_dist_parser(),
              plot_commands.kmer_dist_main)]),
         ('Auxiliary Commands:',[
-            ('write_most_significant',
+            ('write_most_significant_fasta',
              'Write sequence where signal differs the most ' +
              'significantly between two groups.',
              option_parsers.get_write_signif_diff_parser(),
-             plot_commands.write_signif_diff_main),
-            ('write_wiggle','Write wiggle file of genome coverage ' +
-             'from genome_resquiggle mappings.',
+             text_output_commands.write_signif_diff_main),
+            ('write_wiggles','Write wiggle files for nanopore ' +
+             'signal values, coverage, and statistics.',
              option_parsers.get_wiggle_parser(),
-             analyze_coverage.wiggle_main)]),
+             text_output_commands.wiggle_main)]),
     ]
     desc = '\n\n'.join([
         grp + '\n' + '\n'.join([

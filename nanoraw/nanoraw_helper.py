@@ -1,5 +1,6 @@
 import sys, os
 
+import re
 import h5py
 
 import numpy as np
@@ -21,6 +22,15 @@ scaleValues = namedtuple(
 
 NORM_TYPES = ('none', 'ont', 'median', 'robust_median')
 
+# single base conversion for motifs
+SINGLE_LETTER_CODE = {
+    'A':'A', 'C':'C', 'G':'G', 'T':'T', 'B':'[CGT]',
+    'D':'[AGT]', 'H':'[ACT]', 'K':'[GT]', 'M':'[AC]',
+    'N':'[ACGT]', 'R':'[AG]', 'S':'[CG]', 'V':'[ACG]',
+    'W':'[AT]', 'Y':'[CT]'}
+
+VERBOSE = False
+
 # got quantiles from analysis of stability after shift-only normalization
 robust_quantiles = (46.5, 53.5)
 
@@ -33,6 +43,16 @@ def comp_base(base):
         return 'N'
 def rev_comp(seq):
     return ''.join(comp_base(b) for b in seq[::-1])
+
+def get_files_list(basedirs):
+    return [os.path.join(base_dir, fn)
+            for base_dir in basedirs
+            for fn in os.listdir(base_dir)]
+def get_files_lists(basedirs1, basedirs2):
+    files1 = get_files_list(basedirs1)
+    files2 = get_files_list(basedirs2) if basedirs2 else None
+
+    return files1, files2
 
 def parse_motif(motif):
     invalid_chars = re.findall('[^ACGTBDHKMNRSVWY]', motif)
@@ -220,6 +240,18 @@ def parse_fasta(fasta_fn):
     return fasta_records
 """
 
+def get_coverage(raw_read_coverage):
+    if VERBOSE: sys.stderr.write('Calculating read coverage.\n')
+    read_coverage = {}
+    for (chrm, strand), reads_data in raw_read_coverage.items():
+        max_end = max(r_data.end for r_data in reads_data)
+        chrm_coverage = np.zeros(max_end, dtype=np.int_)
+        for r_data in reads_data:
+            chrm_coverage[r_data.start:r_data.end] += 1
+        read_coverage[(chrm, strand)] = chrm_coverage
+
+    return read_coverage
+
 def get_reads_base_means(chrm_strand_reads, chrm_len, rev_strand):
     base_sums = np.zeros(chrm_len)
     base_cov = np.zeros(chrm_len, dtype=np.int_)
@@ -260,6 +292,89 @@ def get_base_means(raw_read_coverage, chrm_sizes):
     _ = np.seterr(**old_err_settings)
 
     return mean_base_signal
+
+def get_reads_base_sds(chrm_strand_reads, chrm_len, rev_strand):
+    base_sd_sums = np.zeros(chrm_len)
+    base_cov = np.zeros(chrm_len, dtype=np.int_)
+    for r_data in chrm_strand_reads:
+        # extract read means data so data across all chrms is not
+        # in RAM at one time
+        try:
+            read_data = h5py.File(r_data.fn, 'r')
+        except IOError:
+            # probably truncated file
+            continue
+        events_slot = '/'.join((
+            '/Analyses', r_data.corr_group, 'Events'))
+        if events_slot not in read_data:
+            continue
+        read_sds = read_data[events_slot]['norm_stdev']
+
+        if rev_strand:
+            read_sds = read_sds[::-1]
+        base_sd_sums[r_data.start:
+                     r_data.start + len(read_sds)] += read_sds
+        base_cov[r_data.start:r_data.start + len(read_sds)] += 1
+
+    return base_sd_sums / base_cov
+
+def get_base_sds(raw_read_coverage, chrm_sizes):
+    # ignore divide by zero errors that occur where there is no
+    # coverage. Need to correct nan values after subtracting two sets of
+    # coverage so leave as nan for now
+    old_err_settings = np.seterr(all='ignore')
+    # take the mean over all signal overlapping each base
+    mean_base_sds = {}
+    for chrm, strand in [(c, s) for c in chrm_sizes.keys()
+                         for s in ('+', '-')]:
+        mean_base_sds[(chrm, strand)] = get_reads_base_sds(
+            raw_read_coverage[(chrm, strand)], chrm_sizes[chrm],
+            strand == '-')
+    _ = np.seterr(**old_err_settings)
+
+    return mean_base_sds
+
+def get_reads_base_lengths(chrm_strand_reads, chrm_len, rev_strand):
+    base_length_sums = np.zeros(chrm_len)
+    base_cov = np.zeros(chrm_len, dtype=np.int_)
+    for r_data in chrm_strand_reads:
+        # extract read means data so data across all chrms is not
+        # in RAM at one time
+        try:
+            read_data = h5py.File(r_data.fn, 'r')
+        except IOError:
+            # probably truncated file
+            continue
+        events_slot = '/'.join((
+            '/Analyses', r_data.corr_group, 'Events'))
+        if events_slot not in read_data:
+            continue
+        read_lengths = read_data[events_slot]['length']
+
+        if rev_strand:
+            read_lengths = read_lengths[::-1]
+        base_length_sums[
+            r_data.start:
+            r_data.start + len(read_lengths)] += read_lengths
+        base_cov[r_data.start:r_data.start + len(read_lengths)] += 1
+
+    return base_length_sums / base_cov
+
+def get_base_lengths(raw_read_coverage, chrm_sizes):
+    # ignore divide by zero errors that occur where there is no
+    # coverage. Need to correct nan values after subtracting two sets of
+    # coverage so leave as nan for now
+    old_err_settings = np.seterr(all='ignore')
+    # take the mean over all signal overlapping each base
+    mean_base_lengths = {}
+    for chrm, strand in [(c, s) for c in chrm_sizes.keys()
+                         for s in ('+', '-')]:
+        mean_base_lengths[(chrm, strand)] = get_reads_base_lengths(
+            raw_read_coverage[(chrm, strand)], chrm_sizes[chrm],
+            strand == '-')
+    _ = np.seterr(**old_err_settings)
+
+    return mean_base_lengths
 
 def get_reads_events(chrm_strand_reads, rev_strand):
     # note that this function assumes that all reads come from the same
