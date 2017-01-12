@@ -1600,7 +1600,7 @@ def cluster_most_signif(
         else:
             fasta_records = nh.parse_fasta(fasta_fn)
             reg_seqs = [
-                fasta_records[chrm][start:start+num_bases].seq.tostring()
+                fasta_records[chrm][start:start+num_bases]
                 for p_int, (chrm, start, strand, reg_name)
                 in uniq_p_intervals]
 

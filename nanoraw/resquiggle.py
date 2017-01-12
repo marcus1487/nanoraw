@@ -7,7 +7,6 @@ import Queue
 import numpy as np
 import multiprocessing as mp
 
-from Bio import SeqIO
 from glob import glob
 from time import sleep, time
 from subprocess import call, STDOUT
@@ -17,8 +16,7 @@ from collections import defaultdict, namedtuple
 
 # import nanoraw functions
 import option_parsers
-from nanoraw_helper import (
-    normalize_raw_signal, rev_comp, get_channel_info)
+import nanoraw_helper as nh
 
 fd = sys.stderr.fileno()
 def _redirect_stderr(to):
@@ -303,7 +301,7 @@ def resquiggle_read(
         fast5_data = h5py.File(fast5_fn, 'r')
     except IOError:
         raise IOError, 'Error opening file. Likely a corrupted file.'
-    channel_info = get_channel_info(fast5_data)
+    channel_info = nh.get_channel_info(fast5_data)
 
     # extract raw data for this read
     try:
@@ -316,7 +314,7 @@ def resquiggle_read(
     fast5_data.close()
 
     # normalize signal
-    norm_signal, scale_values = normalize_raw_signal(
+    norm_signal, scale_values = nh.normalize_raw_signal(
         all_raw_signal, read_start_rel_to_raw, starts_rel_to_read[-1],
         norm_type, channel_info, outlier_thresh)
 
@@ -495,8 +493,8 @@ def parse_m5_record(r_m5_record):
         alignVals = zip(r_m5_record['qAlignedSeq'],
                         r_m5_record['tAlignedSeq'])
     else:
-        alignVals = zip(rev_comp(r_m5_record['qAlignedSeq']),
-                        rev_comp(r_m5_record['tAlignedSeq']))
+        alignVals = zip(nh.rev_comp(r_m5_record['qAlignedSeq']),
+                        nh.rev_comp(r_m5_record['tAlignedSeq']))
 
     alignVals, start_clipped_bases, end_clipped_bases, genome_loc \
         = clip_m5_alignment(
@@ -547,7 +545,7 @@ def parse_sam_record(r_sam_record, genome_index):
         cigar = cigar[::-1]
 
     # record clipped bases and remove from query seq as well as cigar
-    qSeq = r_sam_record['seq'] if strand == '+' else rev_comp(
+    qSeq = r_sam_record['seq'] if strand == '+' else nh.rev_comp(
         r_sam_record['seq'])
     start_clipped_bases = 0
     end_clipped_bases = 0
@@ -571,7 +569,7 @@ def parse_sam_record(r_sam_record, genome_index):
                 if reg_type in 'MDN=X'])
     tSeq = genome_index[r_sam_record['rName']][
         int(r_sam_record['pos']) - 1:int(r_sam_record['pos']) + tLen - 1]
-    if strand == '-': tSeq = rev_comp(tSeq)
+    if strand == '-': tSeq = nh.rev_comp(tSeq)
 
     # check that cigar starts and ends with matched bases
     while cigar[0][1] not in 'M=X':
@@ -613,7 +611,7 @@ def parse_sam_record(r_sam_record, genome_index):
             start_clipped_bases, end_clipped_bases)
 
 def parse_sam_output(align_output, batch_reads_data, genome_fn):
-    genome_index = SeqIO.index(genome_fn, 'fasta')
+    genome_index = nh.parse_fasta(genome_fn)
     # create dictionary with empty slot to each read
     alignments = dict(
         (read_fn_sg, None) for read_fn_sg in batch_reads_data.keys())
@@ -776,7 +774,7 @@ def get_read_data(fast5_fn, basecall_group, basecall_subgroup):
             'Raw data is not stored in Raw/Reads/Read_[read#] so ' +
             'new segments cannot be identified.')
 
-    channel_info = get_channel_info(fast5_data)
+    channel_info = nh.get_channel_info(fast5_data)
 
     read_id = raw_attrs['read_id']
 

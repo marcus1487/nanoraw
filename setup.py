@@ -8,7 +8,7 @@ setup(
     name = "nanoraw",
     version = "0.3.1",
     packages = ["nanoraw"],
-    install_requires = ['h5py', 'rpy2', 'numpy', 'scipy', 'biopython'],
+    install_requires = ['h5py', 'rpy2', 'numpy', 'scipy'],
 
     author = "Marcus Stoiber",
     author_email = "mhstoiber@lbl.gov",

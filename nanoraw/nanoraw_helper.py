@@ -8,8 +8,6 @@ import numpy as np
 from itertools import izip
 from collections import defaultdict, namedtuple
 
-from Bio import SeqIO
-
 readData = namedtuple('readData', (
     'start', 'end', 'segs', 'read_start_rel_to_raw',
     'strand', 'fn', 'corr_group'))
@@ -214,31 +212,36 @@ def normalize_raw_signal(
     return raw_signal, scaleValues(shift, scale, lower_lim, upper_lim)
 
 def parse_fasta(fasta_fn):
+    # Tried Biopython index and that opened the fail again for each
+    # record access request and was thus far too slow
+
     # could consider a conditional dependence on pyfaix if on-memory
     # indexing is required for larger genomes
-    # Biopython's record level indexing will do for now...
-    return SeqIO.index(fasta_fn,'fasta')
+    # testing shows that human genome only takes 3.2 GB with raw parser
+    # so raw parsing is probably fine
+    fasta_fp = open(fasta_fn)
 
-# Old fasta parser method
-""" 
+    fasta_records = {}
     curr_id = None
-    curr_seq = None
+    curr_seq = ''
     for line in fasta_fp:
-        if line.startwith('>'):
+        if line.startswith('>'):
             if (curr_id is not None and
-                curr_seq is not None):
+                curr_seq is not ''):
                 fasta_records[curr_id] = curr_seq
-                curr_id = line.replace(">","").split()[0]
-                curr_seq = ''
+            curr_seq = ''
+            curr_id = line.replace(">","").strip().split()[0]
         else:
             curr_seq += line.strip()
 
+    # add last record
     if (curr_id is not None and
-        curr_seq is not None):
+        curr_seq is not ''):
         fasta_records[curr_id] = curr_seq
 
+    fasta_fp.close()
+
     return fasta_records
-"""
 
 def get_coverage(raw_read_coverage):
     if VERBOSE: sys.stderr.write('Calculating read coverage.\n')

@@ -253,8 +253,7 @@ def write_most_signif(
     else:
         fasta_records = nh.parse_fasta(fasta_fn)
         reg_seqs = [
-            (p_int, fasta_records[chrm][
-                start:start+num_bases].seq.tostring())
+            (p_int, fasta_records[chrm][start:start+num_bases])
             for p_int, (chrm, start, strand, reg_name)
             in plot_intervals]
 
