@@ -5,53 +5,53 @@ genomeLocs='"S_aureus:2064835" "S_aureus:2064935"'
 strandGenomeLocs='"S_aureus:2064835:-" "S_aureus:2064935"'
 
 printf "********* Testing help commands **********\n"
-#nanoraw -h
+nanoraw -h
 
-#nanoraw genome_resquiggle -h
-#nanoraw plot_max_coverage -h
-#nanoraw plot_genome_location -h
-#nanoraw plot_kmer_centered -h
+nanoraw genome_resquiggle -h
+nanoraw plot_max_coverage -h
+nanoraw plot_genome_location -h
+nanoraw plot_kmer_centered -h
 
-#nanoraw plot_max_difference -h
-#nanoraw plot_most_significant -h
-#nanoraw plot_kmer_with_stats -h
+nanoraw plot_max_difference -h
+nanoraw plot_most_significant -h
+nanoraw plot_kmer_with_stats -h
 
-#nanoraw plot_correction -h
-#nanoraw plot_multi_correction -h
+nanoraw plot_correction -h
+nanoraw plot_multi_correction -h
 
-#nanoraw cluster_most_significant -h
-#nanoraw plot_kmer -h
+nanoraw cluster_most_significant -h
+nanoraw plot_kmer -h
 
-#nanoraw write_most_significant_fasta -h
-#nanoraw write_wiggles -h
+nanoraw write_most_significant_fasta -h
+nanoraw write_wiggles -h
 
 printf "\n\n********* Testing genome correction scripts **********\n"
-#nanoraw genome_resquiggle \
-#        $g1Dir $genomeFn --graphmap-executable ./graphmap \
-#        --timeout 60 --cpts-limit 100 --normalization-type median \
-#        --failed-reads-filename testing.signif_group1.failed_read.txt \
-#        --2d --processes 4 --overwrite
-#nanoraw genome_resquiggle \
-#        $g2Dir $genomeFn --graphmap-executable ./graphmap \
-#        --timeout 60 --cpts-limit 100 --normalization-type median \
-#        --failed-reads-filename testing.signif_group2.failed_read.txt \
-#         --overwrite --2d --processes 4
+nanoraw genome_resquiggle \
+        $g1Dir $genomeFn --graphmap-executable ./graphmap \
+        --timeout 60 --cpts-limit 100 --normalization-type median \
+        --failed-reads-filename testing.signif_group1.failed_read.txt \
+        --2d --processes 4 --overwrite
+nanoraw genome_resquiggle \
+        $g2Dir $genomeFn --graphmap-executable ./graphmap \
+        --timeout 60 --cpts-limit 100 --normalization-type median \
+        --failed-reads-filename testing.signif_group2.failed_read.txt \
+         --overwrite --2d --processes 4
 
 printf "\n\n********* Testing Alternative BWA-MEM Mapper **********\n"
-#nanoraw genome_resquiggle \
-#        $g1Dir $genomeFn --bwa-mem-executable ./bwa \
-#        --timeout 60 --cpts-limit 100 --normalization-type median \
-#        --corrected-group RawGenomeCorrected_bwamem_000 --overwrite \
-#        --failed-reads-filename testing.group1.bwamem.failed_read.txt \
-#        --2d --processes 4
+nanoraw genome_resquiggle \
+        $g1Dir $genomeFn --bwa-mem-executable ./bwa \
+        --timeout 60 --cpts-limit 100 --normalization-type median \
+        --corrected-group RawGenomeCorrected_bwamem_000 --overwrite \
+        --failed-reads-filename testing.group1.bwamem.failed_read.txt \
+        --2d --processes 4
 
 printf "\n\n********* Testing pA normalization **********\n"
-#nanoraw genome_resquiggle \
-#        $g1Dir $genomeFn --graphmap-executable ./graphmap \
-#        --timeout 60 --cpts-limit 100 --normalization-type ont \
-#        --corrected-group RawGenomeCorrected_pA_000 --overwrite \
-#        --failed-reads-filename testing.signif_group1.pA.failed_read.txt \
-#        --2d --processes 4
+nanoraw genome_resquiggle \
+        $g1Dir $genomeFn --graphmap-executable ./graphmap \
+        --timeout 60 --cpts-limit 100 --normalization-type ont \
+        --corrected-group RawGenomeCorrected_pA_000 --overwrite \
+        --failed-reads-filename testing.signif_group1.pA.failed_read.txt \
+        --2d --processes 4
 
 printf "\n\n********* Testing single sample genome-anchored plotting functions **********\n"
 nanoraw plot_max_coverage --fast5-basedirs $g1Dir --2d \

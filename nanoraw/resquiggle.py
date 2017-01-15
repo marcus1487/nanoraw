@@ -64,6 +64,7 @@ SAM_FIELDS = (
     'qName', 'flag', 'rName', 'pos', 'mapq',
     'cigar', 'rNext', 'pNext', 'tLen', 'seq', 'qual')
 CIGAR_PAT = re.compile('(\d+)([MIDNSHP=X])')
+GAP_PAT = re.compile('-+')
 
 #################################################
 ########## Raw Signal Re-squiggle Code ##########
@@ -132,29 +133,60 @@ def write_new_fast5_group(
     return
 
 def get_indel_groups(
-        align_dat, align_segs, raw_signal, min_seg_len, timeout,
+        alignVals, align_segs, raw_signal, min_seg_len, timeout,
         num_cpts_limit, use_r_cpts):
-    def get_deletion_stats():
-        read_seq = ''.join(zip(*align_dat['aligned'])[0])
-        del_stats = []
-        # group contiguous deleted bases
-        for k, g in groupby(enumerate(
-                [j for j, b in enumerate(read_seq) if b == "-"]),
-                            lambda (i, x): i-x):
-            g = list(g)
-            # store deletion start position, stop position and
-            # total bases effect on final sequence
-            del_stats.append(indelStats(
-                max(0 ,g[0][1] - 1),
-                min(g[0][1] + len(g) + 1, len(align_segs) - 1),
-                -1 * len(g)))
-        return del_stats
-    def get_insertion_stats():
-        # similar to deletion stats store start, stop and bases effect
-        return [
-            indelStats(max(0, event_num - 1),
-                       min(event_num + 1, len(align_segs)), len(bs))
-            for event_num, bs in align_dat['insertion']]
+    def get_all_indels():
+        # get genomic sequence between each indel
+        read_align = ''.join(zip(*alignVals)[0])
+        genome_align = ''.join(zip(*alignVals)[1])
+        genome_gaps = [(m.start(), m.end()) for m in
+                       GAP_PAT.finditer(genome_align)]
+        read_gaps = [(m.start(), m.end())
+                     for m in GAP_PAT.finditer(read_align)]
+        all_indel_locs = sorted(
+            genome_gaps + read_gaps +
+            [(0,0), (len(read_align), len(read_align))])
+        btwn_indel_seqs = [
+            genome_align[m_start:m_end] for m_start, m_end in
+            zip(zip(*all_indel_locs)[1][:-1],
+                zip(*all_indel_locs)[0][1:])]
+        all_is_ins = [read_align[start:end].startswith('-')
+                      for start, end in all_indel_locs[1:-1]]
+        indel_seqs = [
+            genome_align[start:end]
+            if is_ins else read_align[start:end]
+            for is_ins, (start, end) in
+            zip(all_is_ins, all_indel_locs[1:-1])]
+
+        unambig_indels = []
+        curr_read_len = len(btwn_indel_seqs[0])
+        for indel_seq, before_seq, after_seq, is_ins in zip(
+                indel_seqs, btwn_indel_seqs[:-1], btwn_indel_seqs[1:],
+                all_is_ins):
+            indel_len = len(indel_seq)
+            indel_end = curr_read_len + 1 if is_ins else \
+                        curr_read_len + indel_len + 1
+            indel_diff = indel_len if is_ins else -1 * indel_len
+
+            # extend ambiguous indels
+            u, d = -1, 0
+            while(d < len(after_seq) and
+                  indel_seq[d%indel_len] == after_seq[d]):
+                d += 1
+            while(u * -1 <= len(before_seq) and
+                  indel_seq[(u%indel_len)-indel_len] == before_seq[u]):
+                u -= 1
+            unambig_indels.append(indelStats(
+                curr_read_len + u, indel_end + d, indel_diff))
+
+            # indel without ambiguity correction
+            # indelStats(curr_read_len - 1, indel_end, indel_diff)
+            if not is_ins:
+                curr_read_len += indel_len
+            curr_read_len += len(after_seq)
+
+        return unambig_indels
+
     def extend_group(indel_group):
         group_start = min(indel.start for indel in indel_group)
         group_stop = max(indel.end for indel in indel_group)
@@ -176,7 +208,8 @@ def get_indel_groups(
                 group_start <= indel_groups[-1].end):
             indel_group = indel_groups[-1].indels + indel_group
             del indel_groups[-1]
-            group_start, group_stop, num_cpts = extend_group(indel_group)
+            group_start, group_stop, num_cpts = extend_group(
+                indel_group)
         return group_start, group_stop, num_cpts, indel_group
     def get_cpts_alt(group_start, group_stop, num_cpts):
         """
@@ -243,7 +276,7 @@ def get_indel_groups(
         timeout_start = time()
 
     # sort indels in order of start positions
-    all_indels = sorted(get_insertion_stats() + get_deletion_stats())
+    all_indels = get_all_indels()
     indel_groups = []
     curr_group = [all_indels[0],]
     for indel in all_indels[1:]:
@@ -276,20 +309,6 @@ def get_indel_groups(
 
     return indel_groups
 
-def get_aligned_seq(align_dat):
-    # get read sequence with deletions and then sequence
-    # after fixing deletions and insertions
-    read_seq = ''.join(zip(*align_dat['aligned'])[0])
-    # if there are insertions add those to the sequence
-    if len(align_dat['insertion']) > 0:
-        read_seq = ''.join([
-            read_seq[i:j] + bs for i, (j, bs) in zip(
-                    [0,] + sorted(
-                        zip(*align_dat['insertion'])[0]),
-                    sorted(align_dat['insertion']) +
-                    [(len(read_seq), ''),])])
-    return read_seq.replace("-", "")
-
 def resquiggle_read(
         fast5_fn, read_start_rel_to_raw, starts_rel_to_read,
         norm_type, outlier_thresh, alignVals,
@@ -318,20 +337,9 @@ def resquiggle_read(
         all_raw_signal, read_start_rel_to_raw, starts_rel_to_read[-1],
         norm_type, channel_info, outlier_thresh)
 
-    # parse out aligned (including deleted) and inserted bases
-    align_dat = {'aligned':[], 'insertion':defaultdict(str)}
-    for r_base, g_base in alignVals:
-        if r_base == "-":
-            align_dat['insertion'][
-                len(align_dat['aligned'])] += g_base
-        else:
-            align_dat['aligned'].append((
-                g_base, g_base == r_base))
-    align_dat['insertion'] = align_dat['insertion'].items()
-
     # group indels that are adjacent for re-segmentation
     indel_groups = get_indel_groups(
-        align_dat, starts_rel_to_read, norm_signal, min_event_obs,
+        alignVals, starts_rel_to_read, norm_signal, min_event_obs,
         timeout, num_cpts_limit, USE_R_CPTS)
 
     new_segs = []
@@ -339,13 +347,15 @@ def resquiggle_read(
     for group_start, group_stop, cpts, group_indels in indel_groups:
         ## add segments from last indel to this one and new segments
         new_segs.append(
-            np.append(starts_rel_to_read[prev_stop:group_start+1], cpts))
+            np.append(starts_rel_to_read[prev_stop:group_start+1],
+                      cpts))
         prev_stop = group_stop
     # handle end of read
     new_segs.append(starts_rel_to_read[prev_stop:])
     new_segs = np.concatenate(new_segs)
 
-    align_seq = get_aligned_seq(align_dat)
+    # get just from alignVals
+    align_seq = ''.join(zip(*alignVals)[1]).replace('-', '')
     if new_segs.shape[0] != len(align_seq) + 1:
         raise ValueError, ('Aligned sequence does not match number ' +
                            'of segments produced.')
@@ -432,7 +442,8 @@ def fix_all_clipped_bases(batch_align_data, batch_reads_data):
 
         bc_subgroup, fast5_fn = read_fn_sg.split(':::')
         read_info = readInfo(
-            read_id, abs_event_start / float(channel_info.sampling_rate),
+            read_id, abs_event_start /
+            float(channel_info.sampling_rate),
             bc_subgroup, start_clipped_bases, end_clipped_bases,
             sum(b == "-" for b in zip(*alignVals)[0]),
             sum(b == "-" for b in zip(*alignVals)[1]),
@@ -481,8 +492,8 @@ def clip_m5_alignment(alignVals, start, strand, chrm):
     else:
         genome_loc = genomeLoc(start, strand, chrm)
 
-    return alignVals, start_clipped_read_bases, end_clipped_read_bases, \
-        genome_loc
+    return alignVals, start_clipped_read_bases, \
+        end_clipped_read_bases, genome_loc
 
 def parse_m5_record(r_m5_record):
     if r_m5_record['tStrand'] != '+':
@@ -568,7 +579,8 @@ def parse_sam_record(r_sam_record, genome_index):
     tLen = sum([reg_len for reg_len, reg_type in cigar
                 if reg_type in 'MDN=X'])
     tSeq = genome_index[r_sam_record['rName']][
-        int(r_sam_record['pos']) - 1:int(r_sam_record['pos']) + tLen - 1]
+        int(r_sam_record['pos']) - 1:
+        int(r_sam_record['pos']) + tLen - 1]
     if strand == '-': tSeq = nh.rev_comp(tSeq)
 
     # check that cigar starts and ends with matched bases
@@ -874,8 +886,8 @@ def prep_fast5(fast5_fn, basecall_group, corrected_group,
 
 def align_reads(
         fast5_batch, genome_fn, mapper_exe, mapper_type,
-        basecall_group, basecall_subgroups, corrected_group, basecalls_q,
-        overwrite, in_place=True):
+        basecall_group, basecall_subgroups, corrected_group,
+        basecalls_q, overwrite, in_place=True):
     batch_prep_failed_reads = []
     fast5s_to_process = []
     for fast5_fn in fast5_batch:
@@ -955,8 +967,8 @@ def resquiggle_all_reads(
 
     if VERBOSE: sys.stderr.write(
             'Correcting ' + str(num_reads) + ' files with ' +
-            str(len(basecall_subgroups)) + ' subgroup(s)/read(s) each ' +
-            '(Will print a dot for each 100 files completed).\n')
+            str(len(basecall_subgroups)) + ' subgroup(s)/read(s) ' +
+            'each (Will print a dot for each 100 files completed).\n')
     failed_reads = defaultdict(list)
     while any(p.is_alive() for p in align_ps):
         try:
