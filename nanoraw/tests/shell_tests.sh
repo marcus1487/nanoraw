@@ -10,11 +10,11 @@ nanoraw -h
 nanoraw genome_resquiggle -h
 nanoraw plot_max_coverage -h
 nanoraw plot_genome_location -h
-nanoraw plot_kmer_centered -h
+nanoraw plot_motif_centered -h
 
 nanoraw plot_max_difference -h
 nanoraw plot_most_significant -h
-nanoraw plot_kmer_with_stats -h
+nanoraw plot_motif_with_stats -h
 
 nanoraw plot_correction -h
 nanoraw plot_multi_correction -h
@@ -62,10 +62,10 @@ nanoraw plot_max_coverage --fast5-basedirs $g1Dir --2d \
 nanoraw plot_genome_location --fast5-basedirs $g1Dir \
         --genome-locations $genomeLocs \
         --2d --num-bases 21 --overplot-threshold 1000
-nanoraw plot_kmer_centered --fast5-basedirs $g1Dir --kmer ATC \
+nanoraw plot_motif_centered --fast5-basedirs $g1Dir --motif ATC \
         --genome-fasta $genomeFn --2d \
         --num-bases 21 --overplot-threshold 1000
-nanoraw plot_kmer_centered --fast5-basedirs $g1Dir --kmer ATC \
+nanoraw plot_motif_centered --fast5-basedirs $g1Dir --motif ATC \
         --genome-fasta $genomeFn --2d \
         --num-bases 21 --overplot-threshold 1000 --deepest-coverage
 
@@ -81,7 +81,7 @@ nanoraw plot_genome_location --fast5-basedirs $g1Dir \
         --fast5-basedirs2 $g2Dir \
         --genome-locations $genomeLocs \
         --2d --num-bases 21 --overplot-threshold 1000
-nanoraw plot_kmer_centered --fast5-basedirs $g1Dir --kmer ATC \
+nanoraw plot_motif_centered --fast5-basedirs $g1Dir --motif ATC \
         --genome-fasta $genomeFn \
         --fast5-basedirs2 $g2Dir --2d \
         --num-bases 21 --overplot-threshold 1000 --deepest-coverage
@@ -99,7 +99,7 @@ nanoraw plot_most_significant --fast5-basedirs $g1Dir \
         --fast5-basedirs2 $g2Dir --2d \
         --num-bases 21 --overplot-threshold 1000 \
         --statistics-filename testing.significance_values.txt
-nanoraw plot_kmer_with_stats --fast5-basedirs $g1Dir \
+nanoraw plot_motif_with_stats --fast5-basedirs $g1Dir \
         --fast5-basedirs2 $g2Dir --motif ATC --2d \
         --overplot-threshold 1000 --test-type mw_utest
 

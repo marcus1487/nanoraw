@@ -188,11 +188,7 @@ gnmloc_opt=('--genome-locations', {
     '[chrm2:position2[:strand2] ...]" (strand not applicable ' +
     'for all applications)'})
 
-# kmer signal plotting opts
-kmer_opt=('--kmer', {
-    'required':True,
-    'help':'DNA K-mer of interest. Should be composed of ' +
-    'ACGT characters.'})
+# motif signal plotting opts
 fasta_opt=('--genome-fasta', {
     'help':'FASTA file used to map reads with "genome_resquiggle" ' +
     'command.'})
@@ -223,7 +219,7 @@ fmo_opt=('--fishers-method-offset', {
     "combined p-values using Fisher's method. " +
     'Default: Use raw p-values.'})
 
-# kmer centered statistic plotting options
+# motif centered statistic plotting options
 motif_opt=('--motif', {
     'help':'A motif to plot the most significant regions genomic ' +
     'regions as well as statistic distributions at each genomic ' +
@@ -411,9 +407,9 @@ def get_genome_loc_parser():
 
     return parser
 
-def get_kmer_loc_parser():
+def get_motif_loc_parser():
     parser = argparse.ArgumentParser(
-        description='Plot raw signal centered on a DNA kmer ' +
+        description='Plot raw signal centered on a DNA motif ' +
         'of interest.',
         add_help=False)
     req_args = parser.add_argument_group('Required Argument')
@@ -440,7 +436,7 @@ def get_kmer_loc_parser():
     misc_args = parser.add_argument_group('Miscellaneous Arguments')
     misc_args.add_argument(deepcov_opt[0], **deepcov_opt[1])
     misc_args.add_argument(
-        pdf_opt[0], default='Nanopore_read_coverage.kmer_centered.pdf',
+        pdf_opt[0], default='Nanopore_read_coverage.motif_centered.pdf',
         **pdf_opt[1])
     misc_args.add_argument(numreg_opt[0], default=10, **numreg_opt[1])
     misc_args.add_argument(numbases_opt[0], default=51, **numbases_opt[1])
@@ -529,7 +525,7 @@ def get_signif_diff_parser():
 
     return parser
 
-def get_signif_kmer_parser():
+def get_signif_motif_parser():
     parser = argparse.ArgumentParser(
         description='Plot raw signal from from two samples ' +
         'centered around a motif (k-mer) of interest along with ' +
@@ -563,7 +559,7 @@ def get_signif_kmer_parser():
     misc_args = parser.add_argument_group('Miscellaneous Arguments')
     misc_args.add_argument(
         pdf_opt[0],
-        default='Nanopore_read_coverage.statistics_around_kmer.pdf',
+        default='Nanopore_read_coverage.statistics_around_motif.pdf',
         **pdf_opt[1])
     misc_args.add_argument(statfn_opt[0], **statfn_opt[1])
     misc_args.add_argument(numreg_opt[0], default=5, **numreg_opt[1])

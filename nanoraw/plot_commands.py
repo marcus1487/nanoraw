@@ -1016,7 +1016,7 @@ def plot_two_samples(
 
     return
 
-def plot_kmer_centered_with_stats(
+def plot_motif_centered_with_stats(
         raw_read_coverage1, raw_read_coverage2, plot_intervals,
         pval_locs, num_bases, corrected_group, overplot_thresh,
         overplot_type, pdf_fn):
@@ -1073,9 +1073,9 @@ def plot_kmer_centered_with_stats(
         'NegLogPValue':r.FloatVector(zip(*pval_locs)[1])})
 
     if VERBOSE: sys.stderr.write('Plotting.\n')
-    r.r(resource_string(__name__, 'R_scripts/plotKmerStats.R'))
+    r.r(resource_string(__name__, 'R_scripts/plotMotifStats.R'))
     r.r('pdf("' + pdf_fn + '", height=3, width=5)')
-    r.globalenv['plotKmerStats'](PlotData, BasesData,
+    r.globalenv['plotMotifStats'](PlotData, BasesData,
                                  StatsData, overplot_type, 0.4)
     r.r('dev.off()')
 
@@ -1198,7 +1198,7 @@ def plot_genome_locations(
 
     return
 
-def plot_kmer_centered(
+def plot_motif_centered(
         files, files2, num_regions, corrected_group, basecall_subgroups,
         overplot_thresh, pdf_fn, num_bases, overplot_type, motif,
         fasta_fn, deepest_coverage, obs_filter):
@@ -1212,7 +1212,7 @@ def plot_kmer_centered(
         motif_locs = []
         for chrm, seq in fasta_records.iteritems():
             if chrm not in covered_chrms: continue
-            for motif_loc in motif_pat.finditer(seq.seq.tostring()):
+            for motif_loc in motif_pat.finditer(seq):
                 motif_locs.append((chrm, motif_loc.start()))
 
         if len(motif_locs) == 0:
@@ -1273,7 +1273,7 @@ def plot_kmer_centered(
             plot_intervals = zip(
                 ['{:03d}'.format(rn) for rn in range(num_regions)],
                 ((chrm, max(pos - int(
-                    (num_bases - len(kmer) + 1) / 2.0), 0), '+', '')
+                    (num_bases - motif_len + 1) / 2.0), 0), '+', '')
                  for cov, chrm, pos in motif_locs_cov))
         else:
             # zip over iterator of regions that have at least a
@@ -1281,7 +1281,7 @@ def plot_kmer_centered(
             plot_intervals = zip(
                 ['{:03d}'.format(rn) for rn in range(num_regions)],
                 ((chrm, max(pos - int(
-                    (num_bases - len(kmer) + 1) / 2.0), 0), strand, '')
+                    (num_bases - motif_len + 1) / 2.0), 0), strand, '')
                  for chrm, pos in motif_locs
                  for strand in ('+', '-')
                  if (any(r_data.start < pos < r_data.end
@@ -1316,7 +1316,7 @@ def plot_kmer_centered(
             plot_intervals = zip(
                 ['{:03d}'.format(rn) for rn in range(num_regions)],
                 ((chrm, max(pos - int(
-                    (num_bases - len(kmer) + 1) / 2.0), 0), '+', '')
+                    (num_bases - motif_len + 1) / 2.0), 0), '+', '')
                  for cov, chrm, pos in sorted(
                          motif_locs_cov, reverse=True)))
         else:
@@ -1325,7 +1325,7 @@ def plot_kmer_centered(
             plot_intervals = zip(
                 ['{:03d}'.format(rn) for rn in range(num_regions)],
                 ((chrm, max(pos - int(
-                    (num_bases - len(kmer) + 1) / 2.0), 0), '+', '')
+                    (num_bases - motif_len + 1) / 2.0), 0), '+', '')
                  for chrm, pos in motif_locs
                  if any(r_data.start < pos < r_data.end
                         for r_data in raw_read_coverage[(chrm, '+')] +
@@ -1419,7 +1419,7 @@ def plot_most_signif(
             raw_read_coverage1, raw_read_coverage2, test_type,
             min_test_vals, stats_fn, fishers_method_offset)
 
-    plot_intervals = get_most_signif_regions(
+    plot_intervals = ns.get_most_signif_regions(
         all_stats, num_bases, num_regions, qval_thresh)
     plot_two_samples(
         plot_intervals, raw_read_coverage1, raw_read_coverage2,
@@ -1446,7 +1446,7 @@ def get_region_sequences(
 
     return zip(zip(*merged_reg_data)[0], all_reg_base_data)
 
-def plot_kmer_centered_signif(
+def plot_motif_centered_signif(
         files1, files2, num_regions, corrected_group, basecall_subgroups,
         overplot_thresh, overplot_type, pdf_fn, motif, context_width,
         test_type, obs_filter, min_test_vals, num_stat_values, stats_fn,
@@ -1532,7 +1532,7 @@ def plot_kmer_centered_signif(
 
     uniq_p_intervals = uniq_p_intervals[:num_regions]
 
-    plot_kmer_centered_with_stats(
+    plot_motif_centered_with_stats(
         raw_read_coverage1, raw_read_coverage2, uniq_p_intervals,
         pval_locs, plot_width, corrected_group, overplot_thresh,
         overplot_type, pdf_fn)
@@ -1573,7 +1573,7 @@ def cluster_most_signif(
             raw_read_coverage1, raw_read_coverage2, test_type,
             min_test_vals, stats_fn, fishers_method_offset)
 
-    plot_intervals = get_most_signif_regions(
+    plot_intervals = ns.get_most_signif_regions(
         all_stats, num_bases, num_regions, qval_thresh)
 
     # unique genomic regions filter
@@ -1771,7 +1771,7 @@ def genome_loc_main(args):
 
     return
 
-def kmer_loc_main(args):
+def motif_loc_main(args):
     global VERBOSE
     VERBOSE = not args.quiet
     nh.VERBOSE = VERBOSE
@@ -1779,7 +1779,7 @@ def kmer_loc_main(args):
     files1, files2 = nh.get_files_lists(
         args.fast5_basedirs, args.fast5_basedirs2)
 
-    plot_kmer_centered(
+    plot_motif_centered(
         files1, files2, args.num_regions, args.corrected_group,
         args.basecall_subgroups, args.overplot_threshold,
         args.pdf_filename, args.num_bases, args.overplot_type,
@@ -1824,11 +1824,11 @@ def signif_diff_main(args):
 
     return
 
-def kmer_signif_diff_main(args):
+def motif_signif_diff_main(args):
     if not USE_COWPLOT:
         sys.stderr.write(
             '*' * 60 + '\nERROR: Must have R packge `cowplot` ' +
-            'installed in order to create kmer centered plots ' +
+            'installed in order to create motif centered plots ' +
             '(install via `install.packages(cowplot)` from ' +
             'an R prompt).\n' + '*' * 60 + '\n\n')
         sys.exit()
@@ -1841,7 +1841,7 @@ def kmer_signif_diff_main(args):
     files1, files2 = nh.get_files_lists(
         args.fast5_basedirs, args.fast5_basedirs2)
 
-    plot_kmer_centered_signif(
+    plot_motif_centered_signif(
         files1, files2, args.num_regions, args.corrected_group,
         args.basecall_subgroups, args.overplot_threshold,
         args.overplot_type, args.pdf_filename, args.motif,
