@@ -1185,7 +1185,8 @@ def plot_genome_locations(
     if files2 is not None:
         raw_read_coverage2 = nh.parse_fast5s(
             files2, corrected_group, basecall_subgroups)
-        raw_read_coverage2 = nh.filter_reads(raw_read_coverage2, obs_filter)
+        raw_read_coverage2 = nh.filter_reads(
+            raw_read_coverage2, obs_filter)
         plot_two_samples(
             plot_intervals, raw_read_coverage, raw_read_coverage2,
             num_bases, overplot_thresh, overplot_type, corrected_group,

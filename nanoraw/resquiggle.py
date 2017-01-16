@@ -42,7 +42,9 @@ with os.fdopen(os.dup(fd), 'w') as old_stderr:
 NANORAW_VERSION = '0.3.1'
 VERBOSE = False
 
-MAX_BASE_CALL_Q_SIZE = 100
+# allow this many times the alignment batch size into the queue of
+# reads to be resquiggled
+ALIGN_BATCH_MULTIPLIER = 10
 
 indelStats = namedtuple('indelStats',
                         ('start', 'end', 'diff'))
@@ -74,7 +76,7 @@ def write_new_fast5_group(
         filename, genome_location, read_info,
         read_start_rel_to_raw, new_segs, align_seq, alignVals,
         old_segs, norm_signal, scale_values, corrected_group,
-        basecall_subgroup, norm_type, outlier_thresh):
+        basecall_subgroup, norm_type, outlier_thresh, compute_sd):
     # save new events as new hdf5 Group
     read_data = h5py.File(filename, 'r+')
     corr_grp = read_data['/Analyses/' + corrected_group]
@@ -113,10 +115,9 @@ def write_new_fast5_group(
         'read_segments', data=old_segs, compression="gzip")
 
     # Add Events to data frame with event means, SDs and lengths
-    """raw_mean_sd = [(base_sig.mean(), base_sig.std()) for base_sig in
-                   np.split(raw_signal, new_segs[1:-1])]"""
-    norm_mean_sd = [(base_sig.mean(), base_sig.std()) for base_sig in
-                    np.split(norm_signal, new_segs[1:-1])]
+    norm_mean_sd = [
+        (base_sig.mean(), base_sig.std() if compute_sd else np.nan)
+        for base_sig in np.split(norm_signal, new_segs[1:-1])]
 
     event_data = np.array(
         zip(zip(*norm_mean_sd)[0], zip(*norm_mean_sd)[1],
@@ -136,7 +137,7 @@ def get_indel_groups(
         alignVals, align_segs, raw_signal, min_seg_len, timeout,
         num_cpts_limit, use_r_cpts):
     def get_all_indels():
-        # get genomic sequence between each indel
+        # get genomic sequence for and between each indel
         read_align = ''.join(zip(*alignVals)[0])
         genome_align = ''.join(zip(*alignVals)[1])
         genome_gaps = [(m.start(), m.end()) for m in
@@ -150,6 +151,7 @@ def get_indel_groups(
             genome_align[m_start:m_end] for m_start, m_end in
             zip(zip(*all_indel_locs)[1][:-1],
                 zip(*all_indel_locs)[0][1:])]
+        # is each indel an ins(ertion) or deletion
         all_is_ins = [read_align[start:end].startswith('-')
                       for start, end in all_indel_locs[1:-1]]
         indel_seqs = [
@@ -158,15 +160,23 @@ def get_indel_groups(
             for is_ins, (start, end) in
             zip(all_is_ins, all_indel_locs[1:-1])]
 
+        # loop over indels along with sequence before and after in order
+        # to check for ambiguous indels
         unambig_indels = []
         curr_read_len = len(btwn_indel_seqs[0])
         for indel_seq, before_seq, after_seq, is_ins in zip(
                 indel_seqs, btwn_indel_seqs[:-1], btwn_indel_seqs[1:],
                 all_is_ins):
             indel_len = len(indel_seq)
+            # if this is an insertion then don't include indel in
+            # length to end of indel
+            # also extend indel end by 1 in order to check for new
+            # breakpoints for neighboring segemnts
             indel_end = curr_read_len + 1 if is_ins else \
                         curr_read_len + indel_len + 1
             indel_diff = indel_len if is_ins else -1 * indel_len
+            # indel without ambiguity correction
+            # indelStats(curr_read_len - 1, indel_end, indel_diff)
 
             # extend ambiguous indels
             u, d = -1, 0
@@ -179,8 +189,6 @@ def get_indel_groups(
             unambig_indels.append(indelStats(
                 curr_read_len + u, indel_end + d, indel_diff))
 
-            # indel without ambiguity correction
-            # indelStats(curr_read_len - 1, indel_end, indel_diff)
             if not is_ins:
                 curr_read_len += indel_len
             curr_read_len += len(after_seq)
@@ -283,7 +291,7 @@ def get_indel_groups(
         if timeout is not None and time() - timeout_start > timeout:
             raise RuntimeError, 'Read took too long to re-segment.'
         # check if indel hits current group
-        if max(indel.end for indel in curr_group) >= indel.start:
+        if max(g_indel.end for g_indel in curr_group) >= indel.start:
             curr_group.append(indel)
         else:
             (curr_start, curr_stop, num_cpts,
@@ -313,7 +321,7 @@ def resquiggle_read(
         fast5_fn, read_start_rel_to_raw, starts_rel_to_read,
         norm_type, outlier_thresh, alignVals,
         timeout, num_cpts_limit, genome_loc, read_info,
-        corrected_group, min_event_obs=4, in_place=True):
+        corrected_group, compute_sd, min_event_obs=4, in_place=True):
     # errors should not happen here since these slotes were checked
     # in alignment function, but can't hurt
     try:
@@ -367,7 +375,7 @@ def resquiggle_read(
             read_start_rel_to_raw, new_segs, align_seq, alignVals,
             starts_rel_to_read, norm_signal, scale_values,
             corrected_group, read_info.Subgroup, norm_type,
-            outlier_thresh)
+            outlier_thresh, compute_sd)
     else:
         # create new hdf5 file to hold corrected read events
         pass
@@ -376,7 +384,7 @@ def resquiggle_read(
 
 def resquiggle_worker(
         basecalls_q, failed_reads_q, corrected_group, norm_type,
-        outlier_thresh, timeout, num_cpts_limit):
+        outlier_thresh, timeout, num_cpts_limit, compute_sd):
     num_processed = 0
     while True:
         try:
@@ -392,20 +400,21 @@ def resquiggle_worker(
         if VERBOSE and num_processed % 100 == 0:
             sys.stderr.write('.')
             sys.stderr.flush()
-
         (alignVals, genome_loc, starts_rel_to_read,
-         read_start_rel_to_raw, abs_event_start, read_info) = align_data
+         read_start_rel_to_raw, abs_event_start,
+         read_info) = align_data
         try:
             resquiggle_read(
                 fast5_fn, read_start_rel_to_raw, starts_rel_to_read,
                 norm_type, outlier_thresh, alignVals,
                 timeout, num_cpts_limit, genome_loc, read_info,
-                corrected_group)
+                corrected_group, compute_sd)
         except Exception as e:
             failed_reads_q.put((
                 str(e), read_info.Subgroup + ' :: ' + fast5_fn))
 
     return
+
 
 ############################################
 ########## Genomic Alignment Code ##########
@@ -441,15 +450,21 @@ def fix_all_clipped_bases(batch_align_data, batch_reads_data):
                 abs_event_start)
 
         bc_subgroup, fast5_fn = read_fn_sg.split(':::')
+        num_ins, num_del, num_match, num_mismatch = 0, 0, 0, 0
+        for rb, gb in alignVals:
+            if rb == '-':
+                num_del += 1
+            elif gb == '-':
+                num_ins += 1
+            elif rb == gb:
+                num_match += 1
+            else:
+                num_mismatch += 1
         read_info = readInfo(
             read_id, abs_event_start /
             float(channel_info.sampling_rate),
             bc_subgroup, start_clipped_bases, end_clipped_bases,
-            sum(b == "-" for b in zip(*alignVals)[0]),
-            sum(b == "-" for b in zip(*alignVals)[1]),
-            sum(rb == gb for rb, gb in alignVals),
-            sum(rb != gb for rb, gb in alignVals
-                if rb != '-' and gb != '-'))
+            num_ins, num_del, num_match, num_mismatch)
 
         clip_fix_align_data.append((fast5_fn, (
             alignVals, genome_loc, starts_rel_to_read,
@@ -622,8 +637,7 @@ def parse_sam_record(r_sam_record, genome_index):
         int(r_sam_record['pos']) - 1, strand, r_sam_record['rName']),
             start_clipped_bases, end_clipped_bases)
 
-def parse_sam_output(align_output, batch_reads_data, genome_fn):
-    genome_index = nh.parse_fasta(genome_fn)
+def parse_sam_output(align_output, batch_reads_data, genome_index):
     # create dictionary with empty slot to each read
     alignments = dict(
         (read_fn_sg, None) for read_fn_sg in batch_reads_data.keys())
@@ -661,8 +675,8 @@ def prep_graphmap_options(genome_fn, read_fn, out_fn, output_format):
 def prep_bwa_mem_options(genome_fn, read_fn):
     return ['mem', '-x', 'ont2d', '-v', '1', genome_fn, read_fn]
 
-def align_to_genome(batch_reads_data, genome_filename, mapper_exe,
-                    mapper_type, output_format='sam'):
+def align_to_genome(batch_reads_data, genome_fn, mapper_exe,
+                    mapper_type, genome_index, output_format='sam'):
     # prepare fasta text with batch reads
     batch_reads_fasta = ''
     for read_fn_sg, (_, _, basecalls, _, _, _) in \
@@ -679,12 +693,12 @@ def align_to_genome(batch_reads_data, genome_filename, mapper_exe,
     with open(os.devnull, 'w') as FNULL:
         if mapper_type == 'graphmap':
             mapper_options = prep_graphmap_options(
-                genome_filename, read_fp.name, out_fp.name,
+                genome_fn, read_fp.name, out_fp.name,
                 output_format)
             stdout_sink = FNULL
         elif mapper_type == 'bwa_mem':
             mapper_options = prep_bwa_mem_options(
-                genome_filename, read_fp.name)
+                genome_fn, read_fp.name)
             stdout_sink = out_fp
         else:
             raise RuntimeError, 'Mapper not supported.'
@@ -708,7 +722,7 @@ def align_to_genome(batch_reads_data, genome_filename, mapper_exe,
 
     if output_format == 'sam':
         batch_parse_failed_reads, batch_align_data = parse_sam_output(
-            align_output, batch_reads_data, genome_filename)
+            align_output, batch_reads_data, genome_index)
     elif output_format == 'm5':
         batch_parse_failed_reads, batch_align_data = parse_m5_output(
             align_output, batch_reads_data)
@@ -823,7 +837,7 @@ def get_read_data(fast5_fn, basecall_group, basecall_subgroup):
 
 def align_and_parse(
         fast5s_to_process, genome_fn, mapper_exe, mapper_type,
-        basecall_group, basecall_subgroups):
+        genome_index, basecall_group, basecall_subgroups):
     batch_reads_data = {}
     batch_get_data_failed_reads = []
     for fast5_fn in fast5s_to_process:
@@ -838,7 +852,8 @@ def align_and_parse(
                     str(e), bc_subgroup + ':::' + fast5_fn))
 
     batch_align_failed_reads, batch_align_data = align_to_genome(
-        batch_reads_data, genome_fn, mapper_exe, mapper_type)
+        batch_reads_data, genome_fn, mapper_exe, mapper_type,
+        genome_index)
 
     return (batch_get_data_failed_reads + batch_align_failed_reads,
             batch_align_data)
@@ -885,7 +900,7 @@ def prep_fast5(fast5_fn, basecall_group, corrected_group,
     return
 
 def align_reads(
-        fast5_batch, genome_fn, mapper_exe, mapper_type,
+        fast5_batch, genome_fn, mapper_exe, mapper_type, genome_index,
         basecall_group, basecall_subgroups, corrected_group,
         basecalls_q, overwrite, in_place=True):
     batch_prep_failed_reads = []
@@ -901,7 +916,7 @@ def align_reads(
 
     batch_align_failed_reads, batch_align_data = align_and_parse(
         fast5s_to_process, genome_fn, mapper_exe, mapper_type,
-        basecall_group, basecall_subgroups)
+        genome_index, basecall_group, basecall_subgroups)
     for align_data in batch_align_data:
         basecalls_q.put(align_data)
 
@@ -911,6 +926,8 @@ def alignment_worker(
         fast5_q, basecalls_q, failed_reads_q, genome_fn,
         mapper_exe, mapper_type, basecall_group, basecall_subgroups,
         corrected_group, overwrite):
+    # this is only needed for sam output format (not m5)
+    genome_index = nh.parse_fasta(genome_fn)
     while not fast5_q.empty():
         try:
             fast5_batch = fast5_q.get(block=False)
@@ -919,8 +936,8 @@ def alignment_worker(
 
         batch_failed_reads = align_reads(
             fast5_batch, genome_fn, mapper_exe, mapper_type,
-            basecall_group, basecall_subgroups, corrected_group,
-            basecalls_q, overwrite)
+            genome_index, basecall_group, basecall_subgroups,
+            corrected_group, basecalls_q, overwrite)
         for failed_read in batch_failed_reads:
             failed_reads_q.put(failed_read)
 
@@ -930,11 +947,11 @@ def resquiggle_all_reads(
         fast5_fns, genome_fn, mapper_exe, mapper_type,
         basecall_group, basecall_subgroups, corrected_group, norm_type,
         outlier_thresh, timeout, num_cpts_limit, overwrite,
-        align_batch_size, num_align_ps, num_resquiggle_ps):
+        align_batch_size, num_align_ps, num_resquiggle_ps, compute_sd):
     manager = mp.Manager()
     fast5_q = manager.Queue()
     # set maximum number of parsed basecalls to sit in the middle queue
-    basecalls_q = manager.Queue(MAX_BASE_CALL_Q_SIZE)
+    basecalls_q = manager.Queue(align_batch_size * ALIGN_BATCH_MULTIPLIER)
     failed_reads_q = manager.Queue()
     num_reads = 0
     fast5_batch = []
@@ -958,7 +975,8 @@ def resquiggle_all_reads(
         align_ps.append(p)
 
     rsqgl_args = (basecalls_q, failed_reads_q, corrected_group,
-                  norm_type, outlier_thresh, timeout, num_cpts_limit)
+                  norm_type, outlier_thresh, timeout, num_cpts_limit,
+                  compute_sd)
     resquiggle_ps = []
     for p_id in xrange(num_resquiggle_ps):
         p = mp.Process(target=resquiggle_worker, args=rsqgl_args)
@@ -1049,12 +1067,16 @@ def resquiggle_main(args):
     num_resquiggle_ps = args.processes if args.resquiggle_processes is \
                         None else args.resquiggle_processes
 
+    # whether or not to skip SD calculation due to time
+    compute_sd = not args.skip_event_stdev
+
     failed_reads = resquiggle_all_reads(
         files, args.genome_fasta, mapper_exe, mapper_type,
         args.basecall_group, args.basecall_subgroups,
         args.corrected_group, args.normalization_type, outlier_thresh,
         args.timeout, args.cpts_limit, args.overwrite,
-        args.alignment_batch_size, num_align_ps, num_resquiggle_ps)
+        args.alignment_batch_size, num_align_ps, num_resquiggle_ps,
+        compute_sd)
     sys.stderr.write('Failed reads summary:\n' + '\n'.join(
         "\t" + err + " :\t" + str(len(fns))
         for err, fns in failed_reads.items()) + '\n')

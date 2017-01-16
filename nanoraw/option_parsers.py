@@ -13,10 +13,10 @@ fasta_pos_opt=('genome_fasta', {
 
 # read mapper options (one mustn be provided to genome_resquiggle)
 graphmap_opt=('--graphmap-executable', {
-    'help':'Relative or absolute path to built graphmap executable ' + \
+    'help':'Relative or absolute path to built graphmap executable ' +
     'or command name if globally installed.'})
 bwamem_opt=('--bwa-mem-executable', {
-    'help':'Relative or absolute path to built bwa-mem executable ' + \
+    'help':'Relative or absolute path to built bwa-mem executable ' +
     'or command name if globally installed.'})
 
 # optional genome resquiggle opts
@@ -25,15 +25,18 @@ proc_opt=('--processes', {
     'help':'Number of processes. Default: %(default)d'})
 alignproc_opt=('--align-processes', {
     'type':int,
-    'help':'Number of processes to use for aligning and parsing ' + \
+    'help':'Number of processes to use for aligning and parsing ' +
     'original basecalls. Default: [--processes]'})
 rsqglproc_opt=('--resquiggle-processes', {
     'type':int,
-    'help':'Number of processes to use for re-squiggling raw ' + \
+    'help':'Number of processes to use for re-squiggling raw ' +
     'data. Default: [--processes]'})
 batchsize_opt=('--alignment-batch-size', {
     'default':10, 'type':int,
-    'help':'Batch size (number of reads) for alignment calls. ' + \
+    'help':'Batch size (number of reads) for alignment calls. Note ' +
+    'that 10 * [alignment-batch-size] parsed reads will be stored ' +
+    'in the queue to be resquiggled after alignment. So if this ' +
+    'command is using too much RAM, consider lowering this value. ' +
     'Default: %(default)d'})
 
 timeout_opt=('--timeout', {
@@ -238,20 +241,25 @@ obsfilt_opt=('--obs-per-base-filter', {
 # write wiggle opts
 wigfn_opt=('--wiggle-basename', {
     'default':'Nanopore_data',
-    'help':'Basename for output files. Two files (plus and minus ' + \
-    'strand) will be produced for each --wiggle-types supplied. ' + \
-    'Filenames will be formatted as "[wiggle-basename].' + \
+    'help':'Basename for output files. Two files (plus and minus ' +
+    'strand) will be produced for each --wiggle-types supplied. ' +
+    'Filenames will be formatted as "[wiggle-basename].' +
     '[wiggle-type].[group1/2]?.[plus/minus].wig". Default: %(default)s'})
 wigtypes_opt=('--wiggle-types', {
     'default':['coverage', 'pvals'], 'nargs':'+',
     'choices':['coverage', 'signal', 'signal_sd', 'length',
                'pvals', 'qvals', 'difference'],
-    'help':'Data types for which wiggles should be created (select ' + \
-    'one or more data types). Choices: coverage, signal, signal_sd, ' + \
-    'length, pvals, qvals (both negative log10), difference. Note ' + \
-    'that signal, signal_sd and length (number of observations ' + \
-    'per base) are means over all reads at each base. ' + \
+    'help':'Data types for which wiggles should be created (select ' +
+    'one or more data types). Choices: coverage, signal, signal_sd, ' +
+    'length, pvals, qvals (both negative log10), difference. Note ' +
+    'that signal, signal_sd and length (number of observations ' +
+    'per base) are means over all reads at each base. ' +
     'Default: "coverage, pvals"'})
+
+skipsd_opt=('--skip-event-stdev', {
+    'default':False, 'action':'store_true',
+    'help':'Skip computation of corrected event standard deviations ' +
+    'to save (potentially significant) time on computations.'})
 
 # misc opts
 pdf_opt=('--pdf-filename', {
@@ -323,6 +331,7 @@ def get_resquiggle_parser():
 
     misc_args = parser.add_argument_group('Miscellaneous Arguments')
     misc_args.add_argument(batchsize_opt[0], **batchsize_opt[1])
+    misc_args.add_argument(skipsd_opt[0], **skipsd_opt[1])
     misc_args.add_argument(rcpt_opt[0], **rcpt_opt[1])
     misc_args.add_argument(*quiet_opt[0], **quiet_opt[1])
     misc_args.add_argument(*help_opt[0], **help_opt[1])
