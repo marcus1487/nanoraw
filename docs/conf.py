@@ -177,3 +177,6 @@ epub_exclude_files = ['search.html']
 
 
 html_sidebars = { '**': ['globaltoc.html', 'relations.html', 'sourcelink.html', 'searchbox.html'], }
+
+
+use_html_smartypants = False

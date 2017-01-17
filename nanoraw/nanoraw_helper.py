@@ -124,8 +124,6 @@ def parse_fast5s(files, corrected_group, basecall_subgroups):
             align_data = dict(corr_data['Alignment'].attrs.items())
             read_start_rel_to_raw = corr_data['Events'].attrs[
                 'read_start_rel_to_raw']
-            # TODO: add raw read end to FAST5 so Events does not have
-            # to be loaded at all
             event_data = corr_data['Events'].value
             events_end = event_data[-1]['start'] + event_data[-1][
                 'length']

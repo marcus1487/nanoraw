@@ -6,12 +6,12 @@ Genome Re-squiggle
 
 This command re-annotates raw signal to match continguous genomic bases with contiguous sections ("Events") of raw signal. The algorithm begins with a genomic alignment (currently graphmap) produced by the `genome_resquiggle` command. The full algorithm is described in detail within the manuscript describing nanoraw (`Pre-print manuscript <http://biorxiv.org/content/early/2016/12/15/094672>`_).
 
-Required positional arguments for this command are (in order) `fast5_basedir` which specifies a directory containing FAST5 files to process, `graphmap_path` which is the executable path to a compiled graphmap binary (e.g. `./graphmap` if the binary is linked to the current directory), and `genome_fasta` specifying the FASTA file to which mapping should be computed.
+Required positional arguments for this command are (in order) `fast5_basedir` which specifies a directory containing FAST5 files to process and `genome_fasta` specifying the FASTA file to which mapping should be computed. Additionally, either a bwa or graphmap executable is required (e.g. `--graphmap-executable ./graphmap` or `--bwa-mem-executable ./bwa` assuming the binary is linked to the current directory).
 
 nanoraw FAST5 format
 --------------------
 
-The result of this command is a new group/slot present in each applicable FAST5 file. This slot is specified by the `--corrected-group` option. This slot contains severl bits of information (`nanoraw_version` and `basecall_group` specified with the `--basecall-group` and also representing the ONT basecalled slot) along with slots for each 1D genome-resolved read (specified with the `--basecall-subgroups` options).
+The result of this command is a new group/slot present in each applicable FAST5 file. This slot is specified by the `--corrected-group` option. This slot contains several bits of information (`nanoraw_version` and `basecall_group` specified with the `--basecall-group` and also representing the ONT basecalled slot) along with slots for each 1D genome-resolved read (specified with the `--basecall-subgroups` options). A shortcut for the processing of standard 2D reads is available via the `--2d` option, which sets the `--basecall-subgroups` option appropriately.
 
 Within each basecall subgroup slot the genome-resolved read information is stored. This includes several bits of information related to the normalization used to scale the raw signal:
 - shift, scale: Applied directly to the raw signal from this read in order to prodcue the normalized signal
@@ -25,35 +25,37 @@ Also stored within each basecall subgroup are datasets containing the alignment 
 
 The `Alignment` slot also contains several statistics from the alignment including genomic `mapped_start`, `mapped_strand`, and `mapped_chrom`, mapping statistics `num_insertions`, `num_deletions`, `num_matches`, and `num_mismatches` and finally the number of raw observations trimmed from the read by mapping `trimmed_obs_start` and `trimmed_obs_end` (soft clipped bases from mapping).
 
-`genome_resquiggle` Options:
-----------------------------
+`genome_resquiggle` Options
+---------------------------
 
-Filtering Options:
-++++++++++++++++++
+Filtering Options
++++++++++++++++++
 
 - `--timeout`: Timeout in seconds for the processing of a single read. This can be useful if one would like to skip reads that might take too much time to correct. Default: No timeout.
 - `--cpts-limit`: Maximum number of changepoints to attempt to find within a single indel group. (Not setting this option can cause a process to stall and cannot be controlled by the timeout option). This option is also useful to filter and not correct reads that contain very error prone regions. Default: No limit.
 
-Signal Normalization Options:
-+++++++++++++++++++++++++++++
+Signal Normalization Options
+++++++++++++++++++++++++++++
 
 - `--normalization-type`: Type of normalization to apply to raw signal when calculating statistics based on new segmentation. Should be one of {"median", "ont", "none"}. "none" will provde the raw integer as the raw signal is stored. "ont" will calculate the pA estimates as in the ONT events mean/sd. "median" will shift by the median of each reads' raw signal and scale by the MAD. Default: median
 - `--outlier-threshold`: Number of scales values (median:MADs; ont:SDs, none:SDs) at which to winsorize the raw signal. This can help avoid strong re-segmentation artifacts from spikes in signal. Set to negative value to disable outlier trimming. Default: 5
 
-Input/Output Options:
-+++++++++++++++++++++
+Input/Output Options
+++++++++++++++++++++
 
 - `--fast5-pattern`: A pattern to search for a subset of files within fast5-basedir. Note that on the unix command line patterns may be expanded so it is best practice to quote patterns.
 - `--overwrite`: Overwrite previous corrected group in FAST5/HDF5 file. WARINGING: Use caution when setting this option that the `--corrected-group` is not set to the group containing the original basecalling information. Note this only effects the group defined by `--corrected-group`.
 - `--failed-reads-filename`: Output failed read filenames into a this file with assoicated error for each read. Default: Do not store failed reads. This can be useful in order to track down some failure modes.
 
-Multiprocessing Option:
+Multiprocessing Options
 +++++++++++++++++++++++
 
-- `--processes`: Specify number of processors to use. Mutliprocessing is currently carried out over each read using a single queue of all the reads.
+- `--processes`: Specify number of processors to use for processing aligning and resquiggling reads. Note that the number of processors used will be as much as twice as many to process both alignment and resquiggling of reads in separate queues.
+- `--align-processes`: Specify number of processors to dedicate to aligning reads.
+- `--resquiggle-processes`: Specify number of processors to dedicate to resquiggling reads.
 
-Re-segmentation Option:
-+++++++++++++++++++++++
+Re-segmentation Option
+++++++++++++++++++++++
 
 - `--use-r-cpts`: Use R changepoint package to determine new event delimiters. (requires rpy2, R and R package "changepoint" to be installed). Note that this option may not be available in the future.
 
@@ -83,3 +85,39 @@ This plot shows multiple reads in "sequencing time space" (x-axis) anchored at a
    :scale: 50%
    
    Mutliple read correction example plot.
+
+Example commands
+----------------
+
+Re-squiggle command::
+
+  nanoraw genome_resquiggle \
+        $g1Dir $genomeFn --graphmap-executable ./graphmap \
+        --timeout 60 --cpts-limit 100 --normalization-type median \
+        --failed-reads-filename testing.signif_group1.failed_read.txt \
+        --2d --processes 4 --overwrite
+  
+Re-squiggle command with bwa::
+
+  nanoraw genome_resquiggle \
+        $g1Dir $genomeFn --bwa-mem-executable ./bwa \
+        --timeout 60 --cpts-limit 100 --normalization-type median \
+        --corrected-group RawGenomeCorrected_bwamem_000 --overwrite \
+        --failed-reads-filename testing.group1.bwamem.failed_read.txt \
+        --2d --processes 4
+
+Re-squiggle command with pA events::
+
+  nanoraw genome_resquiggle \
+        $g1Dir $genomeFn --graphmap-executable ./graphmap \
+        --timeout 60 --cpts-limit 100 --normalization-type ont \
+        --corrected-group RawGenomeCorrected_pA_000 --overwrite \
+        --failed-reads-filename testing.signif_group1.pA.failed_read.txt \
+        --2d --processes 4
+
+Correction plotting examples::
+
+  nanoraw plot_correction --fast5-basedirs $g1Dir --region-type random
+  nanoraw plot_multi_correction --fast5-basedirs $g1Dir
+  nanoraw plot_multi_correction --fast5-basedirs $g1Dir \
+        --genome-locations "S_aureus:2064835:-" "S_aureus:2064935"

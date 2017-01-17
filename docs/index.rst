@@ -9,7 +9,9 @@ nanoraw Documentation
    
    Detection of in vivo methylated bases, as well as detect capacity and clustering based on raw signal levels.
 
-Additionally, `nanoraw` allows for the visualization of raw nanopore signal (below) facilitated by resolving raw signal with a genomic alignment from error-prone basecalls.
+----
+
+`nanoraw` allows for the visualization of raw nanopore signal (below) facilitated by resolving raw signal with a genomic alignment from error-prone basecalls.
 
 .. figure::  _images/signal_correspondence.jpg
    :align:   center
@@ -19,14 +21,29 @@ Additionally, `nanoraw` allows for the visualization of raw nanopore signal (bel
 
 The above plots as well as many others are described in the documentation here.
 
+----
+
+`nanoraw` produces genome wiggle files for a number of attributes related to nanopore data including significance p/q-values, mean signal levels, and many more.
+
+.. figure::  _images/browser.png
+   :align:   center
+   :scale: 30%
+   
+   Example genome browser region with WIG files produced from `nanoraw`
+
+----
+
 .. figure::  _images/moving_window.gif
    :align:   center
    
    Example gif scrolling over genomic regions (note that this is not immediately produced by nanoraw, but does not take much more effort).
 
+----
+
 .. toctree::
    :maxdepth: 2
-   :caption: Table of Contents:
+   :caption: nanoraw Documentation
+   :name: nanoraw Documentation
    
    Genome Re-squiggle and Correction Plotting <resquiggle>
    Genome Anchored Plotting <genome_plots>
