@@ -6,7 +6,7 @@ def readme():
 
 setup(
     name = "nanoraw",
-    version = "0.3.1",
+    version = "0.4",
     packages = ["nanoraw"],
     install_requires = ['h5py', 'rpy2', 'numpy', 'scipy'],
 

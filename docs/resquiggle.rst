@@ -4,7 +4,7 @@ Genome Re-squiggle
 `genome_resquiggle`
 -------------------
 
-This command re-annotates raw signal to match continguous genomic bases with contiguous sections ("Events") of raw signal. The algorithm begins with a genomic alignment (currently graphmap) produced by the `genome_resquiggle` command. The full algorithm is described in detail within the manuscript describing nanoraw (`Pre-print manuscript <http://biorxiv.org/content/early/2016/12/15/094672>`_).
+This command re-annotates raw signal to match continguous genomic bases with contiguous sections ("Events") of raw signal. The algorithm begins with a genomic alignment (currently graphmap or bwa-mem) produced by the `genome_resquiggle` command. The full algorithm is described in detail within the manuscript describing nanoraw (`Pre-print manuscript <http://biorxiv.org/content/early/2016/12/15/094672>`_).
 
 Required positional arguments for this command are (in order) `fast5_basedir` which specifies a directory containing FAST5 files to process and `genome_fasta` specifying the FASTA file to which mapping should be computed. Additionally, either a bwa or graphmap executable is required (e.g. `--graphmap-executable ./graphmap` or `--bwa-mem-executable ./bwa` assuming the binary is linked to the current directory).
 
