@@ -1,4 +1,4 @@
-plotKmerStats <- function(
+plotMotifStats <- function(
         PlotDat, BaseDat, StatsDat, PlotType, QuantWidth){
     ylim <- 3.5
     regions <- unique(PlotDat$Region)

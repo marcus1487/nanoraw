@@ -62,11 +62,6 @@ failed_opt=('--failed-reads-filename', {
     'help':'Output failed read filenames into a this file ' +
     'with assoicated error for each read. Default: ' +
     'Do not store failed reads.'})
-rcpt_opt=('--use-r-cpts', {
-    'default':False, 'action':'store_true',
-    'help':'Use R changepoint package to determine new event ' +
-    'delimiters. (requires rpy2, R and R package ' +
-    '"changepoint" to be installed)'})
 normtype_opt=('--normalization-type', {
     'default':'median', 'choices':('median', 'ont', 'none'),
     'help':'Type of normalization to apply to raw signal when ' +
@@ -328,7 +323,6 @@ def get_resquiggle_parser():
     misc_args = parser.add_argument_group('Miscellaneous Arguments')
     misc_args.add_argument(batchsize_opt[0], **batchsize_opt[1])
     misc_args.add_argument(skipsd_opt[0], **skipsd_opt[1])
-    misc_args.add_argument(rcpt_opt[0], **rcpt_opt[1])
     misc_args.add_argument(*quiet_opt[0], **quiet_opt[1])
     misc_args.add_argument(*help_opt[0], **help_opt[1])
 

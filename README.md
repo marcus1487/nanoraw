@@ -58,10 +58,9 @@ OR
 - numpy
 - scipy
 - h5py
-- Biopython
-- rpy2 (along with an R installation)
 
-#### Optional R Requirements (install with `install.packages([package_name])` from an R prompt):
+#### Optional packages for plotting (install R packages with `install.packages([package_name])` from an R prompt):
+- rpy2 (along with an R installation)
 - changepoint (for using R's changepoint package for re-segmentation)
 - ggplot2 (required for any plotting subcommands)
 - cowplot (required for plot_kmer_with_stats subcommand)

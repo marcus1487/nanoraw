@@ -54,11 +54,6 @@ Multiprocessing Options
 - `--align-processes`: Specify number of processors to dedicate to aligning reads.
 - `--resquiggle-processes`: Specify number of processors to dedicate to resquiggling reads.
 
-Re-segmentation Option
-++++++++++++++++++++++
-
-- `--use-r-cpts`: Use R changepoint package to determine new event delimiters. (requires rpy2, R and R package "changepoint" to be installed). Note that this option may not be available in the future.
-
 Correction Plotting
 -------------------
 

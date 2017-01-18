@@ -32,38 +32,15 @@ REV_STRAND = 'Reverse Strand'
 #### ggplot via rpy2 functions ####
 ###################################
 
+GG_LOAD_ERROR='*' * 60 + '\nERROR: Must have rpy2, R and ' + \
+    'R package ggplot2 installed in order to plot.\n' + \
+    '*' * 60 + '\n\n'
 try:
     import rpy2.robjects as r
     from rpy2.robjects.packages import importr
-    ggplot = importr("ggplot2")
 except:
-    sys.stderr.write(
-        '*' * 60 + '\nERROR: Must have rpy2, R and ' +
-        'R package ggplot2 installed in order to plot.\n' +
-        '*' * 60 + '\n\n')
-    sys.exit()
-
-# silently try to load cowplot
-fd = sys.stderr.fileno()
-def _redirect_stderr(to):
-    sys.stderr.close()
-    os.dup2(to.fileno(), fd)
-    sys.stderr = os.fdopen(fd, 'w')
-
-with os.fdopen(os.dup(fd), 'w') as old_stderr:
-    with open(os.devnull, 'w') as fp:
-        _redirect_stderr(fp)
-    try:
-        # load changepoint from R since pythons isn't very stable
-        import rpy2.robjects as r
-        from rpy2.robjects.packages import importr
-        cowplot = importr("cowplot")
-        USE_COWPLOT = True
-    except:
-        USE_COWPLOT = False
-    finally:
-        _redirect_stderr(old_stderr)
-
+    # pass here and raise error when main functions are actually called
+    pass
 
 ############################################
 #### Kmer signal distribution functions ####
@@ -131,7 +108,8 @@ def plot_kmer_dist(files, corrected_group, basecall_subgroups,
         'Signal':r.FloatVector(zip(*plot_data)[2]),
         'Read':r.StrVector(zip(*plot_data)[3])})
     # df to plot kmers as tile of colors requires cowplot R package
-    if USE_COWPLOT:
+    try:
+        cowplot = importr("cowplot")
         baseDat = r.DataFrame({
             'Kmer':r.FactorVector(
                 r.StrVector([kmer for kmer in kmer_levels
@@ -142,9 +120,9 @@ def plot_kmer_dist(files, corrected_group, basecall_subgroups,
             'Position':r.IntVector([
                 i - upstrm_bases for kmer in kmer_levels
                 for i in range(kmer_len)])})
-    else:
+    except:
         sys.stderr.write(
-            '********* WARNING: Install R package cowplot for ' +
+            '********* WARNING: Install R package `cowplot` for ' +
             'visual kmer display. Using text kmer display. ********\n')
         baseDat = r.NA_Character
 
@@ -1696,6 +1674,12 @@ def plot_correction_main(args):
     VERBOSE = not args.quiet
     nh.VERBOSE = VERBOSE
 
+    try:
+        ggplot = importr("ggplot2")
+    except:
+        sys.stderr.write(GG_LOAD_ERROR)
+        sys.exit()
+
     files = nh.get_files_list(args.fast5_basedirs)
     plot_intervals = zip(files, repeat(args.region_type))
     plot_corrections(
@@ -1708,6 +1692,12 @@ def plot_multi_correction_main(args):
     global VERBOSE
     VERBOSE = not args.quiet
     nh.VERBOSE = VERBOSE
+
+    try:
+        ggplot = importr("ggplot2")
+    except:
+        sys.stderr.write(GG_LOAD_ERROR)
+        sys.exit()
 
     # make sure the signal is an odd for region centering
     num_regions = args.num_regions if args.num_regions % 2 == 0 else \
@@ -1724,6 +1714,12 @@ def kmer_dist_main(args):
     global VERBOSE
     VERBOSE = not args.quiet
     nh.VERBOSE = VERBOSE
+
+    try:
+        ggplot = importr("ggplot2")
+    except:
+        sys.stderr.write(GG_LOAD_ERROR)
+        sys.exit()
 
     files = nh.get_files_list(args.fast5_basedirs)
     plot_kmer_dist(
@@ -1744,6 +1740,12 @@ def max_cov_main(args):
     VERBOSE = not args.quiet
     nh.VERBOSE = VERBOSE
 
+    try:
+        ggplot = importr("ggplot2")
+    except:
+        sys.stderr.write(GG_LOAD_ERROR)
+        sys.exit()
+
     files1, files2 = nh.get_files_lists(
         args.fast5_basedirs, args.fast5_basedirs2)
 
@@ -1760,6 +1762,12 @@ def genome_loc_main(args):
     VERBOSE = not args.quiet
     nh.VERBOSE = VERBOSE
 
+    try:
+        ggplot = importr("ggplot2")
+    except:
+        sys.stderr.write(GG_LOAD_ERROR)
+        sys.exit()
+
     files1, files2 = nh.get_files_lists(
         args.fast5_basedirs, args.fast5_basedirs2)
 
@@ -1775,6 +1783,12 @@ def motif_loc_main(args):
     global VERBOSE
     VERBOSE = not args.quiet
     nh.VERBOSE = VERBOSE
+
+    try:
+        ggplot = importr("ggplot2")
+    except:
+        sys.stderr.write(GG_LOAD_ERROR)
+        sys.exit()
 
     files1, files2 = nh.get_files_lists(
         args.fast5_basedirs, args.fast5_basedirs2)
@@ -1793,6 +1807,12 @@ def max_diff_main(args):
     VERBOSE = not args.quiet
     nh.VERBOSE = VERBOSE
 
+    try:
+        ggplot = importr("ggplot2")
+    except:
+        sys.stderr.write(GG_LOAD_ERROR)
+        sys.exit()
+
     files1, files2 = nh.get_files_lists(
         args.fast5_basedirs, args.fast5_basedirs2)
 
@@ -1800,7 +1820,8 @@ def max_diff_main(args):
         files1, files2, args.num_regions, args.corrected_group,
         args.basecall_subgroups, args.overplot_threshold,
         args.pdf_filename, args.sequences_filename, args.num_bases,
-        args.overplot_type, nh.parse_obs_filter(args.obs_per_base_filter))
+        args.overplot_type,
+        nh.parse_obs_filter(args.obs_per_base_filter))
 
     return
 
@@ -1809,6 +1830,12 @@ def signif_diff_main(args):
     VERBOSE = not args.quiet
     nh.VERBOSE = VERBOSE
     ns.VERBOSE = VERBOSE
+
+    try:
+        ggplot = importr("ggplot2")
+    except:
+        sys.stderr.write(GG_LOAD_ERROR)
+        sys.exit()
 
     files1, files2 = nh.get_files_lists(
         args.fast5_basedirs, args.fast5_basedirs2)
@@ -1825,7 +1852,14 @@ def signif_diff_main(args):
     return
 
 def motif_signif_diff_main(args):
-    if not USE_COWPLOT:
+    try:
+        ggplot = importr("ggplot2")
+    except:
+        sys.stderr.write(GG_LOAD_ERROR)
+        sys.exit()
+    try:
+        cowplot = importr("cowplot")
+    except:
         sys.stderr.write(
             '*' * 60 + '\nERROR: Must have R packge `cowplot` ' +
             'installed in order to create motif centered plots ' +
@@ -1857,6 +1891,12 @@ def cluster_signif_diff_main(args):
     VERBOSE = not args.quiet
     nh.VERBOSE = VERBOSE
     ns.VERBOSE = VERBOSE
+
+    try:
+        ggplot = importr("ggplot2")
+    except:
+        sys.stderr.write(GG_LOAD_ERROR)
+        sys.exit()
 
     files1, files2 = nh.get_files_lists(
         args.fast5_basedirs, args.fast5_basedirs2)

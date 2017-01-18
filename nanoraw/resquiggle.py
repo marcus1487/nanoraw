@@ -18,27 +18,6 @@ from collections import defaultdict, namedtuple
 import option_parsers
 import nanoraw_helper as nh
 
-fd = sys.stderr.fileno()
-def _redirect_stderr(to):
-    sys.stderr.close()
-    os.dup2(to.fileno(), fd)
-    sys.stderr = os.fdopen(fd, 'w')
-
-with os.fdopen(os.dup(fd), 'w') as old_stderr:
-    with open(os.devnull, 'w') as fp:
-        _redirect_stderr(fp)
-    try:
-        # load changepoint from R since pythons isn't very stable
-        import rpy2.robjects as r
-        from rpy2.robjects.packages import importr
-        rChpt = importr("changepoint")
-        USE_R_CPTS = True
-    except:
-        USE_R_CPTS = False
-    finally:
-        _redirect_stderr(old_stderr)
-
-
 NANORAW_VERSION = '0.4'
 VERBOSE = False
 
@@ -135,7 +114,7 @@ def write_new_fast5_group(
 
 def get_indel_groups(
         alignVals, align_segs, raw_signal, min_seg_len, timeout,
-        num_cpts_limit, use_r_cpts):
+        num_cpts_limit):
     def get_all_indels():
         # get genomic sequence for and between each indel
         read_align = ''.join(zip(*alignVals)[0])
@@ -219,7 +198,7 @@ def get_indel_groups(
             group_start, group_stop, num_cpts = extend_group(
                 indel_group)
         return group_start, group_stop, num_cpts, indel_group
-    def get_cpts_alt(group_start, group_stop, num_cpts):
+    def get_cpts(group_start, group_stop, num_cpts):
         """
         Get changepoints where the raw difference between min_seg_len
         obs to the left and min_seg_len obs to the right is largest
@@ -248,17 +227,6 @@ def get_indel_groups(
         if len(cpts) < num_cpts:
             return None
         return sorted([cpt + min_seg_len for cpt in cpts])
-    def get_cpts_R(group_start, group_stop, num_cpts):
-        if num_cpts_limit is not None and num_cpts > num_cpts_limit:
-            raise RuntimeError, ('Reached maximum number of ' +
-                                 'changepoints for a single indel')
-        cpts = rChpt.cpt_mean(
-            r.FloatVector(raw_signal[
-                align_segs[group_start]:align_segs[group_stop]]),
-                method="BinSeg", Q=num_cpts, penalty="None",
-            minseglen=min_seg_len).do_slot('cpts')
-        return [int(x) for x in cpts[:-1]]
-    get_cpts = get_cpts_R if use_r_cpts else get_cpts_alt
     def extend_for_cpts(group_start, group_stop, num_cpts, indel_group):
         cpts = get_cpts(group_start, group_stop, num_cpts)
         # There is a bug in the changepoint package that allows a zero
@@ -348,7 +316,7 @@ def resquiggle_read(
     # group indels that are adjacent for re-segmentation
     indel_groups = get_indel_groups(
         alignVals, starts_rel_to_read, norm_signal, min_event_obs,
-        timeout, num_cpts_limit, USE_R_CPTS)
+        timeout, num_cpts_limit)
 
     new_segs = []
     prev_stop = 0
@@ -1035,13 +1003,6 @@ def resquiggle_main(args):
     else:
         mapper_exe = args.graphmap_executable
         mapper_type = 'graphmap'
-
-    global USE_R_CPTS
-    if not USE_R_CPTS and args.use_r_cpts:
-        sys.stderr.write(
-            'WARNING: Could not load rpy2 (inlucding package ' +
-            '"changepoint"). Using python segmentation method.')
-    USE_R_CPTS = args.use_r_cpts and USE_R_CPTS
 
     if VERBOSE: sys.stderr.write('Getting file list.\n')
     try:
