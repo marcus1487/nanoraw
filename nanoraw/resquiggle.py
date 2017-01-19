@@ -18,7 +18,7 @@ from collections import defaultdict, namedtuple
 import option_parsers
 import nanoraw_helper as nh
 
-NANORAW_VERSION = '0.4'
+NANORAW_VERSION = '0.4.1'
 VERBOSE = False
 
 # allow this many times the alignment batch size into the queue of
