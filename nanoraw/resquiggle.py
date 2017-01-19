@@ -158,11 +158,13 @@ def get_indel_groups(
             # indelStats(curr_read_len - 1, indel_end, indel_diff)
 
             # extend ambiguous indels
+            # only extend up to one position before beginning or end
+            # as a one base pad is added outside of indel
             u, d = -1, 0
-            while(d < len(after_seq) and
+            while(d < len(after_seq) - 1 and
                   indel_seq[d%indel_len] == after_seq[d]):
                 d += 1
-            while(u * -1 <= len(before_seq) and
+            while(u * -1 <= len(before_seq) - 1 and
                   indel_seq[(u%indel_len)-indel_len] == before_seq[u]):
                 u -= 1
             unambig_indels.append(indelStats(
@@ -674,7 +676,6 @@ def align_to_genome(batch_reads_data, genome_fn, mapper_exe,
         try:
             exitStatus = call([mapper_exe,] + mapper_options,
                               stdout=stdout_sink, stderr=FNULL)
-
             out_fp.seek(0)
             align_output = out_fp.readlines()
             # close files here so that they persist until
@@ -684,9 +685,10 @@ def align_to_genome(batch_reads_data, genome_fn, mapper_exe,
         except:
             # whole mapping call failed so all reads failed
             return ([('Problem running/parsing genome mapper. ' +
-                      'Ensure you have a compatible version installed.',
+                      'Ensure you have a compatible version installed.' +
+                      'Potentially failed to locate BWA index files.',
                       read_fn_sg) for read_fn_sg
-                     in batch_read_data.keys()], [])
+                     in batch_reads_data.keys()], [])
 
     if output_format == 'sam':
         batch_parse_failed_reads, batch_align_data = parse_sam_output(
@@ -831,27 +833,27 @@ def prep_fast5(fast5_fn, basecall_group, corrected_group,
     # several checks to prepare the FAST5 file for correction before
     # processing to save compute
     if not in_place:
-        return [('Not currently implementing new hdf5 file writing.',
-                 fast5_fn),]
+        return ('Not currently implementing new hdf5 file writing.',
+                fast5_fn)
     # check that the file is writeable before trying to correct
     if not os.access(fast5_fn, os.W_OK):
-        return [('FAST5 file is not writable.', fast5_fn),]
+        return ('FAST5 file is not writable.', fast5_fn)
     try:
         with h5py.File(fast5_fn, 'r') as read_data:
             if '/Analyses/' + basecall_group not in read_data:
-                return [(
+                return (
                     'FAST5 basecall-group or Analyses group does not ' +
                     'exist. Check --basecall-group and ' + \
                     '--basecall-subgroups arguments against files ' + \
-                    'or this may be a mux scan file.', fast5_fn),]
+                    'or this may be a mux scan file.', fast5_fn)
             if not overwrite and '/Analyses/' + corrected_group \
                in read_data:
-                return [(
+                return (
                     "Raw genome corrected data exists for " +
-                    "this read and --overwrite is not set.", fast5_fn),]
+                    "this read and --overwrite is not set.", fast5_fn)
     except IOError:
-        return [('Error opening file. Likely a corrupted file.',
-                 fast5_fn),]
+        return ('Error opening file. Likely a corrupted file.',
+                 fast5_fn)
 
     # create group to store data
     with h5py.File(fast5_fn, 'r+') as read_data:
@@ -919,7 +921,8 @@ def resquiggle_all_reads(
     manager = mp.Manager()
     fast5_q = manager.Queue()
     # set maximum number of parsed basecalls to sit in the middle queue
-    basecalls_q = manager.Queue(align_batch_size * ALIGN_BATCH_MULTIPLIER)
+    basecalls_q = manager.Queue(
+        align_batch_size * ALIGN_BATCH_MULTIPLIER)
     failed_reads_q = manager.Queue()
     num_reads = 0
     fast5_batch = []
