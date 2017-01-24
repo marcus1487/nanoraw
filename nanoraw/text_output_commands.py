@@ -9,6 +9,7 @@ import nanoraw_helper as nh
 
 VERBOSE = False
 
+SMALLEST_PVAL=1e-15
 WIG_HEADER='track type=wiggle_0 name="{0}_{1}_{2}{3}" ' + \
     'description="{0} {1} {2}{4}"\n'
 GROUP2_NAME='group2'
@@ -59,13 +60,15 @@ def write_pvals_and_qvals_wig(
         chrm_pvals = np.empty(max_pos + 1)
         chrm_pvals[:] = np.nan
         np.put(chrm_pvals, chrm_poss, raw_chrm_pvals)
-        chrm_strand_pvals[chrm_strand] = -np.log10(chrm_pvals)
+        chrm_strand_pvals[chrm_strand] = -np.log10(np.maximum(
+            SMALLEST_PVAL, chrm_pvals))
 
         # arrange and store q-values
         chrm_qvals = np.empty(max_pos + 1)
         chrm_qvals[:] = np.nan
         np.put(chrm_qvals, chrm_poss, raw_chrm_qvals)
-        chrm_strand_qvals[chrm_strand] = -np.log10(chrm_qvals)
+        chrm_strand_qvals[chrm_strand] = -np.log10(np.maximum(
+            SMALLEST_PVAL, chrm_qvals))
 
     if VERBOSE: sys.stderr.write('Writing statistics wig(s).\n')
     if write_pvals:
