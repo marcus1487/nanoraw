@@ -617,18 +617,31 @@ def get_base_r_data(all_reg_data, all_reg_base_data):
 def get_region_reads(
         plot_intervals, raw_read_coverage, num_bases,
         filter_no_cov=True):
+    def get_c_s_data(chrm, strand, start, end):
+        if (chrm, strand) in raw_read_coverage:
+            return [
+                r_data for r_data in raw_read_coverage[(chrm, strand)]
+                if not (r_data.start >= end or r_data.end < start + 1)]
+        return []
+
+
     all_reg_data = []
-    for region_i, (chrm, interval_start, strand, stat) in plot_intervals:
+    for region_i, (chrm, int_start, strand, stat) in plot_intervals:
         # get all reads that overlap this interval
         # note that this includes partial overlaps as these contribute
         # to coverage and other statistics so can't really restrict to
         # full coverage as previous versions of code did
-        all_reg_data.append((
-            region_i, interval_start, chrm, [
-                r_data for r_data in raw_read_coverage[(chrm, strand)]
-                if not (r_data.start >= interval_start + num_bases or
-                        r_data.end < interval_start + 1)]
-            if (chrm, strand) in raw_read_coverage else []))
+        int_end = int_start + num_bases
+        if strand is None:
+            # if strand is None, get data from both strands
+            all_reg_data.append((
+                region_i, int_start, chrm,
+                get_c_s_data(chrm, '+', int_start, int_end) +
+                get_c_s_data(chrm, '-', int_start, int_end)))
+        else:
+            all_reg_data.append((
+                region_i, int_start, chrm,
+                get_c_s_data(chrm, strand, int_start, int_end)))
 
     no_cov_regions = [
         (len(r_data) == 0, chrm + ':' + str(start))
@@ -940,7 +953,7 @@ def plot_two_samples(
         dnspl_stars = [['' for _ in r_cov] for r_cov in strand_cov]
     Titles = r.DataFrame({
         'Title':r.StrVector([
-            chrm + ":" + strand + ' ' + stat +
+            chrm + (":" + strand if strand else '') + ' ' + stat +
             " ::: Coverage: Group1 (Blue): " +
             str(r_cov[0]) + r_dnspl[0] + " + " +
             str(r_cov[1]) + r_dnspl[1] + " -; Group2 (Red): " +
@@ -1152,7 +1165,7 @@ def plot_genome_locations(
         ('{:03d}'.format(i), (
             chrm, max(0, int(int(pos) -
                              np.floor(num_bases / 2.0) - 1)),
-            '+', '')) for i, (chrm, pos) in enumerate(
+            None, '')) for i, (chrm, pos) in enumerate(
                 genome_locations)]
 
     if VERBOSE: sys.stderr.write('Parsing files.\n')
