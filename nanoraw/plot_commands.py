@@ -862,7 +862,7 @@ def plot_single_sample(
         dnspl_stars = [['' for _ in r_cov] for r_cov in strand_cov]
     Titles = r.DataFrame({
         'Title':r.StrVector([
-            chrm + ":" + strand + ' ' + stat +
+            chrm + (":" + strand if strand else '') + stat +
             " ::: Coverage: " + str(r_cov[0]) + r_ovp[0] + " + " +
             str(r_cov[1]) + r_ovp[1] + " -"
             for (chrm, i_start, strand, stat), r_cov, r_ovp in zip(
