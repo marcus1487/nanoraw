@@ -1112,9 +1112,10 @@ def plot_max_coverage(
                     zip(*chrm_coverage_regions)[1], 0, 0)),
                 repeat(chrom), repeat(strand)))
 
+            # max coverage plots both strands coverage
             plot_intervals = zip(
                 ['{:03d}'.format(rn) for rn in range(num_regions)],
-                [(chrm, start, strand, '')
+                [(chrm, start, None, '')
                  for stat, start, chrm, strand in
                  sorted(coverage_regions, reverse=True)[:num_regions]])
 
@@ -1152,9 +1153,10 @@ def plot_max_coverage(
                     zip(*chrm_coverage_regions)[1], 0, 0)),
                 repeat(chrom), repeat(strand)))
 
+            # max coverage plots both strands coverage
             plot_intervals = zip(
                 ['{:03d}'.format(rn) for rn in range(num_regions)],
-                [(chrm, start, strand, '')
+                [(chrm, start, None, '')
                  for stat, start, chrm, strand in
                  sorted(coverage_regions, reverse=True)[:num_regions]])
 
@@ -1255,7 +1257,6 @@ def plot_motif_centered(
 
         if deepest_coverage:
             read_coverage2 = nh.get_coverage(raw_read_coverage2)
-        if deepest_coverage:
             if VERBOSE: sys.stderr.write(
                     'Finding deepest coverage regions.\n')
             def get_cov(chrm, pos):
