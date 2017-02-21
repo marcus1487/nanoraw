@@ -833,6 +833,71 @@ def plot_multi_corrections(
 
     return
 
+def get_plots_titles(regs_data, regs_data2, overplot_type,
+                     overplot_thresh, plot_intervals):
+    strand_cov = []
+    for i in range(len(regs_data)):
+        reg1_cov = [
+            sum(r_data.strand == '+' for r_data in regs_data[i][3]),
+            sum(r_data.strand == '-' for r_data in regs_data[i][3])]
+        reg2_cov = [] if regs_data2 is None else [
+            sum(r_data.strand == '+' for r_data in regs_data2[i][3]),
+            sum(r_data.strand == '-' for r_data in regs_data2[i][3])]
+        strand_cov.append(reg1_cov + reg2_cov)
+    # downsample can be plotted with any number of reads on either strand
+    if overplot_type == "Downsample":
+        plot_types = ["Downsample" for _ in strand_cov]
+        dnspl_stars = [
+            ['*' if grp_r_ovr_cov > overplot_thresh else ''
+             for grp_r_ovr_cov in r_cov] for r_cov in strand_cov]
+    else:
+        plot_types = [
+            'Signal' if (max(covs) < overplot_thresh or
+                         min(covs) < QUANT_MIN)
+            else overplot_type for covs in strand_cov]
+        dnspl_stars = [['' for _ in r_cov] for r_cov in strand_cov]
+
+    titles = []
+    for (chrm, i_start, strand, stat), r_cov, r_ovp in zip(
+            zip(*plot_intervals)[1], strand_cov, dnspl_stars):
+        if regs_data2 is None:
+            if strand is None:
+                titles.append(
+                    chrm + ' ' + stat +
+                    " ::: Coverage: " + str(r_cov[0]) + r_ovp[0] + " + " +
+                    str(r_cov[1]) + r_ovp[1] + " -")
+            else:
+                cov_str = str(r_cov[0]) + r_ovp[0] if strand == '+' else \
+                          str(r_cov[1]) + r_ovp[1]
+                titles.append(
+                    chrm + (":" + strand if strand else '') + ' ' + stat +
+                    " ::: Coverage: " + cov_str)
+        else:
+            if strand is None:
+                titles.append(
+                    chrm + ' ' + stat +
+                    " ::: Coverage: Group1 (Blue): " +
+                    str(r_cov[0]) + r_ovp[0] + " + " +
+                    str(r_cov[1]) + r_ovp[1] + " -; Group2 (Red): " +
+                    str(r_cov[2]) + r_ovp[2] + " + " +
+                    str(r_cov[3]) + r_ovp[3] + " -")
+            else:
+                cov_str = (
+                    'Group1 (Blue): ' + str(r_cov[0]) + r_ovp[0] +
+                    '; Group2 (Red): ' + str(r_cov[2]) + r_ovp[2]
+                ) if strand == '+' else (
+                    'Group1 (Blue): ' + str(r_cov[1]) + r_ovp[1] +
+                    '; Group2 (Red): ' + str(r_cov[3]) + r_ovp[3])
+                titles.append(
+                    chrm + ":" + strand + ' ' + stat +
+                    " ::: Coverage: " + cov_str)
+
+    Titles = r.DataFrame({
+        'Title':r.StrVector(titles),
+        'Region':r.StrVector(zip(*plot_intervals)[0])})
+
+    return Titles, plot_types
+
 def plot_single_sample(
         plot_intervals, raw_read_coverage, num_bases, overplot_thresh,
         overplot_type, corrected_group, pdf_fn):
@@ -845,30 +910,9 @@ def plot_single_sample(
             + '*' * 60 + '\n')
         sys.exit()
 
-    strand_cov = [
-        (sum(r_data.strand == '+' for r_data in reg_data[3]),
-         sum(r_data.strand == '-' for r_data in reg_data[3]))
-        for reg_data in all_reg_data]
-    if overplot_type == "Downsample":
-        plot_types = ["Downsample" for covs in strand_cov]
-        dnspl_stars = [
-            ['*' if grp_r_ovr_cov > overplot_thresh else ''
-             for grp_r_ovr_cov in r_cov] for r_cov in strand_cov]
-    else:
-        plot_types = [
-            'Signal' if (max(covs) < overplot_thresh or
-                         min(covs) < QUANT_MIN)
-            else overplot_type for covs in strand_cov]
-        dnspl_stars = [['' for _ in r_cov] for r_cov in strand_cov]
-    Titles = r.DataFrame({
-        'Title':r.StrVector([
-            chrm + (":" + strand if strand else '') + stat +
-            " ::: Coverage: " + str(r_cov[0]) + r_ovp[0] + " + " +
-            str(r_cov[1]) + r_ovp[1] + " -"
-            for (chrm, i_start, strand, stat), r_cov, r_ovp in zip(
-                    zip(*plot_intervals)[1], strand_cov,
-                    dnspl_stars)]),
-        'Region':r.StrVector(zip(*plot_intervals)[0])})
+    Titles, plot_types = get_plots_titles(
+        all_reg_data, None, overplot_type,
+        overplot_thresh, plot_intervals)
 
     all_reg_base_data = get_reg_base_data(
         all_reg_data, corrected_group, num_bases)
@@ -931,38 +975,9 @@ def plot_two_samples(
         plot_intervals, (all_reg_data1, all_reg_data2),
         (no_cov_regs1, no_cov_regs2))
 
-    ## determine whether signal or quantiles
-    ## (due to overplotting) should be plotted
-    strand_cov = [
-        (sum(r_data.strand == '+' for r_data in reg_data1[3]),
-         sum(r_data.strand == '-' for r_data in reg_data1[3]),
-         sum(r_data.strand == '+' for r_data in reg_data2[3]),
-         sum(r_data.strand == '-' for r_data in reg_data2[3]))
-        for reg_data1, reg_data2 in zip(all_reg_data1, all_reg_data2)]
-    # downsample can be plotted with any number of reads on either strand
-    if overplot_type == "Downsample":
-        plot_types = ["Downsample" for covs in strand_cov]
-        dnspl_stars = [
-            ['*' if grp_r_ovr_cov > overplot_thresh else ''
-             for grp_r_ovr_cov in r_cov] for r_cov in strand_cov]
-    else:
-        plot_types = [
-            'Signal' if (max(covs) < overplot_thresh or
-                         min(covs) < QUANT_MIN)
-            else overplot_type for covs in strand_cov]
-        dnspl_stars = [['' for _ in r_cov] for r_cov in strand_cov]
-    Titles = r.DataFrame({
-        'Title':r.StrVector([
-            chrm + (":" + strand if strand else '') + ' ' + stat +
-            " ::: Coverage: Group1 (Blue): " +
-            str(r_cov[0]) + r_dnspl[0] + " + " +
-            str(r_cov[1]) + r_dnspl[1] + " -; Group2 (Red): " +
-            str(r_cov[2]) + r_dnspl[2] + " + " +
-            str(r_cov[3]) + r_dnspl[3] + " -"
-            for (chrm, i_start, strand, stat), r_cov, r_dnspl in zip(
-                    zip(*plot_intervals)[1], strand_cov,
-                    dnspl_stars)]),
-        'Region':r.StrVector(zip(*plot_intervals)[0])})
+    Titles, plot_types = get_plots_titles(
+        all_reg_data1, all_reg_data2, overplot_type,
+        overplot_thresh, plot_intervals)
 
     # bases are the same from either group so only get from first
     merged_reg_data = [

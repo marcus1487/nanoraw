@@ -55,53 +55,66 @@ nanoraw genome_resquiggle \
 
 printf "\n\n********* Testing single sample genome-anchored plotting functions **********\n"
 nanoraw plot_max_coverage --fast5-basedirs $g1Dir --2d \
-        --num-bases 21 --overplot-threshold 1000
+        --num-bases 21 --overplot-threshold 1000 \
+        --pdf-filename testing.max_cov.1_samp.pdf
 nanoraw plot_max_coverage --fast5-basedirs $g1Dir --2d \
         --num-bases 21 --overplot-threshold 1000 \
-        --obs-per-base-filter 99:200 100:5000
+        --obs-per-base-filter 99:200 100:5000 \
+        --pdf-filename testing.max_cov.1_samp.filt.pdf
 nanoraw plot_genome_location --fast5-basedirs $g1Dir \
         --genome-locations $genomeLocs \
-        --2d --num-bases 21 --overplot-threshold 1000
+        --2d --num-bases 21 --overplot-threshold 1000 \
+        --pdf-filename testing.genome_loc.1_samp.pdf
 nanoraw plot_motif_centered --fast5-basedirs $g1Dir --motif ATC \
         --genome-fasta $genomeFn --2d \
-        --num-bases 21 --overplot-threshold 1000
+        --num-bases 21 --overplot-threshold 1000 \
+        --pdf-filename testing.motif_centered.1_samp.pdf
 nanoraw plot_motif_centered --fast5-basedirs $g1Dir --motif ATC \
         --genome-fasta $genomeFn --2d \
-        --num-bases 21 --overplot-threshold 1000 --deepest-coverage
+        --num-bases 21 --overplot-threshold 1000 --deepest-coverage \
+        --pdf-filename testing.motif_centered.deepest.1_samp.pdf
 
 printf "\n\n********* Testing mutliple sample genome-anchored plotting functions **********\n"
 nanoraw plot_max_coverage --fast5-basedirs $g1Dir \
         --fast5-basedirs2 $g2Dir --2d \
-        --num-bases 21 --overplot-threshold 1000
+        --num-bases 21 --overplot-threshold 1000 \
+        --pdf-filename testing.max_cov.2_samp.pdf
 nanoraw plot_max_coverage --fast5-basedirs $g1Dir \
         --fast5-basedirs2 $g2Dir --2d \
         --num-bases 21 --overplot-threshold 1000 \
-        --obs-per-base-filter 99:200 100:5000
+        --obs-per-base-filter 99:200 100:5000 \
+        --pdf-filename testing.max_cov.2_samp.filt.pdf
 nanoraw plot_genome_location --fast5-basedirs $g1Dir \
         --fast5-basedirs2 $g2Dir \
         --genome-locations $genomeLocs \
-        --2d --num-bases 21 --overplot-threshold 1000
+        --2d --num-bases 21 --overplot-threshold 1000 \
+        --pdf-filename testing.genome_loc.2_samp.pdf
 nanoraw plot_motif_centered --fast5-basedirs $g1Dir --motif ATC \
         --genome-fasta $genomeFn \
         --fast5-basedirs2 $g2Dir --2d \
-        --num-bases 21 --overplot-threshold 1000 --deepest-coverage
+        --num-bases 21 --overplot-threshold 1000 --deepest-coverage \
+        --pdf-filename testing.motif_centered.2_samp.pdf
 
 printf "\n\n********* Testing mutliple sample statistical testing genome-anchored plotting functions **********\n"
 nanoraw plot_max_difference --fast5-basedirs $g1Dir \
         --fast5-basedirs2 $g2Dir --2d \
-        --num-bases 21 --overplot-threshold 1000
+        --num-bases 21 --overplot-threshold 1000 \
+        --pdf-filename testing.max_diff.pdf
 rm testing.significance_values.txt
 nanoraw plot_most_significant --fast5-basedirs $g1Dir \
         --fast5-basedirs2 $g2Dir --2d \
         --num-bases 21 --overplot-threshold 1000 \
-        --statistics-filename testing.significance_values.txt
+        --statistics-filename testing.significance_values.txt \
+        --pdf-filename testing.most_signif.pdf
 nanoraw plot_most_significant --fast5-basedirs $g1Dir \
         --fast5-basedirs2 $g2Dir --2d \
         --num-bases 21 --overplot-threshold 1000 \
-        --statistics-filename testing.significance_values.txt
+        --statistics-filename testing.significance_values.txt \
+        --pdf-filename testing.most_signif.re_calc.pdf
 nanoraw plot_motif_with_stats --fast5-basedirs $g1Dir \
         --fast5-basedirs2 $g2Dir --motif ATC --2d \
-        --overplot-threshold 1000 --test-type mw_utest
+        --overplot-threshold 1000 --test-type mw_utest \
+        --pdf-filename testing.motif_w_stats.pdf
 
 printf "\n\n********* Testing overplotting options **********\n"
 nanoraw plot_max_coverage --fast5-basedirs $g1Dir \
