@@ -17,7 +17,7 @@ import nanoraw_helper as nh
 
 VERBOSE = False
 
-SMALLEST_PVAL = 1e-15
+SMALLEST_PVAL = 1e-20
 
 # quantiles and especially violin plots at leat 3 values
 # to be meaningful
@@ -1034,18 +1034,6 @@ def plot_motif_centered_with_stats(
         plot_intervals, raw_read_coverage2, num_bases,
         filter_no_cov=False)
 
-    # TODO: Get reads regardless of strand. Needs to go back
-    # to region selection
-    # filter for only plus strand reads
-    all_reg_data1 = [
-        (reg_i, i_start, chrm, [r_data for r_data in reads
-                                if r_data.strand == '+'])
-        for reg_i, i_start, chrm, reads in all_reg_data1]
-    all_reg_data2 = [
-        (reg_i, i_start, chrm, [r_data for r_data in reads
-                                if r_data.strand == '+'])
-        for reg_i, i_start, chrm, reads in all_reg_data2]
-
     merged_reg_data = [
         (reg_id, start, chrm, reg_data1 + reg_data2)
         for (reg_id, start, chrm, reg_data1),
@@ -1511,13 +1499,21 @@ def plot_motif_centered_signif(
          for pval, qval, pos, chrm, strand, offset in
          motif_regions_data])
     plot_width = motif_len + (context_width * 2)
+    # need to handle forward and reverse strand stats separately since
+    # reverse strand stats are in reverse order wrt motif
     # note check for key in stats dict as significant position
     # may lie next to region with coverage below the threshold
-    pval_locs = [(pos - start, -np.log10(
-        max(SMALLEST_PVAL, all_stats_dict[(chrm, strand, pos)][0]
-            if (chrm, strand, pos) in all_stats_dict else 1)))
-                 for chrm, start, strand, _ in zip(*plot_intervals)[1]
-                 for pos in range(start, start + plot_width)]
+    pval_locs = [
+        (pos - start, -np.log10(
+            max(SMALLEST_PVAL, all_stats_dict[(chrm, strand, pos)][0]
+                if (chrm, strand, pos) in all_stats_dict else 1)))
+        for chrm, start, strand, _ in zip(*plot_intervals)[1]
+        for pos in range(start, start + plot_width) if strand == '+'] + [
+                (-1 * (pos - start - plot_width + 1), -np.log10(
+                max(SMALLEST_PVAL, all_stats_dict[(chrm, strand, pos)][0]
+                if (chrm, strand, pos) in all_stats_dict else 1)))
+                for chrm, start, strand, _ in zip(*plot_intervals)[1]
+                for pos in range(start, start + plot_width) if strand == '-']
     # TODO: Fix so that negative strand reads are plotted too.
     # requires adding "don't reverse signal" option in getting plot
     # data

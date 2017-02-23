@@ -28,10 +28,10 @@ nanoraw [command] [options]
 #### Genome Anchored Plotting Commands:
      plot_max_coverage             Plot signal in regions with the maximum coverage.
      plot_genome_location          Plot signal at defined genomic locations.
-     plot_kmer_centered            Plot signal at regions centered on a specific kmer.
+     plot_motif_centered           Plot signal at regions centered on a specific motif.
      plot_max_difference           Plot signal where signal differs the most between two groups.
      plot_most_significant         Plot signal where signal differs the most significantly between two groups.
-     plot_kmer_with_stats          Plot signal from several regions and test statistics centered on a k-mer of interst.
+     plot_motif_with_stats         Plot signal from several regions and test statistics centered on a motif of interst.
 
 #### Sequencing Time Anchored Plotting Commands:
      plot_correction               Plot segmentation before and after correction.
@@ -43,7 +43,7 @@ nanoraw [command] [options]
 
 #### Auxiliary Commands:
      write_most_significant        Write sequence where signal differs the most significantly between two groups.
-     write_wiggle                  Write wiggle file of genome coverage from genome_resquiggle mappings.
+     write_wiggles                 Write wiggle files for nanopore signal values, coverage, and statistics.
 
 > Get additional help for subcommands with `nanoraw [command] -h`
 
@@ -63,7 +63,7 @@ OR
 - rpy2 (along with an R installation)
 - changepoint (for using R's changepoint package for re-segmentation)
 - ggplot2 (required for any plotting subcommands)
-- cowplot (required for plot_kmer_with_stats subcommand)
+- cowplot (required for plot_motif_with_stats subcommand)
 
 ## Citation
 Stoiber, M.H. et al. De novo Identification of DNA Modifications Enabled by Genome-Guided Nanopore Signal Processing. bioRxiv (2016).
