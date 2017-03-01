@@ -1045,7 +1045,8 @@ def resquiggle_main(args):
     # whether or not to skip SD calculation due to time
     compute_sd = not args.skip_event_stdev
 
-    # parse pore model if MoM corrected pA values are requested
+    # parse pore model if k-mer conditional corrected pA values
+    # are requested
     pore_model = None
     if args.normalization_type == 'pA':
         pore_model = nh.parse_pore_model(args.pore_model_filename)

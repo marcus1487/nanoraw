@@ -70,15 +70,16 @@ normtype_opt=('--normalization-type', {
     'the raw 16-bit DAQ values as the raw signal is stored. "pA_raw" ' +
     'will calculate the pA estimates as in the ONT events (using ' +
     'offset, range and digitization parameters stored in the FAST5 ' +
-    'file). "pA" will first apply the "pA_raw" normalization followed' +
-    ' by the MoM correction for pA drift as described in the nanocorr ' +
-    'manuscript (this option requires the [--pore-model-filename] ' +
-    'option). "median" will shift by the median of each reads\' raw' +
-    'signal and scale by the MAD. Default: %(default)s'})
+    'file). "pA" will first apply the "pA_raw" normalization followed ' +
+    'by kmer-based correction for pA drift as described in the ' +
+    'nanopolish methylation manuscript (this option requires the ' +
+    '[--pore-model-filename] option). "median" will shift by the ' +
+    'median of each reads\' raw signal and scale by the MAD. ' +
+    'Default: %(default)s'})
 poremod_opt=('--pore-model-filename', {
     'help':'File containing kmer model parameters (level_mean and ' +
-    'level_stdv) used in order to compute MoM corrected pA values. ' +
-    'E.g. https://github.com/jts/nanopolish/blob/master/etc/' +
+    'level_stdv) used in order to compute kmer-based corrected pA ' +
+    'values. E.g. https://github.com/jts/nanopolish/blob/master/etc/' +
     'r9-models/template_median68pA.5mers.model'})
 otlthresh_opt=('--outlier-threshold', {
     'default':5, 'type':float,

@@ -177,19 +177,19 @@ def parse_pore_model(pore_model_fn):
 
     return pore_model
 
-def calc_mom_shift_scale(pore_model, events_means, events_kmers):
+def calc_kmer_fitted_shift_scale(pore_model, events_means, events_kmers):
     r_model_means = np.array([pore_model['mean'][kmer]
                               for kmer in events_kmers])
     r_model_inv_vars = np.array([pore_model['inv_var'][kmer]
                                  for kmer in events_kmers])
     model_mean_var = r_model_means * r_model_inv_vars
-    # prep MoM coefficient matrix values
+    # prep kmer model coefficient matrix for the k-mers from this read
     model_mean_var_sum = model_mean_var.sum()
     coef_mat = np.array((
         (r_model_inv_vars.sum(), model_mean_var_sum),
         (model_mean_var_sum, (model_mean_var * r_model_means).sum())))
 
-    # prep MoM dependent values
+    # prep dependent values from this reads true events
     r_event_var = events_means * r_model_inv_vars
     r_event_var_mean = r_event_var * r_model_means
     dep_vect = np.array((r_event_var.sum(), r_event_var_mean.sum()))
@@ -222,14 +222,14 @@ def normalize_raw_signal(
                 -1 * channel_info.offset,
                 channel_info.digitisation / channel_info.range)
             if norm_type == 'pA':
-                # perform k-mer model based MoM correction as in
-                # nanocorr/nanopolish
-                mom_shift, mom_scale = calc_mom_shift_scale(
+                # perform k-mer model fitted correction as in
+                # nanocorr/nanopolish/ONT
+                fit_shift, fit_scale = calc_kmer_fitted_shift_scale(
                     pore_model, event_means, event_kmers)
-                # apply MoM shift and scale values after
-                # raw DAC scaling
-                shift = shift - (mom_shift * scale / mom_scale)
-                scale = scale / mom_scale
+                # apply shift and scale values fitted from kmer
+                # conditional model after raw DAC scaling
+                shift = (shift + fit_shift) * scale
+                scale = scale * fit_scale
         elif norm_type == 'median':
             shift = np.median(raw_signal)
             scale = np.median(np.abs(raw_signal - shift))
