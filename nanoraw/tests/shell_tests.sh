@@ -1,5 +1,6 @@
 g1Dir="signif_testing/group1/"
 g2Dir="signif_testing/group2/"
+poreModel="template_median68pA.5mers.model"
 genomeFn="genomes.e_coli.s_aureus.m_smegmatis.fa"
 genomeLocs='"S_aureus:2064835" "S_aureus:2064935"'
 strandGenomeLocs='"S_aureus:2064835:-" "S_aureus:2064935"'
@@ -48,7 +49,14 @@ nanoraw genome_resquiggle \
 printf "\n\n********* Testing pA normalization **********\n"
 nanoraw genome_resquiggle \
         $g1Dir $genomeFn --graphmap-executable ./graphmap \
-        --timeout 60 --cpts-limit 100 --normalization-type ont \
+        --timeout 60 --cpts-limit 100 --normalization-type pA_raw \
+        --corrected-group RawGenomeCorrected_pA_raw_000 --overwrite \
+        --failed-reads-filename testing.signif_group1.pA.failed_read.txt \
+        --2d --processes 4
+nanoraw genome_resquiggle \
+        $g1Dir $genomeFn --graphmap-executable ./graphmap \
+        --timeout 60 --cpts-limit 100 --normalization-type pA \
+        --pore-model-filename $poreModel \
         --corrected-group RawGenomeCorrected_pA_000 --overwrite \
         --failed-reads-filename testing.signif_group1.pA.failed_read.txt \
         --2d --processes 4
@@ -149,8 +157,19 @@ nanoraw cluster_most_significant --fast5-basedirs $g1Dir \
         --genome-fasta $genomeFn --num-regions 100 \
         --r-data-filename testing.cluster_data.RData \
         --statistics-filename testing.significance_values.txt
-nanoraw plot_kmer --fast5-basedirs $g1Dir
-nanoraw plot_kmer --fast5-basedirs $g1Dir --read-mean
+nanoraw plot_kmer --fast5-basedirs $g1Dir \
+        --pdf-filename testing.kmer_dist.median.all_events.pdf
+nanoraw plot_kmer --fast5-basedirs $g1Dir --read-mean \
+        --num-kmer-threshold 2 \
+        --pdf-filename testing.kmer_dist.median.pdf
+nanoraw plot_kmer --fast5-basedirs $g1Dir --read-mean \
+        --corrected-group RawGenomeCorrected_pA_raw_000 \
+        --num-kmer-threshold 2 \
+        --pdf-filename testing.kmer_dist.pA_raw.pdf
+nanoraw plot_kmer --fast5-basedirs $g1Dir --read-mean \
+        --corrected-group RawGenomeCorrected_pA_000 \
+        --num-kmer-threshold 2 \
+        --pdf-filename testing.kmer_dist.pA.pdf
 
 printf "\n\n********* Testing auxilliary commands **********\n"
 nanoraw write_most_significant_fasta --fast5-basedirs $g1Dir \

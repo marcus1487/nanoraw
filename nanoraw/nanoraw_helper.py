@@ -18,7 +18,7 @@ scaleValues = namedtuple(
     'scaleValues',
     ('shift', 'scale', 'lower_lim', 'upper_lim'))
 
-NORM_TYPES = ('none', 'ont', 'median', 'robust_median')
+NORM_TYPES = ('none', 'pA', 'pA_raw', 'median', 'robust_median')
 
 # single base conversion for motifs
 SINGLE_LETTER_CODE = {
@@ -161,10 +161,48 @@ def get_channel_info(fast5_data):
 
     return channel_info
 
+def parse_pore_model(pore_model_fn):
+    pore_model = {'mean':{}, 'inv_var':{}}
+    with open(pore_model_fn) as fp:
+        for line in fp:
+            if line.startswith('#'): continue
+            try:
+                kmer, lev_mean, lev_stdev = line.split()[:3]
+                lev_mean, lev_stdev = map(float, (lev_mean, lev_stdev))
+            except ValueError:
+                # header or other non-kmer field
+                continue
+            pore_model['mean'][kmer] = lev_mean
+            pore_model['inv_var'][kmer] = 1 / (lev_stdev * lev_stdev)
+
+    return pore_model
+
+def calc_mom_shift_scale(pore_model, events_means, events_kmers):
+    r_model_means = np.array([pore_model['mean'][kmer]
+                              for kmer in events_kmers])
+    r_model_inv_vars = np.array([pore_model['inv_var'][kmer]
+                                 for kmer in events_kmers])
+    model_mean_var = r_model_means * r_model_inv_vars
+    # prep MoM coefficient matrix values
+    model_mean_var_sum = model_mean_var.sum()
+    coef_mat = np.array((
+        (r_model_inv_vars.sum(), model_mean_var_sum),
+        (model_mean_var_sum, (model_mean_var * r_model_means).sum())))
+
+    # prep MoM dependent values
+    r_event_var = events_means * r_model_inv_vars
+    r_event_var_mean = r_event_var * r_model_means
+    dep_vect = np.array((r_event_var.sum(), r_event_var_mean.sum()))
+
+    shift, scale = np.linalg.solve(coef_mat, dep_vect)
+
+    return shift, scale
+
 def normalize_raw_signal(
         all_raw_signal, read_start_rel_to_raw, read_obs_len,
         norm_type=None, channel_info=None, outlier_thresh=None,
-        shift=None, scale=None, lower_lim=None, upper_lim=None):
+        shift=None, scale=None, lower_lim=None, upper_lim=None,
+        pore_model=None, event_means=None, event_kmers=None):
     if norm_type not in NORM_TYPES and (shift is None or scale is None):
         raise NotImplementedError, (
             'Normalization type ' + norm_type + ' is not a valid ' +
@@ -176,13 +214,22 @@ def normalize_raw_signal(
     if shift is None or scale is None:
         if norm_type == 'none':
             shift, scale = 0, 1
-        elif norm_type == 'ont':
+        elif norm_type in ('pA_raw', 'pA'):
             # correct raw signal as described here:
             #     https://community.nanoporetech.com
             #           /posts/squiggle-plot-for-raw-data
             shift, scale = (
                 -1 * channel_info.offset,
                 channel_info.digitisation / channel_info.range)
+            if norm_type == 'pA':
+                # perform k-mer model based MoM correction as in
+                # nanocorr/nanopolish
+                mom_shift, mom_scale = calc_mom_shift_scale(
+                    pore_model, event_means, event_kmers)
+                # apply MoM shift and scale values after
+                # raw DAC scaling
+                shift = shift - (mom_shift * scale / mom_scale)
+                scale = scale / mom_scale
         elif norm_type == 'median':
             shift = np.median(raw_signal)
             scale = np.median(np.abs(raw_signal - shift))

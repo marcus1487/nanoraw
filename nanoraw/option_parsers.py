@@ -63,20 +63,29 @@ failed_opt=('--failed-reads-filename', {
     'with assoicated error for each read. Default: ' +
     'Do not store failed reads.'})
 normtype_opt=('--normalization-type', {
-    'default':'median', 'choices':('median', 'ont', 'none'),
+    'default':'median', 'choices':('median', 'pA', 'pA_raw', 'none'),
     'help':'Type of normalization to apply to raw signal when ' +
     'calculating statistics based on new segmentation. Should ' +
-    'be one of {"median", "ont", "none"}. "None" will provde the ' +
-    'raw integer as the raw signal is stored. "ont" will calculate ' +
-    'the pA estimates as in the ONT events mean/sd. "median" will ' +
-    "shift by the median of each reads' raw signal and scale by the " +
-    'MAD. Default: %(default)s'})
+    'be one of {"median", "pA", "pA_raw", "none"}. "none" will provde ' +
+    'the raw 16-bit DAQ values as the raw signal is stored. "pA_raw" ' +
+    'will calculate the pA estimates as in the ONT events (using ' +
+    'offset, range and digitization parameters stored in the FAST5 ' +
+    'file). "pA" will first apply the "pA_raw" normalization followed' +
+    ' by the MoM correction for pA drift as described in the nanocorr ' +
+    'manuscript (this option requires the [--pore-model-filename] ' +
+    'option). "median" will shift by the median of each reads\' raw' +
+    'signal and scale by the MAD. Default: %(default)s'})
+poremod_opt=('--pore-model-filename', {
+    'help':'File containing kmer model parameters (level_mean and ' +
+    'level_stdv) used in order to compute MoM corrected pA values. ' +
+    'E.g. https://github.com/jts/nanopolish/blob/master/etc/' +
+    'r9-models/template_median68pA.5mers.model'})
 otlthresh_opt=('--outlier-threshold', {
     'default':5, 'type':float,
-    'help':'Number of scales values (median:MADs; ont:SDs, none:SDs) ' +
-    'at which to trim the raw signal. This can help avoid strong ' +
+    'help':'Number of median absolute deviation (MAD) values ' +
+    'at which to clip the raw signal. This can help avoid strong ' +
     're-segmentation artifacts from spikes in signal. Set to ' +
-    'negative value to disable outlier trimming. Default: %(default)d'})
+    'negative value to disable outlier clipping. Default: %(default)d'})
 
 # FAST5 dir opts
 fast5dir_opt = ('--fast5-basedirs', {
@@ -301,6 +310,7 @@ def get_resquiggle_parser():
 
     norm_args = parser.add_argument_group('Read Normalization Arguments')
     norm_args.add_argument(normtype_opt[0], **normtype_opt[1])
+    norm_args.add_argument(poremod_opt[0], **poremod_opt[1])
     norm_args.add_argument(otlthresh_opt[0], **otlthresh_opt[1])
 
     io_args = parser.add_argument_group('Input/Output Arguments')

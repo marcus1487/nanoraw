@@ -61,7 +61,6 @@ OR
 
 #### Optional packages for plotting (install R packages with `install.packages([package_name])` from an R prompt):
 - rpy2 (along with an R installation)
-- changepoint (for using R's changepoint package for re-segmentation)
 - ggplot2 (required for any plotting subcommands)
 - cowplot (required for plot_motif_with_stats subcommand)
 

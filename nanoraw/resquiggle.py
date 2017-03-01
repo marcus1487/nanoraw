@@ -291,7 +291,8 @@ def resquiggle_read(
         fast5_fn, read_start_rel_to_raw, starts_rel_to_read,
         norm_type, outlier_thresh, alignVals,
         timeout, num_cpts_limit, genome_loc, read_info,
-        corrected_group, compute_sd, min_event_obs=4, in_place=True):
+        basecall_group, corrected_group, compute_sd, pore_model,
+        min_event_obs=4, in_place=True):
     # errors should not happen here since these slotes were checked
     # in alignment function, but can't hurt
     try:
@@ -308,12 +309,20 @@ def resquiggle_read(
             'Raw data is not stored in Raw/Reads/Read_[read#] so ' +
             'new segments cannot be identified.')
     all_raw_signal = raw_dat['Signal'].value
+    event_means, event_kmers = None, None
+    if norm_type == 'pA':
+        event_data = fast5_data[
+            '/Analyses/' + basecall_group + '/' +
+            read_info.Subgroup + '/Events'].value
+        event_means = event_data['mean']
+        event_kmers = event_data['model_state']
     fast5_data.close()
 
     # normalize signal
     norm_signal, scale_values = nh.normalize_raw_signal(
         all_raw_signal, read_start_rel_to_raw, starts_rel_to_read[-1],
-        norm_type, channel_info, outlier_thresh)
+        norm_type, channel_info, outlier_thresh, pore_model=pore_model,
+        event_means=event_means, event_kmers=event_kmers)
 
     # group indels that are adjacent for re-segmentation
     indel_groups = get_indel_groups(
@@ -353,8 +362,9 @@ def resquiggle_read(
     return
 
 def resquiggle_worker(
-        basecalls_q, failed_reads_q, corrected_group, norm_type,
-        outlier_thresh, timeout, num_cpts_limit, compute_sd):
+        basecalls_q, failed_reads_q, basecall_group, corrected_group,
+        norm_type, outlier_thresh, timeout, num_cpts_limit, compute_sd,
+        pore_model):
     num_processed = 0
     while True:
         try:
@@ -378,7 +388,7 @@ def resquiggle_worker(
                 fast5_fn, read_start_rel_to_raw, starts_rel_to_read,
                 norm_type, outlier_thresh, alignVals,
                 timeout, num_cpts_limit, genome_loc, read_info,
-                corrected_group, compute_sd)
+                basecall_group, corrected_group, compute_sd, pore_model)
         except Exception as e:
             failed_reads_q.put((
                 str(e), read_info.Subgroup + ' :: ' + fast5_fn))
@@ -917,7 +927,8 @@ def resquiggle_all_reads(
         fast5_fns, genome_fn, mapper_exe, mapper_type,
         basecall_group, basecall_subgroups, corrected_group, norm_type,
         outlier_thresh, timeout, num_cpts_limit, overwrite,
-        align_batch_size, num_align_ps, num_resquiggle_ps, compute_sd):
+        align_batch_size, num_align_ps, num_resquiggle_ps, compute_sd,
+        pore_model):
     manager = mp.Manager()
     fast5_q = manager.Queue()
     # set maximum number of parsed basecalls to sit in the middle queue
@@ -945,9 +956,9 @@ def resquiggle_all_reads(
         p.start()
         align_ps.append(p)
 
-    rsqgl_args = (basecalls_q, failed_reads_q, corrected_group,
-                  norm_type, outlier_thresh, timeout, num_cpts_limit,
-                  compute_sd)
+    rsqgl_args = (basecalls_q, failed_reads_q, basecall_group,
+                  corrected_group, norm_type, outlier_thresh, timeout,
+                  num_cpts_limit, compute_sd, pore_model)
     resquiggle_ps = []
     for p_id in xrange(num_resquiggle_ps):
         p = mp.Process(target=resquiggle_worker, args=rsqgl_args)
@@ -1034,13 +1045,18 @@ def resquiggle_main(args):
     # whether or not to skip SD calculation due to time
     compute_sd = not args.skip_event_stdev
 
+    # parse pore model if MoM corrected pA values are requested
+    pore_model = None
+    if args.normalization_type == 'pA':
+        pore_model = nh.parse_pore_model(args.pore_model_filename)
+
     failed_reads = resquiggle_all_reads(
         files, args.genome_fasta, mapper_exe, mapper_type,
         args.basecall_group, args.basecall_subgroups,
         args.corrected_group, args.normalization_type, outlier_thresh,
         args.timeout, args.cpts_limit, args.overwrite,
         args.alignment_batch_size, num_align_ps, num_resquiggle_ps,
-        compute_sd)
+        compute_sd, pore_model)
     sys.stderr.write('Failed reads summary:\n' + '\n'.join(
         "\t" + err + " :\t" + str(len(fns))
         for err, fns in failed_reads.items()) + '\n')
