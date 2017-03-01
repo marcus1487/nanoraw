@@ -1,4 +1,7 @@
-plotKmerDist <- function(dat, baseDat){
+plotKmerDist <- function(dat, baseDat, saveDatFn){
+    if (!is.na(saveDatFn)){
+        save(dat, file=saveDatFn)
+    }
     mainP <- ggplot(dat) +
         ##geom_boxplot(aes(x=Kmer, y=Signal, color=Base)) +
         ##scale_color_manual(
@@ -36,7 +39,10 @@ plotKmerDist <- function(dat, baseDat){
                         mainL, ncol=1, rel_heights=c(10,1)))
     }}
 
-plotKmerDistWReadPath <- function(dat, baseDat){
+plotKmerDistWReadPath <- function(dat, baseDat, saveDatFn){
+    if (!is.na(saveDatFn)){
+        save(dat, file=saveDatFn)
+    }
     maxVal <- max(as.numeric(dat$Kmer))
     mainP <- ggplot(dat) +
         #geom_boxplot(aes(x=Kmer, y=Signal, color=Base)) +

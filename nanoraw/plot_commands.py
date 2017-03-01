@@ -48,7 +48,7 @@ except:
 
 def plot_kmer_dist(files, corrected_group, basecall_subgroups,
                    read_mean, upstrm_bases, dnstrm_bases,
-                   kmer_thresh, num_reads, pdf_fn):
+                   kmer_thresh, num_reads, pdf_fn, save_r_data_fn):
     if VERBOSE: sys.stderr.write(
             'Parsing files and tabulating k-mers.\n')
     kmer_len = upstrm_bases + dnstrm_bases + 1
@@ -126,13 +126,19 @@ def plot_kmer_dist(files, corrected_group, basecall_subgroups,
             'visual kmer display. Using text kmer display. ********\n')
         baseDat = r.NA_Character
 
+    if save_r_data_fn is None:
+        save_r_data_fn = r.NA_Character
+    else:
+        save_r_data_fn = r.StrVector([save_r_data_fn,])
+
     if VERBOSE: sys.stderr.write('Plotting.\n')
     r.r(resource_string(__name__, 'R_scripts/plotKmerDist.R'))
     r.r('pdf("' + pdf_fn + '", height=7, width=10)')
     if read_mean:
-        r.globalenv['plotKmerDistWReadPath'](kmerDat, baseDat)
+        r.globalenv['plotKmerDistWReadPath'](
+            kmerDat, baseDat, save_r_data_fn)
     else:
-        r.globalenv['plotKmerDist'](kmerDat, baseDat)
+        r.globalenv['plotKmerDist'](kmerDat, baseDat, save_r_data_fn)
     r.r('dev.off()')
 
     return
@@ -1750,7 +1756,8 @@ def kmer_dist_main(args):
     plot_kmer_dist(
         files, args.corrected_group, args.basecall_subgroups,
         args.read_mean, args.upstream_bases, args.downstream_bases,
-        args.num_kmer_threshold, args.num_reads, args.pdf_filename)
+        args.num_kmer_threshold, args.num_reads, args.pdf_filename,
+        args.r_data_filename)
 
     return
 

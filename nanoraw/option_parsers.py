@@ -699,6 +699,7 @@ def get_kmer_dist_parser():
         **pdf_opt[1])
     misc_args.add_argument(
         numreads_opt[0], default=500, **numreads_opt[1])
+    misc_args.add_argument(rdata_opt[0], **rdata_opt[1])
     misc_args.add_argument(*quiet_opt[0], **quiet_opt[1])
     misc_args.add_argument(*help_opt[0], **help_opt[1])
 
