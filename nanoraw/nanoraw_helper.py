@@ -230,6 +230,9 @@ def normalize_raw_signal(
                 # conditional model after raw DAC scaling
                 shift = (shift + fit_shift) * scale
                 scale = scale * fit_scale
+            # print fitted shift and scale for comparisons
+            #print 'shift: ' + str(fit_shift) + \
+            #  '\tscale: ' + str(fit_scale)
         elif norm_type == 'median':
             shift = np.median(raw_signal)
             scale = np.median(np.abs(raw_signal - shift))

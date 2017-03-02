@@ -319,6 +319,8 @@ def resquiggle_read(
     fast5_data.close()
 
     # normalize signal
+    # print read id for resquiggle shift and scale output
+    #sys.stdout.write(read_info.ID + "\t")
     norm_signal, scale_values = nh.normalize_raw_signal(
         all_raw_signal, read_start_rel_to_raw, starts_rel_to_read[-1],
         norm_type, channel_info, outlier_thresh, pore_model=pore_model,
