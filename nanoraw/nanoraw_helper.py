@@ -228,7 +228,7 @@ def normalize_raw_signal(
                     pore_model, event_means, event_kmers)
                 # apply shift and scale values fitted from kmer
                 # conditional model after raw DAC scaling
-                shift = (shift + fit_shift) * scale
+                shift = shift + (fit_shift * scale)
                 scale = scale * fit_scale
             # print fitted shift and scale for comparisons
             #print 'shift: ' + str(fit_shift) + \

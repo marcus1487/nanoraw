@@ -140,6 +140,10 @@ readmean_opt=('--read-mean', {
     'default':False, 'action':'store_true',
     'help':'Plot kmer event means across reads as opposed to ' +
     'each event.'})
+doplot_opt=('--dont-plot', {
+    'default':False, 'action':'store_true',
+    'help':'Don\'t actually plot the result. Useful when you only ' +
+    'want the R data file.'})
 
 # misc number of item opts
 numreads_opt=('--num-reads', {
@@ -700,6 +704,7 @@ def get_kmer_dist_parser():
     misc_args.add_argument(
         numreads_opt[0], default=500, **numreads_opt[1])
     misc_args.add_argument(rdata_opt[0], **rdata_opt[1])
+    misc_args.add_argument(doplot_opt[0], **doplot_opt[1])
     misc_args.add_argument(*quiet_opt[0], **quiet_opt[1])
     misc_args.add_argument(*help_opt[0], **help_opt[1])
 

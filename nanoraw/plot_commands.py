@@ -48,7 +48,8 @@ except:
 
 def plot_kmer_dist(files, corrected_group, basecall_subgroups,
                    read_mean, upstrm_bases, dnstrm_bases,
-                   kmer_thresh, num_reads, pdf_fn, save_r_data_fn):
+                   kmer_thresh, num_reads, pdf_fn, save_r_data_fn,
+                   dont_plot):
     if VERBOSE: sys.stderr.write(
             'Parsing files and tabulating k-mers.\n')
     kmer_len = upstrm_bases + dnstrm_bases + 1
@@ -77,7 +78,11 @@ def plot_kmer_dist(files, corrected_group, basecall_subgroups,
                     seq[i:] for i in range(kmer_len)])],
                 means[kmer_len - 1 - dnstrm_bases:]):
             read_kmers[kmer].append(event_mean)
-        if min(len(x) for x in read_kmers.values()) > kmer_thresh:
+        # if every k-mer is present (unless kmer is greater than 4) and
+        # each k-mer has the requested number of occurences
+        if kmer_thresh == 0 or (
+                len(read_kmers) == 4 ** kmer_len and min(
+                    len(x) for x in read_kmers.values()) > kmer_thresh):
             reads_added += 1
             for kmer, kmer_means in read_kmers.items():
                 if read_mean:
@@ -89,6 +94,22 @@ def plot_kmer_dist(files, corrected_group, basecall_subgroups,
 
         if reads_added >= num_reads:
             break
+
+    if reads_added == 0:
+        sys.stderr(
+            '****** ERROR ******\n\tNo valid reads present. Check ' +
+            'corrected group used in genome_resquiggle as well as ' +
+            '[--num-kmer-threshold] parameter especially if requested ' +
+            'k-mer length is greater than 3 or 4. Consider setting ' +
+            'to 0 for k-mer lengths > 4.\n')
+    if reads_added < num_reads:
+        sys.stderr(
+            '****** WARNING ******\tFewer valid reads present than ' +
+            'requested. Check corrected group used in ' +
+            'genome_resquiggle as well as [--num-kmer-threshold] ' +
+            'parameter especially if requested k-mer length is ' +
+            'greater than 3 or 4. Consider setting to 0 for k-mer ' +
+            'legnths > 4.\n')
 
     if VERBOSE: sys.stderr.write('Preparing plot data.\n')
     kmer_levels = [kmer for means, kmer in sorted([
@@ -130,16 +151,18 @@ def plot_kmer_dist(files, corrected_group, basecall_subgroups,
         save_r_data_fn = r.NA_Character
     else:
         save_r_data_fn = r.StrVector([save_r_data_fn,])
+    dont_plot = r.BoolVector([dont_plot,])
 
     if VERBOSE: sys.stderr.write('Plotting.\n')
     r.r(resource_string(__name__, 'R_scripts/plotKmerDist.R'))
-    r.r('pdf("' + pdf_fn + '", height=7, width=10)')
+    if not dont_plot: r.r('pdf("' + pdf_fn + '", height=7, width=10)')
     if read_mean:
         r.globalenv['plotKmerDistWReadPath'](
-            kmerDat, baseDat, save_r_data_fn)
+            kmerDat, baseDat, save_r_data_fn, dont_plot)
     else:
-        r.globalenv['plotKmerDist'](kmerDat, baseDat, save_r_data_fn)
-    r.r('dev.off()')
+        r.globalenv['plotKmerDist'](
+            kmerDat, baseDat, save_r_data_fn, dont_plot)
+    if not dont_plot: r.r('dev.off()')
 
     return
 
@@ -1757,7 +1780,7 @@ def kmer_dist_main(args):
         files, args.corrected_group, args.basecall_subgroups,
         args.read_mean, args.upstream_bases, args.downstream_bases,
         args.num_kmer_threshold, args.num_reads, args.pdf_filename,
-        args.r_data_filename)
+        args.r_data_filename, args.dont_plot)
 
     return
 
