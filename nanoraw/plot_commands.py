@@ -96,14 +96,14 @@ def plot_kmer_dist(files, corrected_group, basecall_subgroups,
             break
 
     if reads_added == 0:
-        sys.stderr(
+        sys.stderr.write(
             '****** ERROR ******\n\tNo valid reads present. Check ' +
             'corrected group used in genome_resquiggle as well as ' +
             '[--num-kmer-threshold] parameter especially if requested ' +
             'k-mer length is greater than 3 or 4. Consider setting ' +
             'to 0 for k-mer lengths > 4.\n')
     if reads_added < num_reads:
-        sys.stderr(
+        sys.stderr.write(
             '****** WARNING ******\tFewer valid reads present than ' +
             'requested. Check corrected group used in ' +
             'genome_resquiggle as well as [--num-kmer-threshold] ' +
@@ -151,17 +151,17 @@ def plot_kmer_dist(files, corrected_group, basecall_subgroups,
         save_r_data_fn = r.NA_Character
     else:
         save_r_data_fn = r.StrVector([save_r_data_fn,])
-    dont_plot = r.BoolVector([dont_plot,])
+    dont_plot_r = r.BoolVector([dont_plot,])
 
     if VERBOSE: sys.stderr.write('Plotting.\n')
     r.r(resource_string(__name__, 'R_scripts/plotKmerDist.R'))
     if not dont_plot: r.r('pdf("' + pdf_fn + '", height=7, width=10)')
     if read_mean:
         r.globalenv['plotKmerDistWReadPath'](
-            kmerDat, baseDat, save_r_data_fn, dont_plot)
+            kmerDat, baseDat, save_r_data_fn, dont_plot_r)
     else:
         r.globalenv['plotKmerDist'](
-            kmerDat, baseDat, save_r_data_fn, dont_plot)
+            kmerDat, baseDat, save_r_data_fn, dont_plot_r)
     if not dont_plot: r.r('dev.off()')
 
     return
