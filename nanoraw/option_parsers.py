@@ -223,10 +223,10 @@ testtype_opt=('--test-type', {
     'help':'Type of significance test to apply. Choices are: ' +
     'mw_utest (default; mann-whitney u-test), ttest.'})
 fmo_opt=('--fishers-method-offset', {
-    'type':int,
+    'type':int, 'default':0,
     'help':'Offset up and downstream over which to compute ' +
     "combined p-values using Fisher's method. " +
-    'Default: Use raw p-values.'})
+    'Default: 0 (don\'t only raw p-values).'})
 
 # motif centered statistic plotting options
 motif_opt=('--motif', {

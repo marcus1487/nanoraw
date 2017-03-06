@@ -1,5 +1,5 @@
 plotMotifStats <- function(
-        PlotDat, BaseDat, StatsDat, PlotType, QuantWidth){
+        PlotDat, BaseDat, StatsFDat, StatsDat, PlotType, QuantWidth){
     ylim <- 3.5
     regions <- unique(PlotDat$Region)
     midReg <- regions[(length(regions) + 1) / 2]
@@ -77,10 +77,24 @@ plotMotifStats <- function(
             group=cut_width(Position, 0.9999)), size=0.1, fill='black') +
         scale_x_continuous(expand=c(0,0)) +
         scale_y_continuous(breaks=tickVals) +
+        theme_bw() +
+        theme(axis.text.x=element_blank(),
+              axis.ticks.x=element_blank(),
+              axis.title.x=element_blank())
+    maxStatF <- max(StatsFDat$NegLogFishersPValue)
+    if(maxStatF < 1){ tickVals <- c(0,0.2,0.4,0.6,0.8,1)
+    } else if(maxStatF < 10){ tickVals <- seq(0,10,by=2)
+    } else { tickVals <- seq(0,100,by=5) }
+    ps[[length(ps) + 1]] <- ggplot(StatsFDat) +
+        geom_violin(aes(
+            x=Position+0.5, y=NegLogFishersPValue,
+            group=cut_width(Position, 0.9999)), size=0.1, fill='black') +
+        scale_x_continuous(expand=c(0,0)) +
+        scale_y_continuous(breaks=tickVals) +
         xlab('Position') + theme_bw() +
         theme(axis.text.x=element_text(hjust=0))
     print(do.call(
         plot_grid,
         c(ps, list(ncol=1, align='v',
-                   rel_heights=c(rep(1, length(regions)), 3)))))
+                   rel_heights=c(rep(1, length(regions)), 2, 3)))))
 }

@@ -1091,15 +1091,18 @@ def plot_motif_centered_with_stats(
     BasesData = get_base_r_data(merged_reg_data, all_reg_base_data)
 
     # stat lists
+    StatsFData = r.DataFrame({
+        'Position':r.FloatVector(zip(*pval_locs)[0]),
+        'NegLogFishersPValue':r.FloatVector(zip(*zip(*pval_locs)[1])[0])})
     StatsData = r.DataFrame({
         'Position':r.FloatVector(zip(*pval_locs)[0]),
-        'NegLogPValue':r.FloatVector(zip(*pval_locs)[1])})
+        'NegLogPValue':r.FloatVector(zip(*zip(*pval_locs)[1])[1])})
 
     if VERBOSE: sys.stderr.write('Plotting.\n')
     r.r(resource_string(__name__, 'R_scripts/plotMotifStats.R'))
     r.r('pdf("' + pdf_fn + '", height=3, width=5)')
     r.globalenv['plotMotifStats'](PlotData, BasesData,
-                                 StatsData, overplot_type, 0.4)
+                                  StatsFData, StatsData, overplot_type, 0.4)
     r.r('dev.off()')
 
     return
@@ -1497,17 +1500,19 @@ def plot_motif_centered_signif(
             raw_read_coverage1, raw_read_coverage2, test_type,
             min_test_vals, stats_fn, fishers_method_offset)
 
+    def log_max_stat(pval):
+        return -np.log10(max(SMALLEST_PVAL, pval))
     all_stats_dict = dict(
-        ((chrm, strand, pos), (pval, qval))
-        for pval, qval, pos, chrm, strand, cov1, cov2 in all_stats)
+        ((chrm, strand, pos), (log_max_stat(pval_f), log_max_stat(pval)))
+        for pval_f, _, pval, _, pos, chrm, strand, _, _ in all_stats)
     covered_poss = defaultdict(set)
-    for _, _, pos, chrm, strand, _, _ in all_stats:
+    for _, _, _, _, pos, chrm, strand, _, _ in all_stats:
         covered_poss[(chrm, strand)].add(pos)
 
     if VERBOSE: sys.stderr.write(
             'Finding signficant regions with motif.\n')
     motif_regions_data = []
-    for pval, qval, pos, chrm, strand, cov1, cov2 in all_stats:
+    for pval_f, qval_f, pval, qval, pos, chrm, strand, cov1, cov2 in all_stats:
         reg_seq = get_region_sequences(
             [('0', (chrm, pos - motif_len + 1, strand, pval)),],
             raw_read_coverage1, raw_read_coverage2,
@@ -1516,7 +1521,7 @@ def plot_motif_centered_signif(
         reg_match = motif_pat.search(reg_seq)
         if reg_match:
             motif_regions_data.append((
-                pval, qval, pos, chrm, strand, reg_match.start()))
+                pos, chrm, strand, reg_match.start()))
         if len(motif_regions_data) >= num_stat_values:
             break
 
@@ -1525,7 +1530,7 @@ def plot_motif_centered_signif(
     plot_intervals = zip(
         ['{:03d}'.format(rn) for rn in range(num_stat_values)],
         [(chrm, pos - motif_len + offset - context_width + 1, strand, '')
-         for pval, qval, pos, chrm, strand, offset in
+         for pos, chrm, strand, offset in
          motif_regions_data])
     plot_width = motif_len + (context_width * 2)
     # need to handle forward and reverse strand stats separately since
@@ -1533,14 +1538,13 @@ def plot_motif_centered_signif(
     # note check for key in stats dict as significant position
     # may lie next to region with coverage below the threshold
     pval_locs = [
-        (pos - start, -np.log10(
-            max(SMALLEST_PVAL, all_stats_dict[(chrm, strand, pos)][0]
-                if (chrm, strand, pos) in all_stats_dict else 1)))
+        (pos - start, all_stats_dict[(chrm, strand, pos)]
+         if (chrm, strand, pos) in all_stats_dict else (0.0,0.0))
         for chrm, start, strand, _ in zip(*plot_intervals)[1]
         for pos in range(start, start + plot_width) if strand == '+'] + [
-                (-1 * (pos - start - plot_width + 1), -np.log10(
-                max(SMALLEST_PVAL, all_stats_dict[(chrm, strand, pos)][0]
-                if (chrm, strand, pos) in all_stats_dict else 1)))
+                (-1 * (pos - start - plot_width + 1),
+                 all_stats_dict[(chrm, strand, pos)]
+                 if (chrm, strand, pos) in all_stats_dict else (0.0,0.0))
                 for chrm, start, strand, _ in zip(*plot_intervals)[1]
                 for pos in range(start, start + plot_width) if strand == '-']
     # TODO: Fix so that negative strand reads are plotted too.
