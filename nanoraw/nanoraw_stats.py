@@ -133,9 +133,12 @@ def get_all_significance(
 
     position_pvals = sorted(position_pvals)
     fdr_corr_pvals_f = correct_multiple_testing(zip(*position_pvals)[0])
-    fdr_corr_pvals = correct_multiple_testing(sorted(zip(*position_pvals)[1]))
-    all_stats = [(pval_f, qval_f, pval, qval, pos, chrm, strand, cov1, cov2)
-                 for qval_f, qval, (pval_f, pval, pos, chrm, strand, cov1, cov2) in
+    fdr_corr_pvals = correct_multiple_testing(
+        sorted(zip(*position_pvals)[1]))
+    all_stats = [(pval_f, qval_f, pval, qval,
+                  pos, chrm, strand, cov1, cov2)
+                 for qval_f, qval, (pval_f, pval,
+                                    pos, chrm, strand, cov1, cov2) in
                  zip(fdr_corr_pvals_f, fdr_corr_pvals, position_pvals)]
 
     if all_stats_fn is not None:
@@ -209,26 +212,36 @@ def parse_stats(stats_fn):
 
 
 # functions for distances between event means
-def sliding_window_dist(sig_diffs1, sig_diffs2, num_bases):
+def sliding_window_dist(sig_diffs1, sig_diffs2, slide_span, num_bases):
     return np.sqrt(min(np.sum(np.square(
         sig_diffs1[i1:i1+num_bases] - sig_diffs2[i2:i2+num_bases]))
-                       for i1 in range(len(sig_diffs1) - num_bases)
-                       for i2 in range(len(sig_diffs2) - num_bases)))
+                       for i1 in range((slide_span * 2) + 1)
+                       for i2 in range((slide_span * 2) + 1)))
 
 def euclidian_dist(sig_diffs1, sig_diffs2):
     return np.sqrt(np.sum(np.square(sig_diffs1 - sig_diffs2)))
 
-def get_pairwise_dists(reg_sig_diffs, index_q, dists_q, num_bases):
+def get_pairwise_dists(reg_sig_diffs, index_q, dists_q, slide_span=None):
+    if slide_span > 0:
+        num_bases=reg_sig_diffs[0].shape[0] - (slide_span * 2)
     while not index_q.empty():
         try:
             index = index_q.get(block=False)
         except Queue.Empty:
             break
 
-        row_dists = np.array(
-            [euclidian_dist(reg_sig_diffs[index], reg_sig_diffs[j])
-             for j in range(0,index+1)] +
-            [0 for _ in range(index+1, len(reg_sig_diffs))])
+        if slide_span > 0:
+            row_dists = np.array(
+                [sliding_window_dist(
+                    reg_sig_diffs[index], reg_sig_diffs[j],
+                    slide_span, num_bases)
+                 for j in range(0,index+1)] +
+                [0 for _ in range(index+1, len(reg_sig_diffs))])
+        else:
+            row_dists = np.array(
+                [euclidian_dist(reg_sig_diffs[index], reg_sig_diffs[j])
+                 for j in range(0,index+1)] +
+                [0 for _ in range(index+1, len(reg_sig_diffs))])
         dists_q.put((index, row_dists))
 
     return

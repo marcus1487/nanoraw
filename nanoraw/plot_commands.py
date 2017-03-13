@@ -1579,7 +1579,7 @@ def cluster_most_signif(
         files1, files2, num_regions, qval_thresh, corrected_group,
         basecall_subgroups, pdf_fn, num_bases, test_type, obs_filter,
         min_test_vals, r_struct_fn, num_processes, fasta_fn, stats_fn,
-        fishers_method_offset):
+        fishers_method_offset, slide_span):
     calc_stats = stats_fn is None or not os.path.isfile(stats_fn)
     if not calc_stats:
         if VERBOSE: sys.stderr.write('Loading statistics from file.\n')
@@ -1610,7 +1610,8 @@ def cluster_most_signif(
             min_test_vals, stats_fn, fishers_method_offset)
 
     plot_intervals = ns.get_most_signif_regions(
-        all_stats, num_bases, num_regions, qval_thresh)
+        all_stats, num_bases + (slide_span * 2), num_regions,
+        qval_thresh)
 
     # unique genomic regions filter
     uniq_p_intervals = []
@@ -1618,7 +1619,8 @@ def cluster_most_signif(
     for p_int, (chrm, start, strand, reg_name) in plot_intervals:
         # could have significant region immediately next to
         # beginning/end of reads
-        interval_poss = range(start, start + num_bases)
+        interval_poss = range(
+            start, start + num_bases + (slide_span * 2))
         if start not in used_intervals[(chrm, strand)] and all(
                 pos in covered_poss[(chrm, strand)]
                 for pos in interval_poss):
@@ -1633,11 +1635,12 @@ def cluster_most_signif(
             # add region sequences to column names for saved dist matrix
             reg_seqs = zip(*get_region_sequences(
                 uniq_p_intervals, raw_read_coverage1, raw_read_coverage2,
-                num_bases, corrected_group))[1]
+                num_bases + (slide_span * 2), corrected_group))[1]
         else:
             fasta_records = nh.parse_fasta(fasta_fn)
             reg_seqs = [
-                fasta_records[chrm][start:start+num_bases]
+                fasta_records[chrm][
+                    start:start+num_bases + (slide_span * 2)]
                 for p_int, (chrm, start, strand, reg_name)
                 in uniq_p_intervals]
 
@@ -1655,10 +1658,13 @@ def cluster_most_signif(
     base_means2 = nh.get_base_means(raw_read_coverage2, chrm_sizes)
 
     if VERBOSE: sys.stderr.write('Getting region signal difference.\n')
+    slide_span_val = slide_span if slide_span else 0
     reg_sig_diffs = [
         np.nan_to_num(
-            base_means1[(chrm, strand)][start:start+num_bases] -
-            base_means2[(chrm, strand)][start:start+num_bases])
+            base_means1[(chrm, strand)][
+                start:start+num_bases+(slide_span_val*2)] -
+            base_means2[(chrm, strand)][
+                start:start+num_bases+(slide_span_val*2)])
         for chrm, start, strand, _ in zip(*uniq_p_intervals)[1]]
 
     # some code to output reg signal for discovery plotting
@@ -1677,7 +1683,7 @@ def cluster_most_signif(
     for i in range(len(reg_sig_diffs)):
         index_q.put(i)
 
-    args = (reg_sig_diffs, index_q, dists_q, num_bases)
+    args = (reg_sig_diffs, index_q, dists_q, slide_span)
     processes = []
     for p_id in xrange(num_processes):
         p = mp.Process(target=ns.get_pairwise_dists,
@@ -1967,7 +1973,7 @@ def cluster_signif_diff_main(args):
         nh.parse_obs_filter(args.obs_per_base_filter),
         args.minimum_test_reads, args.r_data_filename, args.processes,
         args.genome_fasta, args.statistics_filename,
-        args.fishers_method_offset)
+        args.fishers_method_offset, args.slide_span)
 
     return
 

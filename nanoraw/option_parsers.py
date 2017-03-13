@@ -169,6 +169,10 @@ qvalthresh_opt=('--q-value-threshold', {
 numbases_opt=('--num-bases', {
     'type':int,
     'help':'Number of bases to plot from region. Default: %(default)d'})
+slides_opt=('--slide-span', {
+    'type':int, 'default':0,
+    'help':'Number of bases to slide up and down when computing ' +
+    'distances for signal cluster plotting. Default: Exact position'})
 cntxt_opt=('--num-context', {
     'type':int, 'default':2,
     'help':'Number of bases surrounding motif of interest. ' +
@@ -618,6 +622,7 @@ def get_cluster_signif_diff_parser():
     misc_args.add_argument(numreg_opt[0], default=10, **numreg_opt[1])
     misc_args.add_argument(qvalthresh_opt[0], **qvalthresh_opt[1])
     misc_args.add_argument(numbases_opt[0], default=5, **numbases_opt[1])
+    misc_args.add_argument(slides_opt[0], **slides_opt[1])
     misc_args.add_argument(*quiet_opt[0], **quiet_opt[1])
     misc_args.add_argument(*help_opt[0], **help_opt[1])
 
