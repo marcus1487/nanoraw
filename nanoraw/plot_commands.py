@@ -1631,18 +1631,24 @@ def cluster_most_signif(
     # get region data if outputting R data structure
     if r_struct_fn is not None:
         if VERBOSE: sys.stderr.write('Getting sequences.\n')
+        # expand regions for getting sequence by N in case motif is
+        # the exact range found
+        expand_pos = 2
+        seq_intervals = [
+            (p_int, (chrm, start - expand_pos, strand, reg_name))
+            for p_int, (chrm, start, strand, reg_name) in uniq_p_intervals]
         if fasta_fn is None:
             # add region sequences to column names for saved dist matrix
             reg_seqs = zip(*get_region_sequences(
-                uniq_p_intervals, raw_read_coverage1, raw_read_coverage2,
-                num_bases + (slide_span * 2), corrected_group))[1]
+                seq_intervals, raw_read_coverage1, raw_read_coverage2,
+                num_bases + (slide_span * 2) + (expand_pos * 2), corrected_group))[1]
         else:
             fasta_records = nh.parse_fasta(fasta_fn)
             reg_seqs = [
                 fasta_records[chrm][
-                    start:start+num_bases + (slide_span * 2)]
+                    start:start+num_bases + (slide_span * 2) + (expand_pos * 2)]
                 for p_int, (chrm, start, strand, reg_name)
-                in uniq_p_intervals]
+                in seq_intervals]
 
     if VERBOSE: sys.stderr.write('Getting base signal.\n')
     chrm_sizes = dict(
