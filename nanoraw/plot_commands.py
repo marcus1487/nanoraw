@@ -176,16 +176,32 @@ def get_read_correction_data(
         filename, reg_type, reg_width, corr_basecall_group,
         region_name=None, start_at_zero=False):
     fast5_data = h5py.File(filename, 'r')
-    raw_data = fast5_data['/Raw/Reads'].values()[0]
+    raw_grp = fast5_data['/Raw/Reads'].values()[0]
     if ( '/Analyses/' + corr_basecall_group) not in fast5_data:
+        fast5_data.close()
         return None, None, None, None
-    corr_data = fast5_data['/Analyses/' + corr_basecall_group]
+    corr_grp = fast5_data['/Analyses/' + corr_basecall_group]
+    events_grp = corr_grp['Events']
+    events_data = events_grp.value
 
-    read_id = raw_data.attrs['read_id']
+    read_id = raw_grp.attrs['read_id']
+    signal_data = raw_grp['Signal'].value
 
-    # if a random region should be selected
-    events_end = corr_data['Events']['start'][-1] + \
-                 corr_data['Events']['length'][-1]
+    raw_offset = events_grp.attrs['read_start_rel_to_raw']
+    shift, scale, lower_lim, upper_lim = [
+        corr_grp.attrs[attr_name] for attr_name in (
+            'shift', 'scale', 'lower_lim', 'upper_lim')]
+
+    old_segs = corr_grp['Alignment/read_segments'].value
+    old_align_vals = corr_grp['Alignment/read_alignment'].value
+    new_align_vals = corr_grp['Alignment/genome_alignment'].value
+    fast5_data.close()
+
+    event_starts = events_data['start']
+
+    # if a end or random region is requested
+    events_end = events_data['start'][-1] + events_data['length'][-1]
+
     if reg_type == 'start':
         reg_start = 0
     elif reg_type == 'end':
@@ -197,13 +213,8 @@ def get_read_correction_data(
         assert isinstance(reg_type, int)
         reg_start = reg_type
 
-    raw_offset = corr_data['Events'].attrs['read_start_rel_to_raw']
-    shift = corr_data.attrs['shift']
-    scale = corr_data.attrs['scale']
-    lower_lim = corr_data.attrs['lower_lim']
-    upper_lim = corr_data.attrs['upper_lim']
     norm_reg_signal, scale_values = nh.normalize_raw_signal(
-        raw_data['Signal'].value, raw_offset + reg_start, reg_width,
+        signal_data, raw_offset + reg_start, reg_width,
         shift=shift, scale=scale, lower_lim=lower_lim,
         upper_lim=upper_lim)
 
@@ -218,17 +229,14 @@ def get_read_correction_data(
     # in the region as the start of the same genomic position can
     # shift in raw space (i.e. only the old or new position could be
     # in the region of interest)
-    old_segs = corr_data['Alignment/read_segments'].value
     old_segs_in_reg = np.where(np.logical_and(
             reg_start <= old_segs, old_segs < reg_start + reg_width))[0]
     old_reg_segs = old_segs[old_segs_in_reg]
-    old_align_vals = corr_data['Alignment/read_alignment'].value
-    new_segs = np.concatenate([corr_data['Events']['start'],
+    new_segs = np.concatenate([event_starts,
                                [events_end,]])
     new_segs_in_reg = np.where(np.logical_and(
             reg_start <= new_segs, new_segs < reg_start + reg_width))[0]
     new_reg_segs = new_segs[new_segs_in_reg]
-    new_align_vals = corr_data['Alignment/genome_alignment'].value
 
     i_old_segs = iter(old_segs)
     i_new_segs = iter(new_segs)
