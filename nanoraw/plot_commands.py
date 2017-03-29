@@ -711,8 +711,9 @@ def plot_corrections(
                     read_fn, reg_type, reg_width, corrected_group + '/' +
                     basecall_subgroup)
         # some FAST5 files give an error:
-        #     "Can't read data (Inflate() failed)"
-        except IOError:
+        #     IOError: "Can't read data (Inflate() failed)"
+        #     KeyError: No 'Raw' slot 'Unable to open object'
+        except (IOError, KeyError) as e:
             continue
         if old_dat is None:
             # skip reads that don't have correction slots b/c they
@@ -832,7 +833,7 @@ def plot_multi_corrections(
                         r_data.corr_group, reg_i, True)
             # some FAST5 files give an error:
             #     "Can't read data (Inflate() failed)"
-            except IOError:
+            except (IOError, KeyError) as e:
                 continue
             if old_dat is None:
                 # skip reads that don't have correction slots b/c they
