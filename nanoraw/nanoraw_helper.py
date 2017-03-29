@@ -8,6 +8,8 @@ import numpy as np
 from itertools import izip
 from collections import defaultdict, namedtuple
 
+NANORAW_VERSION = '0.4.1'
+
 readData = namedtuple('readData', (
     'start', 'end', 'segs', 'read_start_rel_to_raw',
     'strand', 'fn', 'corr_group'))

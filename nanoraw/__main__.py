@@ -8,6 +8,8 @@ import text_output_commands
 
 from collections import OrderedDict
 
+import nanoraw_helper as nh
+
 def main(args=None):
     """The main routine."""
     if args is None:
@@ -87,6 +89,11 @@ def main(args=None):
         description='nanoraw is a command line and python toolset ' +
         'to analyze and visualize raw nanopore sequencing data.',
         formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument(
+        '-v', '--version',
+        action='version', version='nanoraw version: {}'.format(
+            nh.NANORAW_VERSION),
+        help='show nanoraw version and exit.')
     subparsers = parser.add_subparsers(
         title='commands', description=desc,
         help='Additional help available for subcommands.')

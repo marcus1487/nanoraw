@@ -18,7 +18,6 @@ from collections import defaultdict, namedtuple
 import option_parsers
 import nanoraw_helper as nh
 
-NANORAW_VERSION = '0.4.1'
 VERBOSE = False
 
 # allow this many times the alignment batch size into the queue of
@@ -876,7 +875,7 @@ def prep_fast5(fast5_fn, basecall_group, corrected_group,
             del analyses_grp[corrected_group]
 
         corr_grp = analyses_grp.create_group(corrected_group)
-        corr_grp.attrs['nanoraw_version'] = NANORAW_VERSION
+        corr_grp.attrs['nanoraw_version'] = nh.NANORAW_VERSION
         corr_grp.attrs['basecall_group'] = basecall_group
 
     return
