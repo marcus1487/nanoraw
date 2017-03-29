@@ -629,10 +629,11 @@ def parse_sam_output(align_output, batch_reads_data, genome_index):
         if r_sam_record['rName'] == '*': continue
         # store the alignment if none is stored for this read or
         # if this read has the lowest map quality thus far
-        if alignments[r_sam_record['qName']] is None or \
-           int(alignments[r_sam_record['qName']]['mapq']) < \
+        qName = r_sam_record['qName'].replace('|||', ' ')
+        if alignments[qName] is None or \
+           int(alignments[qName]['mapq']) < \
            int(r_sam_record['mapq']):
-            alignments[r_sam_record['qName']] = r_sam_record
+            alignments[qName] = r_sam_record
 
     batch_align_failed_reads = []
     batch_align_data = {}
@@ -662,8 +663,10 @@ def align_to_genome(batch_reads_data, genome_fn, mapper_exe,
     batch_reads_fasta = ''
     for read_fn_sg, (_, _, basecalls, _, _, _) in \
         batch_reads_data.iteritems():
-        batch_reads_fasta += ">" + read_fn_sg + '\n' + \
-                             ''.join(basecalls) + '\n'
+        # note spaces aren't allowed in read names so replace with
+        # vertical bars and undo to retain file names
+        batch_reads_fasta += ">" + read_fn_sg.replace(' ', '|||') + \
+                             '\n' + ''.join(basecalls) + '\n'
 
     read_fp = NamedTemporaryFile(suffix='.fasta')
     read_fp.write(batch_reads_fasta)
