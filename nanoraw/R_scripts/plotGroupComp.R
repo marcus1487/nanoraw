@@ -27,7 +27,7 @@ plotGroupComp <- function(sigDat, quantDat, boxDat, eventDat,
                 geom_rect(aes(xmin=Position, xmax=Position + QuantWidth,
                               ymin=Lower, ymax=Upper, fill=Group),
                           alpha=0.1, show.legend=FALSE) +
-                ylab('Signal')
+                ylab('Signal') + xlab('Position')
         } else if (reg_i %in% boxDat$Region) {
             reg_box_dat <- boxDat[boxDat$Region == reg_i,]
             base_pos <- min(reg_box_dat$SigMin)

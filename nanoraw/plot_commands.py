@@ -320,15 +320,8 @@ def get_read_correction_data(
 
     return old_dat, new_dat, sig_dat, diff_dat
 
-def get_reg_events(r_data, interval_start, num_bases):
-    if r_data.means is None:
-        with h5py.File(r_data.fn) as read_data:
-            r_means = read_data[
-                'Analyses/' + r_data.corr_group + '/Events']['norm_mean']
-    else:
-        r_means = r_data.means
-    r_means = r_means if (
-        r_data.strand == "+") else r_means[::-1]
+def get_read_reg_events(r_data, interval_start, num_bases):
+    r_means = nh.get_read_base_means(r_data)
     if r_data.start > interval_start:
         # handle reads that start in middle of region
         start_overlap = interval_start + num_bases - r_data.start
@@ -350,6 +343,15 @@ def get_reg_events(r_data, interval_start, num_bases):
 
     return region_means
 
+def get_reg_events(reg_reads, interval_start, num_bases, strand):
+    reg_events = [
+        get_read_reg_events(r_data, interval_start, num_bases)
+        for r_data in reg_reads if r_data.strand == strand]
+    reg_events = [r_means for r_means in reg_events
+                  if r_means is not None]
+
+    return np.column_stack(reg_events)
+
 def get_event_data(
         all_reg_data, plot_types, num_bases, corrected_group,
         overplot_thresh, group_num='Group1'):
@@ -363,11 +365,9 @@ def get_event_data(
             if sum(r_data.strand == strand
                    for r_data in reg_reads) == 0:
                 continue
-            reg_events = [
-                get_reg_events(r_data, interval_start, num_bases)
-                for r_data in reg_reads if r_data.strand == strand]
-            for pos, base_read_means in enumerate(
-                    np.column_stack(reg_events)):
+            reg_events = get_reg_events(
+                reg_reads, interval_start, num_bases, strand)
+            for pos, base_read_means in enumerate(reg_events):
                 # skip bases with no coverage
                 if sum(~np.isnan(base_read_means)) == 0:
                     continue
@@ -404,11 +404,9 @@ def get_boxplot_data(
             if sum(r_data.strand == strand
                    for r_data in reg_reads) == 0:
                 continue
-            reg_events = [
-                get_reg_events(r_data, interval_start, num_bases)
-                for r_data in reg_reads if r_data.strand == strand]
-            for pos, base_read_means in enumerate(
-                    np.column_stack(reg_events)):
+            reg_events = get_reg_events(
+                reg_reads, interval_start, num_bases, strand)
+            for pos, base_read_means in enumerate(reg_events):
                 # skip regions with no coverage
                 if sum(~np.isnan(base_read_means)) == 0:
                     continue
@@ -451,11 +449,9 @@ def get_quant_data(
             if sum(r_data.strand == strand
                    for r_data in reg_reads) == 0:
                 continue
-            reg_events = [
-                get_reg_events(r_data, interval_start, num_bases)
-                for r_data in reg_reads if r_data.strand == strand]
-            for pos, base_read_means in enumerate(
-                    np.column_stack(reg_events)):
+            reg_events = get_reg_events(
+                reg_reads, interval_start, num_bases, strand)
+            for pos, base_read_means in enumerate(reg_events):
                 # skip regions with no coverage
                 if sum(~np.isnan(base_read_means)) == 0:
                     continue
@@ -881,10 +877,13 @@ def get_plots_titles(regs_data, regs_data2, overplot_type,
             ['*' if grp_r_ovr_cov > overplot_thresh else ''
              for grp_r_ovr_cov in r_cov] for r_cov in strand_cov]
     else:
+        # need to remove 0 cov as might be plotting on just one strand
+        gt0_strand_cov = [[x for x in covs if x > 0]
+                          for covs in strand_cov]
         plot_types = [
             'Signal' if (max(covs) < overplot_thresh or
                          min(covs) < QUANT_MIN)
-            else overplot_type for covs in strand_cov]
+            else overplot_type for covs in gt0_strand_cov]
         dnspl_stars = [['' for _ in r_cov] for r_cov in strand_cov]
 
     titles = []
@@ -894,14 +893,14 @@ def get_plots_titles(regs_data, regs_data2, overplot_type,
             if strand is None:
                 titles.append(
                     chrm + ' ' + stat +
-                    " ::: Coverage: " + str(r_cov[0]) + r_ovp[0] + " + " +
-                    str(r_cov[1]) + r_ovp[1] + " -")
+                    " ::: Coverage: " + str(r_cov[0]) + r_ovp[0] +
+                    " + " + str(r_cov[1]) + r_ovp[1] + " -")
             else:
-                cov_str = str(r_cov[0]) + r_ovp[0] if strand == '+' else \
-                          str(r_cov[1]) + r_ovp[1]
+                cov_str = str(r_cov[0]) + r_ovp[0] if strand == '+' \
+                          else str(r_cov[1]) + r_ovp[1]
                 titles.append(
-                    chrm + (":" + strand if strand else '') + ' ' + stat +
-                    " ::: Coverage: " + cov_str)
+                    chrm + (":" + strand if strand else '') + ' ' +
+                    stat + " ::: Coverage: " + cov_str)
         else:
             if strand is None:
                 titles.append(

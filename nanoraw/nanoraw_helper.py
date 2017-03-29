@@ -305,25 +305,32 @@ def get_coverage(raw_read_coverage):
 
     return read_coverage
 
+def get_read_base_means(r_data):
+    try:
+        read_data = h5py.File(r_data.fn, 'r')
+    except IOError:
+        # probably truncated file
+        return None
+    events_slot = '/'.join((
+        '/Analyses', r_data.corr_group, 'Events'))
+    if events_slot not in read_data:
+        return None
+    read_means = read_data[events_slot]['norm_mean']
+
+    if r_data.strand == '-':
+        read_means = read_means[::-1]
+
+    return read_means
+
 def get_reads_base_means(chrm_strand_reads, chrm_len, rev_strand):
     base_sums = np.zeros(chrm_len)
     base_cov = np.zeros(chrm_len, dtype=np.int_)
     for r_data in chrm_strand_reads:
         # extract read means data so data across all chrms is not
         # in RAM at one time
-        try:
-            read_data = h5py.File(r_data.fn, 'r')
-        except IOError:
-            # probably truncated file
-            continue
-        events_slot = '/'.join((
-            '/Analyses', r_data.corr_group, 'Events'))
-        if events_slot not in read_data:
-            continue
-        read_means = read_data[events_slot]['norm_mean']
+        read_means = get_read_base_means(r_data)
+        if read_means is None: continue
 
-        if rev_strand:
-            read_means = read_means[::-1]
         base_sums[r_data.start:
                   r_data.start + len(read_means)] += read_means
         base_cov[r_data.start:r_data.start + len(read_means)] += 1
