@@ -233,13 +233,16 @@ def write_most_signif(
         if VERBOSE: sys.stderr.write('Loading statistics from file.\n')
         all_stats = ns.parse_stats(stats_fn)
 
-    if VERBOSE: sys.stderr.write('Parsing files.\n')
-    raw_read_coverage1 = nh.parse_fast5s(
-        files1, corrected_group, basecall_subgroups)
-    raw_read_coverage2 = nh.parse_fast5s(
-        files2, corrected_group, basecall_subgroups)
-    raw_read_coverage1 = nh.filter_reads(raw_read_coverage1, obs_filter)
-    raw_read_coverage2 = nh.filter_reads(raw_read_coverage2, obs_filter)
+    if calc_stats or fasta_fn is None:
+        if VERBOSE: sys.stderr.write('Parsing files.\n')
+        raw_read_coverage1 = nh.parse_fast5s(
+            files1, corrected_group, basecall_subgroups)
+        raw_read_coverage2 = nh.parse_fast5s(
+            files2, corrected_group, basecall_subgroups)
+        raw_read_coverage1 = nh.filter_reads(
+            raw_read_coverage1, obs_filter)
+        raw_read_coverage2 = nh.filter_reads(
+            raw_read_coverage2, obs_filter)
 
     if calc_stats:
         if VERBOSE: sys.stderr.write('Calculating statistics.\n')
@@ -258,7 +261,7 @@ def write_most_signif(
         reg_seqs = [
             (p_int, fasta_records[chrm][start:start+num_bases])
             for p_int, (chrm, start, strand, reg_name)
-            in plot_intervals]
+            in plot_intervals if chrm in fasta_records]
 
     # get reads overlapping each region
     if VERBOSE: sys.stderr.write('Outputting region seqeuences.\n')
