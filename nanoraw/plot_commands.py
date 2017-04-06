@@ -729,6 +729,13 @@ def plot_corrections(
         DiffDat.append(diff_dat)
         if len(OldSegDat) >= num_reads:
             break
+    if len(OldSegDat) == 0:
+        sys.stderr.write(
+            'ERROR: No reads were able to be processed. Check ' +
+            '--fast5-basedirs for FAST5 files and that ' +
+            '--corrected-group and --basecall-subgroup are correct ' +
+            'for the reads provided .\n')
+        sys.exit()
     if VERBOSE and len(OldSegDat) < num_reads:
         sys.stderr.write(
             'WARNING: Fewer reads than requested were able to ' +
