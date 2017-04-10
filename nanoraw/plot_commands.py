@@ -60,18 +60,19 @@ def plot_kmer_dist(files, corrected_group, basecall_subgroups,
     for fn, basecall_subgroup in [(fn, bc_grp) for fn in files
                                   for bc_grp in basecall_subgroups]:
         try:
-            read_data = h5py.File(fn, 'r')
-        except IOError:
+            with h5py.File(fn, 'r') as read_data:
+                if ('/Analyses/' + corrected_group + '/' +
+                    basecall_subgroup + '/Events') not in read_data:
+                    continue
+                event_data = read_data[
+                    '/Analyses/' + corrected_group + '/' +
+                    basecall_subgroup + '/Events'].value
+                seq = event_data['base']
+                means = event_data['norm_mean']
+        except:
             # probably truncated file
             continue
-        if ('/Analyses/' + corrected_group + '/' +
-            basecall_subgroup + '/Events') not in read_data:
-            continue
-        event_data = read_data[
-            '/Analyses/' + corrected_group + '/' + basecall_subgroup +
-            '/Events'].value
-        seq = event_data['base']
-        means = event_data['norm_mean']
+
         read_kmers = defaultdict(list)
         for kmer, event_mean in zip(
                 [''.join(bs) for bs in zip(*[
@@ -1108,7 +1109,8 @@ def plot_motif_centered_with_stats(
     # stat lists
     StatsFData = r.DataFrame({
         'Position':r.FloatVector(zip(*pval_locs)[0]),
-        'NegLogFishersPValue':r.FloatVector(zip(*zip(*pval_locs)[1])[0])})
+        'NegLogFishersPValue':r.FloatVector(
+            zip(*zip(*pval_locs)[1])[0])})
     StatsData = r.DataFrame({
         'Position':r.FloatVector(zip(*pval_locs)[0]),
         'NegLogPValue':r.FloatVector(zip(*zip(*pval_locs)[1])[1])})
@@ -1116,8 +1118,9 @@ def plot_motif_centered_with_stats(
     if VERBOSE: sys.stderr.write('Plotting.\n')
     r.r(resource_string(__name__, 'R_scripts/plotMotifStats.R'))
     r.r('pdf("' + pdf_fn + '", height=3, width=5)')
-    r.globalenv['plotMotifStats'](PlotData, BasesData,
-                                  StatsFData, StatsData, overplot_type, 0.4)
+    r.globalenv['plotMotifStats'](
+        PlotData, BasesData,
+        StatsFData, StatsData, overplot_type, 0.4)
     r.r('dev.off()')
 
     return
@@ -1527,7 +1530,8 @@ def plot_motif_centered_signif(
     if VERBOSE: sys.stderr.write(
             'Finding signficant regions with motif.\n')
     motif_regions_data = []
-    for pval_f, qval_f, pval, qval, pos, chrm, strand, cov1, cov2 in all_stats:
+    for (pval_f, qval_f, pval, qval, pos, chrm, strand,
+         cov1, cov2) in all_stats:
         reg_seq = get_region_sequences(
             [('0', (chrm, pos - motif_len + 1, strand, pval)),],
             raw_read_coverage1, raw_read_coverage2,
@@ -1561,7 +1565,8 @@ def plot_motif_centered_signif(
                  all_stats_dict[(chrm, strand, pos)]
                  if (chrm, strand, pos) in all_stats_dict else (0.0,0.0))
                 for chrm, start, strand, _ in zip(*plot_intervals)[1]
-                for pos in range(start, start + plot_width) if strand == '-']
+                for pos in range(start, start + plot_width)
+                if strand == '-']
     # TODO: Fix so that negative strand reads are plotted too.
     # requires adding "don't reverse signal" option in getting plot
     # data
@@ -1651,17 +1656,20 @@ def cluster_most_signif(
         expand_pos = 2
         seq_intervals = [
             (p_int, (chrm, start - expand_pos, strand, reg_name))
-            for p_int, (chrm, start, strand, reg_name) in uniq_p_intervals]
+            for p_int, (chrm, start, strand, reg_name)
+            in uniq_p_intervals]
         if fasta_fn is None:
             # add region sequences to column names for saved dist matrix
             reg_seqs = zip(*get_region_sequences(
                 seq_intervals, raw_read_coverage1, raw_read_coverage2,
-                num_bases + (slide_span * 2) + (expand_pos * 2), corrected_group))[1]
+                num_bases + (slide_span * 2) + (expand_pos * 2),
+                corrected_group))[1]
         else:
             fasta_records = nh.parse_fasta(fasta_fn)
             reg_seqs = [
                 fasta_records[chrm][
-                    start:start+num_bases + (slide_span * 2) + (expand_pos * 2)]
+                    start:start+num_bases + (slide_span * 2) +
+                    (expand_pos * 2)]
                 for p_int, (chrm, start, strand, reg_name)
                 in seq_intervals]
 

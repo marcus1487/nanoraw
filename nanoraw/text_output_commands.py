@@ -45,7 +45,8 @@ def write_pvals_and_qvals_wig(
         all_stats, wig_base, write_pvals, write_qvals):
     if VERBOSE: sys.stderr.write('Parsing statistics.\n')
     raw_chrm_strand_stats = defaultdict(list)
-    for pval, qval, pos, chrm, strand, cov1, cov2 in all_stats:
+    for (pval_f, qval_f, pval, qval, pos, chrm, strand,
+         cov1, cov2) in all_stats:
         raw_chrm_strand_stats[(chrm, strand)].append((pos, pval, qval))
 
     chrm_strand_pvals = {}
