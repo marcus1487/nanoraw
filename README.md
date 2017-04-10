@@ -5,9 +5,14 @@ This package provides tools for the analysis of raw nanopore sequencing data, in
 Full documentation available at [Read the Docs](https://nanoraw.readthedocs.io)
 
 ## Installation
-Install nanoraw via pip
+Install nanoraw without plotting dependencies (base genome_resquiggle algorithm and text outputs: wig and fasta)
 ```
 pip install nanoraw
+```
+
+Install nanoraw with plotting dependecies (requires separate installation of R packages ggplot2 and cowplot)
+```
+pip install nanoraw[plot]
 ```
 
 Install bleeding edge via github

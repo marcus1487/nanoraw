@@ -6,9 +6,10 @@ def readme():
 
 setup(
     name = "nanoraw",
-    version = "0.4.1",
+    version = "0.4.2",
     packages = ["nanoraw"],
     install_requires = ['h5py', 'numpy', 'scipy'],
+    extras_require={'plot':['rpy2']},
 
     author = "Marcus Stoiber",
     author_email = "mhstoiber@lbl.gov",
