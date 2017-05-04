@@ -770,7 +770,6 @@ def get_read_data(fast5_fn, basecall_group, basecall_subgroup):
         called_dat = fast5_data[
             '/Analyses/' + basecall_group + '/' + basecall_subgroup +
             '/Events']
-        called_attrs = dict(called_dat.attrs.items())
         called_dat = called_dat.value
     except:
         raise RuntimeError, (
@@ -788,7 +787,7 @@ def get_read_data(fast5_fn, basecall_group, basecall_subgroup):
 
     read_id = raw_attrs['read_id']
 
-    abs_event_start = int(called_attrs['start_time'] *
+    abs_event_start = int(called_dat['start'][0] *
                           channel_info.sampling_rate)
     read_start_rel_to_raw = int(
         abs_event_start - raw_attrs['start_time'])
