@@ -32,9 +32,13 @@ REV_STRAND = 'Reverse Strand'
 #### ggplot via rpy2 functions ####
 ###################################
 
-GG_LOAD_ERROR='*' * 60 + '\nERROR: Must have rpy2, R and ' + \
-    'R package ggplot2 installed in order to plot.\n' + \
-    '*' * 60 + '\n\n'
+GG_LOAD_ERROR=(
+    '*' * 60 + '\nERROR: Must have rpy2, R and ' +
+    'R package ggplot2 installed in order to plot. If these ' +
+    'packages are installed, run:\n\t\t`python -c "import rpy2.robjects; ' +
+    'from rpy2.robjects.packages import importr; ' +
+    'importr(\'ggplot2\');"`\n\t to see installation issues.\n' + \
+    '*' * 60 + '\n\n')
 try:
     import rpy2.robjects as r
     from rpy2.robjects.packages import importr
