@@ -640,7 +640,8 @@ def parse_sam_output(align_output, batch_reads_data, genome_index):
     for read_fn_sg, r_sam_record in alignments.iteritems():
         if r_sam_record is None:
             batch_align_failed_reads.append(
-                ('Alignment not produced.', read_fn_sg))
+                ('Alignment not produced. Potentially failed ' +
+                 'to locate BWA index files.', read_fn_sg))
         else:
             try:
                 batch_align_data[read_fn_sg] = parse_sam_record(
