@@ -41,10 +41,30 @@ plotGroupComp <- function(sigDat, quantDat, boxDat, eventDat,
         } else {
             reg_event_dat <- eventDat[eventDat$Region == reg_i,]
             base_pos <- min(reg_event_dat$Signal)
-            p <- ggplot(reg_event_dat) +
-                geom_violin(aes(x=Position + 0.5, y=Signal, fill=Group,
-                                group=paste0(Group, Position)),
-                            size=0, show.legend=FALSE) +
+            ## convert violin data to be back to back with densities instead
+            ## of standard side by side violins
+            g1 <- reg_event_dat$Group[1]
+            densDat <- do.call(
+                rbind.data.frame,
+                lapply(split(
+                    reg_event_dat, paste0(reg_event_dat$Group,
+                                          reg_event_dat$Position,
+                                          reg_event_dat$Strand)),
+                    function(pgDat){
+                        pgDens <- density(pgDat$Signal)
+                        nDens <- length(pgDens$x)
+                        pos <- ifelse(rep(pgDat$Group[1] == g1, nDens),
+                                      pgDens$y, pgDens$y * -1)
+                        data.frame(
+                            Position=pos + pgDat$Position[1],
+                            Signal=pgDens$x, Strand=rep(pgDat$Strand[1], nDens),
+                            gPos=rep(pgDat$Position[1], nDens),
+                            Group=rep(pgDat$Group[1], nDens))
+                    }))
+            p <- ggplot(densDat) +
+                geom_polygon(aes(x=Position, y=Signal, fill=Group,
+                                 group=paste0(Group, gPos)),
+                             size=0, show.legend=FALSE) +
                 ylab('Signal') + xlab('Position')
         }
         print(p + facet_grid(Strand ~ .) +
