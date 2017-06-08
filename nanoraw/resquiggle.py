@@ -138,8 +138,8 @@ def get_indel_groups(
             for is_ins, (start, end) in
             zip(all_is_ins, all_indel_locs[1:-1])]
 
-        # loop over indels along with sequence before and after in order
-        # to check for ambiguous indels
+        # loop over indels along with sequence before and after in
+        # order to check for ambiguous indels
         unambig_indels = []
         curr_read_len = len(btwn_indel_seqs[0])
         for indel_seq, before_seq, after_seq, is_ins in zip(
@@ -228,7 +228,8 @@ def get_indel_groups(
         if len(cpts) < num_cpts:
             return None
         return sorted([cpt + min_seg_len for cpt in cpts])
-    def extend_for_cpts(group_start, group_stop, num_cpts, indel_group):
+    def extend_for_cpts(
+            group_start, group_stop, num_cpts, indel_group):
         cpts = get_cpts(group_start, group_stop, num_cpts)
         # There is a bug in the changepoint package that allows a zero
         # width first segment. If one is present extend the region and
@@ -389,7 +390,8 @@ def resquiggle_worker(
                 fast5_fn, read_start_rel_to_raw, starts_rel_to_read,
                 norm_type, outlier_thresh, alignVals,
                 timeout, num_cpts_limit, genome_loc, read_info,
-                basecall_group, corrected_group, compute_sd, pore_model)
+                basecall_group, corrected_group, compute_sd,
+                pore_model)
         except Exception as e:
             failed_reads_q.put((
                 str(e), read_info.Subgroup + ' :: ' + fast5_fn))
@@ -412,14 +414,16 @@ def fix_raw_starts_for_clipped_bases(
         abs_event_start += start_clipped_obs
 
     if end_clipped_bases > 0:
-        starts_rel_to_read = starts_rel_to_read[:-1 * end_clipped_bases]
+        starts_rel_to_read = starts_rel_to_read[
+            :-1 * end_clipped_bases]
 
     return starts_rel_to_read, read_start_rel_to_raw, abs_event_start
 
 def fix_all_clipped_bases(batch_align_data, batch_reads_data):
     clip_fix_align_data = []
-    for read_fn_sg, (alignVals, genome_loc, start_clipped_bases,
-                     end_clipped_bases) in batch_align_data.iteritems():
+    for read_fn_sg, (
+            alignVals, genome_loc, start_clipped_bases,
+            end_clipped_bases) in batch_align_data.iteritems():
         (read_start_rel_to_raw, starts_rel_to_read, basecalls,
          channel_info, abs_event_start, read_id) = batch_reads_data[
              read_fn_sg]
@@ -508,7 +512,8 @@ def parse_m5_record(r_m5_record):
             alignVals, int(r_m5_record['tStart']),
             r_m5_record['qStrand'], r_m5_record['tName'])
 
-    return alignVals, genome_loc, start_clipped_bases, end_clipped_bases
+    return (alignVals, genome_loc, start_clipped_bases,
+            end_clipped_bases)
 
 def parse_m5_output(align_output, batch_reads_data):
     alignments = dict(
@@ -699,10 +704,11 @@ def align_to_genome(batch_reads_data, genome_fn, mapper_exe,
             out_fp.close()
         except:
             # whole mapping call failed so all reads failed
-            return ([('Problem running/parsing genome mapper. ' +
-                      'Ensure you have a compatible version installed.' +
-                      'Potentially failed to locate BWA index files.',
-                      read_fn_sg) for read_fn_sg
+            return ([(
+                'Problem running/parsing genome mapper. ' +
+                'Ensure you have a compatible version installed.' +
+                'Potentially failed to locate BWA index files.',
+                read_fn_sg) for read_fn_sg
                      in batch_reads_data.keys()], [])
 
     if output_format == 'sam':
@@ -788,15 +794,21 @@ def get_read_data(fast5_fn, basecall_group, basecall_subgroup):
 
     read_id = raw_attrs['read_id']
 
-    abs_event_start = int(called_dat['start'][0] *
+    abs_event_start = int(called_dat['start'][0].astype(np.float64) *
                           channel_info.sampling_rate)
     read_start_rel_to_raw = int(
         abs_event_start - raw_attrs['start_time'])
 
     last_event = called_dat[-1]
+    # convert starts to float64 due to particularly devious numpy
+    # "bug" when multiplying float32 with float64 values using
+    # vectorized/broadcasting over arrays
     starts_rel_to_read = np.append(
-        called_dat['start'], last_event['start'] + last_event['length'])
-    starts_rel_to_read = (
+        called_dat['start'],
+        last_event['start'] + last_event['length']).astype(np.float64)
+    # round so that flaoting point errors are fixed due to some very
+    # werid numpy behaviors
+    starts_rel_to_read = np.round(
         starts_rel_to_read *
         channel_info.sampling_rate).astype('int_') - abs_event_start
     basecalls = np.array([
@@ -807,6 +819,9 @@ def get_read_data(fast5_fn, basecall_group, basecall_subgroup):
         called_dat['model_state'])):
         raise NotImplementedError, (
             'One or no segments or signal present in read.')
+    if min(np.diff(starts_rel_to_read)) < 1:
+        raise NotImplementedError, (
+            'Zero length event present in input data.')
 
     # remove stay states from the base caller
     (starts_rel_to_read, basecalls, read_start_rel_to_raw,
@@ -856,8 +871,8 @@ def prep_fast5(fast5_fn, basecall_group, corrected_group,
         with h5py.File(fast5_fn, 'r') as read_data:
             if '/Analyses/' + basecall_group not in read_data:
                 return (
-                    'FAST5 basecall-group or Analyses group does not ' +
-                    'exist. Check --basecall-group and ' + \
+                    'FAST5 basecall-group or Analyses group does '
+                    'not exist. Check --basecall-group and ' + \
                     '--basecall-subgroups arguments against files ' + \
                     'or this may be a mux scan file.', fast5_fn)
             if not overwrite and '/Analyses/' + corrected_group \
@@ -1041,10 +1056,10 @@ def resquiggle_main(args):
         args.outlier_threshold > 0) else None
 
     # resolve num_processor args
-    num_align_ps = args.processes if args.align_processes is None else \
-                   args.align_processes
-    num_resquiggle_ps = args.processes if args.resquiggle_processes is \
-                        None else args.resquiggle_processes
+    num_align_ps = args.processes if args.align_processes is None \
+      else args.align_processes
+    num_resquiggle_ps = args.processes if args.resquiggle_processes \
+      is None else args.resquiggle_processes
 
     # whether or not to skip SD calculation due to time
     compute_sd = not args.skip_event_stdev
@@ -1074,7 +1089,8 @@ def resquiggle_main(args):
     return
 
 def args_and_main():
-    resquiggle_main(option_parsers.get_resquiggle_parser().parse_args())
+    resquiggle_main(
+        option_parsers.get_resquiggle_parser().parse_args())
     return
 
 if __name__ == '__main__':
