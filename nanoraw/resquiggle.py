@@ -56,7 +56,16 @@ def write_new_fast5_group(
         old_segs, norm_signal, scale_values, corrected_group,
         basecall_subgroup, norm_type, outlier_thresh, compute_sd):
     # save new events as new hdf5 Group
-    read_data = h5py.File(filename, 'r+')
+    try:
+        read_data = h5py.File(filename, 'r+')
+    except:
+        raise (
+            NotImplementedError,
+            'Error opening file for new group writing. This should ' +
+            'have been caught during the alignment phase. Check that ' +
+            'there are no other nanoraw processes or processes ' +
+            'accessing these HDF5 files running simultaneously.')
+
     corr_grp = read_data['/Analyses/' + corrected_group]
     # add subgroup matching subgroup from original basecalls
     corr_subgrp = corr_grp.create_group(basecall_subgroup)
@@ -297,8 +306,13 @@ def resquiggle_read(
     # in alignment function, but can't hurt
     try:
         fast5_data = h5py.File(fast5_fn, 'r')
-    except IOError:
-        raise IOError, 'Error opening file. Likely a corrupted file.'
+    except:
+        raise (
+            NotImplementedError,
+            'Error opening file for re-squiggle. This should have ' +
+            'been caught during the alignment phase. Check that there ' +
+            'are no other nanoraw processes or processes accessing ' +
+            'these HDF5 files running simultaneously.')
     channel_info = nh.get_channel_info(fast5_data)
 
     # extract raw data for this read
@@ -770,8 +784,13 @@ def fix_stay_states(
 def get_read_data(fast5_fn, basecall_group, basecall_subgroup):
     try:
         fast5_data = h5py.File(fast5_fn, 'r')
-    except IOError:
-        raise IOError, 'Error opening file. Likely a corrupted file.'
+    except:
+        raise (
+            NotImplementedError,
+            'Error opening file for alignment. This should have ' +
+            'been caught during the HDF5 prep phase. Check that there ' +
+            'are no other nanoraw processes or processes accessing ' +
+            'these HDF5 files running simultaneously.')
 
     try:
         called_dat = fast5_data[
@@ -880,7 +899,7 @@ def prep_fast5(fast5_fn, basecall_group, corrected_group,
                 return (
                     "Raw genome corrected data exists for " +
                     "this read and --overwrite is not set.", fast5_fn)
-    except IOError:
+    except:
         return ('Error opening file. Likely a corrupted file.',
                  fast5_fn)
 
