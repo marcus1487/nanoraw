@@ -669,15 +669,18 @@ def parse_sam_output(align_output, batch_reads_data, genome_index):
 
     return batch_align_failed_reads, batch_align_data
 
-def prep_graphmap_options(genome_fn, read_fn, out_fn, output_format):
+def prep_graphmap_options(
+        genome_fn, read_fn, out_fn, output_format, num_align_ps):
     return ['align', '-r', genome_fn, '-d', read_fn, '-o', out_fn,
-            '-L', output_format]
+            '-L', output_format, '-t', str(num_align_ps)]
 
-def prep_bwa_mem_options(genome_fn, read_fn):
-    return ['mem', '-x', 'ont2d', '-v', '1', genome_fn, read_fn]
+def prep_bwa_mem_options(genome_fn, read_fn, num_align_ps):
+    return ['mem', '-x', 'ont2d', '-v', '1', '-t', str(num_align_ps),
+            genome_fn, read_fn]
 
 def align_to_genome(batch_reads_data, genome_fn, mapper_exe,
-                    mapper_type, genome_index, output_format='sam'):
+                    mapper_type, genome_index, num_align_ps,
+                    output_format='sam'):
     # prepare fasta text with batch reads
     batch_reads_fasta = ''
     for read_fn_sg, (_, _, basecalls, _, _, _) in \
@@ -697,11 +700,11 @@ def align_to_genome(batch_reads_data, genome_fn, mapper_exe,
         if mapper_type == 'graphmap':
             mapper_options = prep_graphmap_options(
                 genome_fn, read_fp.name, out_fp.name,
-                output_format)
+                output_format, num_align_ps)
             stdout_sink = FNULL
         elif mapper_type == 'bwa_mem':
             mapper_options = prep_bwa_mem_options(
-                genome_fn, read_fp.name)
+                genome_fn, read_fp.name, num_align_ps)
             stdout_sink = out_fp
         else:
             raise RuntimeError, 'Mapper not supported.'
@@ -854,7 +857,7 @@ def get_read_data(fast5_fn, basecall_group, basecall_subgroup):
 
 def align_and_parse(
         fast5s_to_process, genome_fn, mapper_exe, mapper_type,
-        genome_index, basecall_group, basecall_subgroups):
+        genome_index, basecall_group, basecall_subgroups, num_align_ps):
     batch_reads_data = {}
     batch_get_data_failed_reads = []
     for fast5_fn in fast5s_to_process:
@@ -870,7 +873,7 @@ def align_and_parse(
 
     batch_align_failed_reads, batch_align_data = align_to_genome(
         batch_reads_data, genome_fn, mapper_exe, mapper_type,
-        genome_index)
+        genome_index, num_align_ps)
     # regroup reads by filename (for 2D reads to be processed together
     # and avoid the same HDF5 file being opened simultaneuously)
     fn_batch_align_data = defaultdict(list)
@@ -924,7 +927,7 @@ def prep_fast5(fast5_fn, basecall_group, corrected_group,
 def align_reads(
         fast5_batch, genome_fn, mapper_exe, mapper_type, genome_index,
         basecall_group, basecall_subgroups, corrected_group,
-        basecalls_q, overwrite, in_place=True):
+        basecalls_q, overwrite, num_align_ps, in_place=True):
     batch_prep_failed_reads = []
     fast5s_to_process = []
     for fast5_fn in fast5_batch:
@@ -938,7 +941,7 @@ def align_reads(
 
     batch_align_failed_reads, batch_align_data = align_and_parse(
         fast5s_to_process, genome_fn, mapper_exe, mapper_type,
-        genome_index, basecall_group, basecall_subgroups)
+        genome_index, basecall_group, basecall_subgroups, num_align_ps)
     for fast5_fn, sgs_align_data in batch_align_data.iteritems():
         basecalls_q.put((fast5_fn, sgs_align_data))
 
@@ -947,7 +950,7 @@ def align_reads(
 def alignment_worker(
         fast5_q, basecalls_q, failed_reads_q, genome_fn,
         mapper_exe, mapper_type, basecall_group, basecall_subgroups,
-        corrected_group, overwrite):
+        corrected_group, overwrite, num_align_ps):
     # this is only needed for sam output format (not m5)
     genome_index = nh.parse_fasta(genome_fn)
     while not fast5_q.empty():
@@ -959,7 +962,7 @@ def alignment_worker(
         batch_failed_reads = align_reads(
             fast5_batch, genome_fn, mapper_exe, mapper_type,
             genome_index, basecall_group, basecall_subgroups,
-            corrected_group, basecalls_q, overwrite)
+            corrected_group, basecalls_q, overwrite, num_align_ps)
         for failed_read in batch_failed_reads:
             failed_reads_q.put(failed_read)
 
@@ -989,14 +992,11 @@ def resquiggle_all_reads(
     if len(fast5_batch) > 0:
         fast5_q.put(fast5_batch)
 
-    algn_args = (fast5_q, basecalls_q, failed_reads_q, genome_fn,
-                 mapper_exe, mapper_type, basecall_group,
-                 basecall_subgroups, corrected_group, overwrite)
-    align_ps = []
-    for p_id in xrange(num_align_ps):
-        p = mp.Process(target=alignment_worker, args=algn_args)
-        p.start()
-        align_ps.append(p)
+    align_ps = mp.Process(target=alignment_worker, args=(
+        fast5_q, basecalls_q, failed_reads_q, genome_fn,
+        mapper_exe, mapper_type, basecall_group, basecall_subgroups,
+        corrected_group, overwrite, num_align_ps))
+    align_ps.start()
 
     rsqgl_args = (basecalls_q, failed_reads_q, basecall_group,
                   corrected_group, norm_type, outlier_thresh, timeout,
@@ -1012,7 +1012,7 @@ def resquiggle_all_reads(
             str(len(basecall_subgroups)) + ' subgroup(s)/read(s) ' +
             'each (Will print a dot for each 100 files completed).\n')
     failed_reads = defaultdict(list)
-    while any(p.is_alive() for p in align_ps):
+    while align_ps.is_alive():
         try:
             errorType, fn = failed_reads_q.get(block=False)
             failed_reads[errorType].append(fn)
@@ -1079,10 +1079,13 @@ def resquiggle_main(args):
         args.outlier_threshold > 0) else None
 
     # resolve num_processor args
-    num_align_ps = args.processes if args.align_processes is None \
-      else args.align_processes
-    num_resquiggle_ps = args.processes if args.resquiggle_processes \
-      is None else args.resquiggle_processes
+    num_proc = 2 if args.processes < 2 else args.processes
+    num_align_ps = int(num_proc / 2) \
+                   if args.align_processes is None \
+                      else args.align_processes
+    num_resquiggle_ps = int(num_proc / 2) \
+                        if args.resquiggle_processes is None \
+                           else args.resquiggle_processes
 
     # whether or not to skip SD calculation due to time
     compute_sd = not args.skip_event_stdev

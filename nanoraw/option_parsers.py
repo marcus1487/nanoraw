@@ -21,16 +21,16 @@ bwamem_opt=('--bwa-mem-executable', {
 
 # optional genome resquiggle opts
 proc_opt=('--processes', {
-    'default':1, 'type':int,
+    'type':int,
     'help':'Number of processes. Default: %(default)d'})
 alignproc_opt=('--align-processes', {
     'type':int,
     'help':'Number of processes to use for aligning and parsing ' +
-    'original basecalls. Default: [--processes]'})
+    'original basecalls. Default: [--processes / 2]'})
 rsqglproc_opt=('--resquiggle-processes', {
     'type':int,
     'help':'Number of processes to use for re-squiggling raw ' +
-    'data. Default: [--processes]'})
+    'data. Default: [--processes / 2]'})
 batchsize_opt=('--alignment-batch-size', {
     'default':10, 'type':int,
     'help':'Batch size (number of reads) for alignment calls. Note ' +
@@ -335,7 +335,7 @@ def get_resquiggle_parser():
     bcsub_args.add_argument(twod_opt[0], **twod_opt[1])
 
     multi_args = parser.add_argument_group('Multiprocessing Arguments')
-    multi_args.add_argument(proc_opt[0], **proc_opt[1])
+    multi_args.add_argument(proc_opt[0], default=2, **proc_opt[1])
     multi_args.add_argument(alignproc_opt[0], **alignproc_opt[1])
     multi_args.add_argument(rsqglproc_opt[0], **rsqglproc_opt[1])
 
@@ -611,7 +611,7 @@ def get_cluster_signif_diff_parser():
     fasta_args.add_argument(fasta_opt[0], **fasta_opt[1])
 
     multi_args = parser.add_argument_group('Multiprocessing Argument')
-    multi_args.add_argument(proc_opt[0], **proc_opt[1])
+    multi_args.add_argument(proc_opt[0], default=1, **proc_opt[1])
 
     misc_args = parser.add_argument_group('Miscellaneous Arguments')
     misc_args.add_argument(
