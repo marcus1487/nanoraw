@@ -917,10 +917,12 @@ def prep_fast5(fast5_fn, basecall_group, corrected_group,
         with h5py.File(fast5_fn, 'r') as read_data:
             if '/Analyses/' + basecall_group not in read_data:
                 return (
-                    'FAST5 basecall-group or Analyses group does '
-                    'not exist. Check --basecall-group and ' + \
-                    '--basecall-subgroups arguments against files ' + \
-                    'or this may be a mux scan file.', fast5_fn)
+                    'FAST5 basecall-group or Analyses group does ' +
+                    'not exist. Likely these reads either have not ' +
+                    'been basecalled (with event storage) or are mux ' +
+                    'scan files. Also check --basecall-group and ' +
+                    '--basecall-subgroups arguments against these ' +
+                    'files.', fast5_fn)
             if not overwrite and '/Analyses/' + corrected_group \
                in read_data:
                 return (
