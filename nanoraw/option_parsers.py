@@ -32,7 +32,7 @@ rsqglproc_opt=('--resquiggle-processes', {
     'help':'Number of processes to use for re-squiggling raw ' +
     'data. Default: [--processes / 2]'})
 batchsize_opt=('--alignment-batch-size', {
-    'default':10, 'type':int,
+    'default':500, 'type':int,
     'help':'Batch size (number of reads) for alignment calls. Note ' +
     'that 10 * [alignment-batch-size] parsed reads will be stored ' +
     'in the queue to be resquiggled after alignment. So if this ' +
