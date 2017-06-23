@@ -22,7 +22,7 @@ VERBOSE = False
 
 # allow this many times the alignment batch size into the queue of
 # reads to be resquiggled
-ALIGN_BATCH_MULTIPLIER = 10
+ALIGN_BATCH_MULTIPLIER = 5
 
 indelStats = namedtuple('indelStats',
                         ('start', 'end', 'diff'))
@@ -55,7 +55,25 @@ def write_new_fast5_group(
         read_start_rel_to_raw, new_segs, align_seq, alignVals,
         old_segs, norm_signal, scale_values, corrected_group,
         basecall_subgroup, norm_type, outlier_thresh, compute_sd):
-    # save new events as new hdf5 Group
+    try:
+        # compute event data before accessing fast5 file
+        norm_mean_sd = [
+            (base_sig.mean(), base_sig.std() if compute_sd else np.nan)
+            for base_sig in np.split(norm_signal, new_segs[1:-1])]
+
+        event_data = np.array(
+            zip(zip(*norm_mean_sd)[0], zip(*norm_mean_sd)[1],
+                new_segs[:-1], np.diff(new_segs), list(align_seq)),
+            dtype=[('norm_mean', '<f8'), ('norm_stdev', '<f8'),
+                   ('start', '<u4'), ('length', '<u4'), ('base', 'S1')])
+
+        np_read_align = np.chararray(len(alignVals))
+        np_read_align[:] = zip(*alignVals)[0]
+        np_genome_align = np.chararray(len(alignVals))
+        np_genome_align[:] = zip(*alignVals)[1]
+    except:
+        raise (NotImplementedError, 'Error computing new events.')
+
     try:
         read_data = h5py.File(filename, 'r+')
     except:
@@ -66,57 +84,56 @@ def write_new_fast5_group(
             'there are no other nanoraw processes or processes ' +
             'accessing these HDF5 files running simultaneously.')
 
-    corr_grp = read_data['/Analyses/' + corrected_group]
-    # add subgroup matching subgroup from original basecalls
-    corr_subgrp = corr_grp.create_group(basecall_subgroup)
-    corr_subgrp.attrs['shift'] = scale_values.shift
-    corr_subgrp.attrs['scale'] = scale_values.scale
-    corr_subgrp.attrs['lower_lim'] = scale_values.lower_lim
-    corr_subgrp.attrs['upper_lim'] = scale_values.upper_lim
-    corr_subgrp.attrs['norm_type'] = norm_type
-    corr_subgrp.attrs['outlier_threshold'] = outlier_thresh
+    try:
+        corr_grp = read_data['/Analyses/' + corrected_group]
+        # add subgroup matching subgroup from original basecalls
+        corr_subgrp = corr_grp.create_group(basecall_subgroup)
+        corr_subgrp.attrs['shift'] = scale_values.shift
+        corr_subgrp.attrs['scale'] = scale_values.scale
+        corr_subgrp.attrs['lower_lim'] = scale_values.lower_lim
+        corr_subgrp.attrs['upper_lim'] = scale_values.upper_lim
+        corr_subgrp.attrs['norm_type'] = norm_type
+        corr_subgrp.attrs['outlier_threshold'] = outlier_thresh
 
-    # store alignment statistics
-    corr_alignment = corr_subgrp.create_group('Alignment')
-    corr_alignment.attrs['mapped_start'] = genome_location.Start
-    corr_alignment.attrs['mapped_strand'] = genome_location.Strand
-    corr_alignment.attrs['mapped_chrom'] = genome_location.Chrom
+        # store alignment statistics
+        corr_alignment = corr_subgrp.create_group('Alignment')
+        corr_alignment.attrs['mapped_start'] = genome_location.Start
+        corr_alignment.attrs['mapped_strand'] = genome_location.Strand
+        corr_alignment.attrs['mapped_chrom'] = genome_location.Chrom
 
-    corr_alignment.attrs['clipped_bases_start'] = read_info.ClipStart
-    corr_alignment.attrs['clipped_bases_end'] = read_info.ClipEnd
-    corr_alignment.attrs['num_insertions'] = read_info.Insertions
-    corr_alignment.attrs['num_deletions'] = read_info.Deletions
-    corr_alignment.attrs['num_matches'] = read_info.Matches
-    corr_alignment.attrs['num_mismatches'] = read_info.Mismatches
+        corr_alignment.attrs['clipped_bases_start'] = read_info.ClipStart
+        corr_alignment.attrs['clipped_bases_end'] = read_info.ClipEnd
+        corr_alignment.attrs['num_insertions'] = read_info.Insertions
+        corr_alignment.attrs['num_deletions'] = read_info.Deletions
+        corr_alignment.attrs['num_matches'] = read_info.Matches
+        corr_alignment.attrs['num_mismatches'] = read_info.Mismatches
 
-    np_read_align = np.chararray(len(alignVals))
-    np_read_align[:] = zip(*alignVals)[0]
-    corr_alignment.create_dataset(
-        'read_alignment', data=np_read_align, compression="gzip")
-    np_genome_align = np.chararray(len(alignVals))
-    np_genome_align[:] = zip(*alignVals)[1]
-    corr_alignment.create_dataset(
-        'genome_alignment', data=np_genome_align, compression="gzip")
-    # store old segmentation in order to plot "correction process"
-    corr_alignment.create_dataset(
-        'read_segments', data=old_segs, compression="gzip")
+        corr_alignment.create_dataset(
+            'read_alignment', data=np_read_align, compression="gzip")
+        corr_alignment.create_dataset(
+            'genome_alignment', data=np_genome_align, compression="gzip")
+        # store old segmentation in order to plot "correction process"
+        corr_alignment.create_dataset(
+            'read_segments', data=old_segs, compression="gzip")
 
-    # Add Events to data frame with event means, SDs and lengths
-    norm_mean_sd = [
-        (base_sig.mean(), base_sig.std() if compute_sd else np.nan)
-        for base_sig in np.split(norm_signal, new_segs[1:-1])]
+        # Add Events to data frame with event means, SDs and lengths
+        corr_events = corr_subgrp.create_dataset(
+            'Events', data=event_data, compression="gzip")
+        corr_events.attrs[
+            'read_start_rel_to_raw'] = read_start_rel_to_raw
+    except:
+        raise (
+            NotImplementedError,
+            'Error writing resquiggle information back into fast5 file.')
 
-    event_data = np.array(
-        zip(zip(*norm_mean_sd)[0], zip(*norm_mean_sd)[1],
-            new_segs[:-1], np.diff(new_segs), list(align_seq)),
-        dtype=[('norm_mean', '<f8'), ('norm_stdev', '<f8'),
-               ('start', '<u4'), ('length', '<u4'), ('base', 'S1')])
-    corr_events = corr_subgrp.create_dataset(
-        'Events', data=event_data, compression="gzip")
-    corr_events.attrs['read_start_rel_to_raw'] = read_start_rel_to_raw
-
-    read_data.flush()
-    read_data.close()
+    try:
+        read_data.flush()
+        read_data.close()
+    except:
+        raise (
+            NotImplementedError,
+            'Error closing fast5 file after writing resquiggle ' +
+            'information.')
 
     return
 
@@ -797,21 +814,26 @@ def get_read_data(fast5_fn, basecall_group, basecall_subgroup):
     try:
         called_dat = fast5_data[
             '/Analyses/' + basecall_group + '/' + basecall_subgroup +
-            '/Events']
-        called_dat = called_dat.value
+            '/Events'].value
     except:
         raise RuntimeError, (
             'No events or corrupted events in file. Likely a ' +
             'segmentation error or mis-specified basecall-' +
             'subgroups (--2d?).')
     try:
-        raw_attrs = fast5_data['/Raw/Reads/'].values()[0].attrs
+        raw_attrs = dict(
+            fast5_data['/Raw/Reads/'].values()[0].attrs.items())
     except:
         raise RuntimeError, (
             'Raw data is not stored in Raw/Reads/Read_[read#] so ' +
             'new segments cannot be identified.')
 
-    channel_info = nh.get_channel_info(fast5_data)
+    try:
+        channel_info = nh.get_channel_info(fast5_data)
+        fast5_data.close()
+    except:
+        raise RuntimeError, (
+            'Error getting channel information and closing fast5 file.')
 
     read_id = raw_attrs['read_id']
 
@@ -849,8 +871,6 @@ def get_read_data(fast5_fn, basecall_group, basecall_subgroup):
      abs_event_start) = fix_stay_states(
          called_dat, starts_rel_to_read, basecalls,
          read_start_rel_to_raw, abs_event_start)
-
-    fast5_data.close()
 
     return (read_start_rel_to_raw, starts_rel_to_read, basecalls,
             channel_info, abs_event_start, read_id)
@@ -910,17 +930,22 @@ def prep_fast5(fast5_fn, basecall_group, corrected_group,
         return ('Error opening file. Likely a corrupted file.',
                  fast5_fn)
 
-    # create group to store data
-    with h5py.File(fast5_fn, 'r+') as read_data:
-        analyses_grp = read_data['/Analyses']
-        # check for previously created correction group and
-        # delete if it exists
-        if corrected_group in analyses_grp:
-            del analyses_grp[corrected_group]
+    try:
+        # create group to store data
+        with h5py.File(fast5_fn, 'r+') as read_data:
+            analyses_grp = read_data['/Analyses']
+            # check for previously created correction group and
+            # delete if it exists
+            if corrected_group in analyses_grp:
+                del analyses_grp[corrected_group]
 
-        corr_grp = analyses_grp.create_group(corrected_group)
-        corr_grp.attrs['nanoraw_version'] = nh.NANORAW_VERSION
-        corr_grp.attrs['basecall_group'] = basecall_group
+            corr_grp = analyses_grp.create_group(corrected_group)
+            corr_grp.attrs['nanoraw_version'] = nh.NANORAW_VERSION
+            corr_grp.attrs['basecall_group'] = basecall_group
+    except:
+        return (
+            'Error creating new fast5 group or writing to fast5 file.',
+            fast5_fn)
 
     return
 
