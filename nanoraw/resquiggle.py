@@ -303,9 +303,23 @@ def resquiggle_read(
         basecall_group, corrected_group, compute_sd, pore_model,
         min_event_obs=4, in_place=True):
     # errors should not happen here since these slotes were checked
-    # in alignment function, but can't hurt
+    # in alignment function, but old zombie processes might cause
+    # problems here
     try:
         fast5_data = h5py.File(fast5_fn, 'r')
+        channel_info = nh.get_channel_info(fast5_data)
+
+        # extract raw data for this read
+        all_raw_signal = fast5_data[
+            '/Raw/Reads/'].values()[0]['Signal'].value
+        event_means, event_kmers = None, None
+        if norm_type == 'pA':
+            event_data = fast5_data[
+                '/Analyses/' + basecall_group + '/' +
+                read_info.Subgroup + '/Events'].value
+            event_means = event_data['mean']
+            event_kmers = event_data['model_state']
+        fast5_data.close()
     except:
         raise (
             NotImplementedError,
@@ -313,24 +327,6 @@ def resquiggle_read(
             'been caught during the alignment phase. Check that there ' +
             'are no other nanoraw processes or processes accessing ' +
             'these HDF5 files running simultaneously.')
-    channel_info = nh.get_channel_info(fast5_data)
-
-    # extract raw data for this read
-    try:
-        raw_dat = fast5_data['/Raw/Reads/'].values()[0]
-    except:
-        raise RuntimeError, (
-            'Raw data is not stored in Raw/Reads/Read_[read#] so ' +
-            'new segments cannot be identified.')
-    all_raw_signal = raw_dat['Signal'].value
-    event_means, event_kmers = None, None
-    if norm_type == 'pA':
-        event_data = fast5_data[
-            '/Analyses/' + basecall_group + '/' +
-            read_info.Subgroup + '/Events'].value
-        event_means = event_data['mean']
-        event_kmers = event_data['model_state']
-    fast5_data.close()
 
     # normalize signal
     # print read id for resquiggle shift and scale output
@@ -384,7 +380,7 @@ def resquiggle_worker(
     num_processed = 0
     while True:
         try:
-            fast5_fn, align_data = basecalls_q.get(block=False)
+            fast5_fn, sgs_align_data = basecalls_q.get(block=False)
             # None values placed in queue when all files have
             # been processed
             if fast5_fn is None: break
@@ -396,19 +392,22 @@ def resquiggle_worker(
         if VERBOSE and num_processed % 100 == 0:
             sys.stderr.write('.')
             sys.stderr.flush()
-        (alignVals, genome_loc, starts_rel_to_read,
-         read_start_rel_to_raw, abs_event_start,
-         read_info) = align_data
-        try:
-            resquiggle_read(
-                fast5_fn, read_start_rel_to_raw, starts_rel_to_read,
-                norm_type, outlier_thresh, alignVals,
-                timeout, num_cpts_limit, genome_loc, read_info,
-                basecall_group, corrected_group, compute_sd,
-                pore_model)
-        except Exception as e:
-            failed_reads_q.put((
-                str(e), read_info.Subgroup + ' :: ' + fast5_fn))
+        # process different read subgroups separately so that the same
+        # file is never open simultaneously
+        for align_data in sgs_align_data:
+            (alignVals, genome_loc, starts_rel_to_read,
+             read_start_rel_to_raw, abs_event_start,
+             read_info) = align_data
+            try:
+                resquiggle_read(
+                    fast5_fn, read_start_rel_to_raw, starts_rel_to_read,
+                    norm_type, outlier_thresh, alignVals,
+                    timeout, num_cpts_limit, genome_loc, read_info,
+                    basecall_group, corrected_group, compute_sd,
+                    pore_model)
+            except Exception as e:
+                failed_reads_q.put((
+                    str(e), read_info.Subgroup + ' :: ' + fast5_fn))
 
     return
 
@@ -872,9 +871,14 @@ def align_and_parse(
     batch_align_failed_reads, batch_align_data = align_to_genome(
         batch_reads_data, genome_fn, mapper_exe, mapper_type,
         genome_index)
+    # regroup reads by filename (for 2D reads to be processed together
+    # and avoid the same HDF5 file being opened simultaneuously)
+    fn_batch_align_data = defaultdict(list)
+    for fast5_fn, sg_align_data in batch_align_data:
+        fn_batch_align_data[fast5_fn].append(sg_align_data)
 
     return (batch_get_data_failed_reads + batch_align_failed_reads,
-            batch_align_data)
+            fn_batch_align_data)
 
 def prep_fast5(fast5_fn, basecall_group, corrected_group,
                overwrite, in_place):
@@ -935,8 +939,8 @@ def align_reads(
     batch_align_failed_reads, batch_align_data = align_and_parse(
         fast5s_to_process, genome_fn, mapper_exe, mapper_type,
         genome_index, basecall_group, basecall_subgroups)
-    for align_data in batch_align_data:
-        basecalls_q.put(align_data)
+    for fast5_fn, sgs_align_data in batch_align_data.iteritems():
+        basecalls_q.put((fast5_fn, sgs_align_data))
 
     return batch_prep_failed_reads + batch_align_failed_reads
 
