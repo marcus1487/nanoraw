@@ -24,20 +24,26 @@ proc_opt=('--processes', {
     'type':int,
     'help':'Number of processes. Default: %(default)d'})
 alignproc_opt=('--align-processes', {
-    'type':int,
+    'type':int, 'default':1,
     'help':'Number of processes to use for aligning and parsing ' +
-    'original basecalls. Default: [--processes / 2]'})
+    'original basecalls. Each process will independently load the ' +
+    'genome into memory, so use caution with larger genomes ' +
+    '(e.g. human). Default: %(default)d'})
+alignthrds_opt=('--total-align-threads', {
+    'type':int,
+    'help':'Total number of threads to use for aligning and parsing ' +
+    'original basecalls. These threads will be spread over the ' +
+    'align-processes evenly. Default: [--processes / 2]'})
 rsqglproc_opt=('--resquiggle-processes', {
     'type':int,
     'help':'Number of processes to use for re-squiggling raw ' +
     'data. Default: [--processes / 2]'})
 batchsize_opt=('--alignment-batch-size', {
     'default':500, 'type':int,
-    'help':'Batch size (number of reads) for alignment calls. Note ' +
-    'that 10 * [alignment-batch-size] parsed reads will be stored ' +
-    'in the queue to be resquiggled after alignment. So if this ' +
-    'command is using too much RAM, consider lowering this value. ' +
-    'Default: %(default)d'})
+    'help':'Batch size (number of reads) for each alignment call. Note ' +
+    'that a new system call to the mapper is made for each batch ' +
+    '(including loading of the genome), so it is advised to use larger ' +
+    'values for larger genomes. Default: %(default)d'})
 
 timeout_opt=('--timeout', {
     'default':None, 'type':int,
@@ -344,6 +350,7 @@ def get_resquiggle_parser():
     multi_args = parser.add_argument_group('Multiprocessing Arguments')
     multi_args.add_argument(proc_opt[0], default=2, **proc_opt[1])
     multi_args.add_argument(alignproc_opt[0], **alignproc_opt[1])
+    multi_args.add_argument(alignthrds_opt[0], **alignthrds_opt[1])
     multi_args.add_argument(rsqglproc_opt[0], **rsqglproc_opt[1])
 
     misc_args = parser.add_argument_group('Miscellaneous Arguments')

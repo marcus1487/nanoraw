@@ -995,8 +995,8 @@ def resquiggle_all_reads(
         fast5_fns, genome_fn, mapper_exe, mapper_type,
         basecall_group, basecall_subgroups, corrected_group, norm_type,
         outlier_thresh, timeout, num_cpts_limit, overwrite,
-        align_batch_size, num_align_ps, num_resquiggle_ps, compute_sd,
-        pore_model):
+        align_batch_size, num_align_ps, align_threads_per_proc,
+        num_resquiggle_ps, compute_sd, pore_model):
     manager = mp.Manager()
     fast5_q = manager.Queue()
     # set maximum number of parsed basecalls to sit in the middle queue
@@ -1015,11 +1015,15 @@ def resquiggle_all_reads(
     if len(fast5_batch) > 0:
         fast5_q.put(fast5_batch)
 
-    align_ps = mp.Process(target=alignment_worker, args=(
+    align_args = (
         fast5_q, basecalls_q, failed_reads_q, genome_fn,
         mapper_exe, mapper_type, basecall_group, basecall_subgroups,
-        corrected_group, overwrite, num_align_ps))
-    align_ps.start()
+        corrected_group, overwrite, align_threads_per_proc)
+    align_ps = []
+    for p_id in xrange(num_align_ps):
+        p = mp.Process(target=alignment_worker, args=align_args)
+        p.start()
+        align_ps.append(p)
 
     rsqgl_args = (basecalls_q, failed_reads_q, basecall_group,
                   corrected_group, norm_type, outlier_thresh, timeout,
@@ -1035,7 +1039,7 @@ def resquiggle_all_reads(
             str(len(basecall_subgroups)) + ' subgroup(s)/read(s) ' +
             'each (Will print a dot for each 100 files completed).\n')
     failed_reads = defaultdict(list)
-    while align_ps.is_alive():
+    while any(p.is_alive() for p in align_ps):
         try:
             errorType, fn = failed_reads_q.get(block=False)
             failed_reads[errorType].append(fn)
@@ -1114,12 +1118,19 @@ def resquiggle_main(args):
 
     # resolve num_processor args
     num_proc = 2 if args.processes < 2 else args.processes
-    num_align_ps = int(num_proc / 2) \
-                   if args.align_processes is None \
-                      else args.align_processes
+    tot_align_threads = int(num_proc / 2) \
+      if args.total_align_threads is None \
+      else args.total_align_threads
+    if tot_align_threads < args.align_processes:
+        sys.stderr.write(
+            '******** WARNING: More alignment processes specified ' +
+            'than total alignment threads. Total alignment threads ' +
+            'is being set to 1 per alignment process. ********\n')
+    align_threads_per_proc = max(
+        tot_align_threads / args.align_processes, 1)
     num_resquiggle_ps = int(num_proc / 2) \
-                        if args.resquiggle_processes is None \
-                           else args.resquiggle_processes
+      if args.resquiggle_processes is None \
+      else args.resquiggle_processes
 
     # whether or not to skip SD calculation due to time
     compute_sd = not args.skip_event_stdev
@@ -1135,8 +1146,9 @@ def resquiggle_main(args):
         args.basecall_group, args.basecall_subgroups,
         args.corrected_group, args.normalization_type, outlier_thresh,
         args.timeout, args.cpts_limit, args.overwrite,
-        args.alignment_batch_size, num_align_ps, num_resquiggle_ps,
-        compute_sd, pore_model)
+        args.alignment_batch_size, args.align_processes,
+        align_threads_per_proc, num_resquiggle_ps, compute_sd,
+        pore_model)
     sys.stderr.write('Failed reads summary:\n' + '\n'.join(
         "\t" + err + " :\t" + str(len(fns))
         for err, fns in failed_reads.items()) + '\n')
