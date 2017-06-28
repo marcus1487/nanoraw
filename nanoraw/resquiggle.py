@@ -1085,16 +1085,27 @@ def resquiggle_main(args):
 
     if VERBOSE: sys.stderr.write('Getting file list.\n')
     try:
-        if args.fast5_pattern:
-            files = glob(os.path.join(
-                args.fast5_basedir, args.fast5_pattern))
+        if args.fast5_pattern or args.recursive:
+            fast5_pat = "*/*.fast5" if args.recursive else \
+              args.fast5_pattern
+            files = glob(os.path.join(args.fast5_basedir, fast5_pat))
         else:
-            files = [os.path.join(args.fast5_basedir, fn)
-                     for fn in os.listdir(args.fast5_basedir)]
+            files = [
+                os.path.join(args.fast5_basedir, fn)
+                for fn in os.listdir(args.fast5_basedir)
+                if os.path.isfile(os.path.join(args.fast5_basedir, fn))]
     except OSError:
         sys.stderr.write(
             '*' * 60 + '\nERROR: One of the directories does not ' +
             'appear to be accessible. Check directory permissions.\n' +
+            '*' * 60 + '\n')
+        sys.exit()
+    if len(files) < 1:
+        sys.stderr.write(
+            '*' * 60 + '\nERROR: No files identified in the specified ' +
+            'directories. If files are stored in subdirectories ' +
+            '(e.g. 0/, 1/, ...) specify the --recursive or ' +
+            '--fast5-pattern "*/*.fast5" options appropriately.\n' +
             '*' * 60 + '\n')
         sys.exit()
 

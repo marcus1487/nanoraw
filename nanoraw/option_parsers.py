@@ -53,6 +53,12 @@ pat_opt=('--fast5-pattern', {
     'help':'A pattern to search for a subset of files within ' +
     'fast5-basedir. Note that on the unix command line patterns ' +
     'may be expanded so it is best practice to quote patterns.'})
+rcrsv_opt=('--recursive', {
+    'default':False, 'action':'store_true',
+    'help':'Search for FAST5 files within immediate sub-directories.' +
+    'Note that this only searches a single level of subdirectories ' +
+    'and only for files ending in .fast5. This is equivalent to ' +
+    'specifying --fast5-pattern "*/*.fast5".'})
 ovrwrt_opt=('--overwrite', {
     'default':False, 'action':'store_true',
     'help':'Overwrite previous corrected group in FAST5/HDF5 ' +
@@ -324,6 +330,7 @@ def get_resquiggle_parser():
 
     io_args = parser.add_argument_group('Input/Output Arguments')
     io_args.add_argument(pat_opt[0], **pat_opt[1])
+    io_args.add_argument(rcrsv_opt[0], **rcrsv_opt[1])
     io_args.add_argument(ovrwrt_opt[0], **ovrwrt_opt[1])
     io_args.add_argument(failed_opt[0], **failed_opt[1])
 
