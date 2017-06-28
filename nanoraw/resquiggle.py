@@ -1118,9 +1118,10 @@ def resquiggle_main(args):
 
     # resolve processor and thread arguments
     num_proc = 2 if args.processes < 2 else args.processes
-    align_threads_per_proc = args.align_threads_per_process \
-      if args.align_threads_per_process else \
-      int(num_proc / (2 * args.align_processes))
+    align_threads_per_proc = \
+      max(int(num_proc / (2 * args.align_processes)), 1) \
+      if args.align_threads_per_process is None else \
+      args.align_threads_per_process
     num_resquiggle_ps = int(num_proc / 2) \
       if args.resquiggle_processes is None \
       else args.resquiggle_processes
