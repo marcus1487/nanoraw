@@ -5,6 +5,7 @@ import h5py
 import Queue
 
 import numpy as np
+np.seterr(all='raise')
 import multiprocessing as mp
 
 from glob import glob
@@ -30,7 +31,7 @@ indelGroupStats = namedtuple('indelGroupStats',
                              ('start', 'end', 'cpts', 'indels'))
 readInfo = namedtuple(
     'readInfo',
-    ('ID', 'Start', 'Subgroup', 'ClipStart', 'ClipEnd',
+    ('ID', 'Subgroup', 'ClipStart', 'ClipEnd',
      'Insertions', 'Deletions', 'Matches', 'Mismatches'))
 genomeLoc = namedtuple(
     'genomeLoc', ('Start', 'Strand', 'Chrom'))
@@ -369,6 +370,15 @@ def resquiggle_read(
     # handle end of read
     new_segs.append(starts_rel_to_read[prev_stop:])
     new_segs = np.concatenate(new_segs)
+    if min(np.diff(new_segs)) < 1:
+        raise (NotImplementedError,
+               'New segments include zero length events.')
+    if new_segs[0] < 0:
+        raise (NotImplementedError,
+               'New segments start with negative index.')
+    if new_segs[-1] > norm_signal.shape[0]:
+        raise (NotImplementedError,
+               'New segments end past raw signal values.')
 
     # get just from alignVals
     align_seq = ''.join(zip(*alignVals)[1]).replace('-', '')
@@ -413,8 +423,7 @@ def resquiggle_worker(
         # file is never open simultaneously
         for align_data in sgs_align_data:
             (alignVals, genome_loc, starts_rel_to_read,
-             read_start_rel_to_raw, abs_event_start,
-             read_info) = align_data
+             read_start_rel_to_raw, read_info) = align_data
             try:
                 resquiggle_read(
                     fast5_fn, read_start_rel_to_raw, starts_rel_to_read,
@@ -435,19 +444,18 @@ def resquiggle_worker(
 
 def fix_raw_starts_for_clipped_bases(
         start_clipped_bases, end_clipped_bases, starts_rel_to_read,
-        read_start_rel_to_raw, abs_event_start):
+        read_start_rel_to_raw):
     if start_clipped_bases > 0:
         start_clipped_obs = starts_rel_to_read[start_clipped_bases]
         starts_rel_to_read = starts_rel_to_read[
             start_clipped_bases:] - start_clipped_obs
         read_start_rel_to_raw += start_clipped_obs
-        abs_event_start += start_clipped_obs
 
     if end_clipped_bases > 0:
         starts_rel_to_read = starts_rel_to_read[
             :-1 * end_clipped_bases]
 
-    return starts_rel_to_read, read_start_rel_to_raw, abs_event_start
+    return starts_rel_to_read, read_start_rel_to_raw
 
 def fix_all_clipped_bases(batch_align_data, batch_reads_data):
     clip_fix_align_data = []
@@ -455,14 +463,12 @@ def fix_all_clipped_bases(batch_align_data, batch_reads_data):
             alignVals, genome_loc, start_clipped_bases,
             end_clipped_bases) in batch_align_data.iteritems():
         (read_start_rel_to_raw, starts_rel_to_read, basecalls,
-         channel_info, abs_event_start, read_id) = batch_reads_data[
-             read_fn_sg]
+         channel_info, read_id) = batch_reads_data[read_fn_sg]
         # fix raw start positions to match bases clipped in mapping
-        starts_rel_to_read, read_start_rel_to_raw, abs_event_start \
+        starts_rel_to_read, read_start_rel_to_raw \
             = fix_raw_starts_for_clipped_bases(
                 start_clipped_bases, end_clipped_bases,
-                starts_rel_to_read, read_start_rel_to_raw,
-                abs_event_start)
+                starts_rel_to_read, read_start_rel_to_raw)
 
         bc_subgroup, fast5_fn = read_fn_sg.split(':::')
         num_ins, num_del, num_match, num_mismatch = 0, 0, 0, 0
@@ -476,14 +482,12 @@ def fix_all_clipped_bases(batch_align_data, batch_reads_data):
             else:
                 num_mismatch += 1
         read_info = readInfo(
-            read_id, abs_event_start /
-            float(channel_info.sampling_rate),
-            bc_subgroup, start_clipped_bases, end_clipped_bases,
+            read_id, bc_subgroup, start_clipped_bases, end_clipped_bases,
             num_ins, num_del, num_match, num_mismatch)
 
         clip_fix_align_data.append((fast5_fn, (
             alignVals, genome_loc, starts_rel_to_read,
-            read_start_rel_to_raw, abs_event_start, read_info)))
+            read_start_rel_to_raw, read_info)))
 
     return clip_fix_align_data
 
@@ -700,7 +704,7 @@ def align_to_genome(batch_reads_data, genome_fn, mapper_exe,
                     output_format='sam'):
     # prepare fasta text with batch reads
     batch_reads_fasta = ''
-    for read_fn_sg, (_, _, basecalls, _, _, _) in \
+    for read_fn_sg, (_, _, basecalls, _, _) in \
         batch_reads_data.iteritems():
         # note spaces aren't allowed in read names so replace with
         # vertical bars and undo to retain file names
@@ -760,7 +764,7 @@ def align_to_genome(batch_reads_data, genome_fn, mapper_exe,
 
 def fix_stay_states(
         called_dat, starts_rel_to_read, basecalls,
-        read_start_rel_to_raw, abs_event_start):
+        read_start_rel_to_raw):
     move_states = called_dat['move'][1:] > 0
     start_clip = 0
     event_change_state = move_states[0]
@@ -789,7 +793,6 @@ def fix_stay_states(
         start_clip_obs = starts_rel_to_read[0]
         starts_rel_to_read = starts_rel_to_read - start_clip_obs
         read_start_rel_to_raw += start_clip_obs
-        abs_event_start += start_clip_obs
 
     # now actually remove internal stay states
     move_states = np.insert(
@@ -797,8 +800,7 @@ def fix_stay_states(
     starts_rel_to_read = starts_rel_to_read[move_states]
     basecalls = basecalls[move_states[:-1]]
 
-    return (starts_rel_to_read, basecalls, read_start_rel_to_raw,
-            abs_event_start)
+    return starts_rel_to_read, basecalls, read_start_rel_to_raw
 
 def get_read_data(fast5_fn, basecall_group, basecall_subgroup):
     try:
@@ -837,23 +839,17 @@ def get_read_data(fast5_fn, basecall_group, basecall_subgroup):
 
     read_id = raw_attrs['read_id']
 
-    abs_event_start = int(called_dat['start'][0].astype(np.float64) *
-                          channel_info.sampling_rate)
+    abs_event_start = np.round(
+        called_dat['start'][0].astype(np.float64) *
+        channel_info.sampling_rate).astype(np.uint64)
     read_start_rel_to_raw = int(
         abs_event_start - raw_attrs['start_time'])
 
-    last_event = called_dat[-1]
-    # convert starts to float64 due to particularly devious numpy
-    # "bug" when multiplying float32 with float64 values using
-    # vectorized/broadcasting over arrays
-    starts_rel_to_read = np.append(
-        called_dat['start'],
-        last_event['start'] + last_event['length']).astype(np.float64)
-    # round so that flaoting point errors are fixed due to some very
-    # werid numpy behaviors
-    starts_rel_to_read = np.round(
-        starts_rel_to_read *
-        channel_info.sampling_rate).astype('int_') - abs_event_start
+    # compute event starts from length slot as start slot is less
+    # reliable due to storage as a float32
+    starts_rel_to_read = np.cumsum(np.concatenate(
+        [[0,], np.round(called_dat['length'] *
+                        channel_info.sampling_rate).astype('int_')]))
     basecalls = np.array([
         event_state[2] for event_state in called_dat['model_state']])
 
@@ -867,13 +863,13 @@ def get_read_data(fast5_fn, basecall_group, basecall_subgroup):
             'Zero length event present in input data.')
 
     # remove stay states from the base caller
-    (starts_rel_to_read, basecalls, read_start_rel_to_raw,
-     abs_event_start) = fix_stay_states(
+    (starts_rel_to_read, basecalls,
+     read_start_rel_to_raw) = fix_stay_states(
          called_dat, starts_rel_to_read, basecalls,
-         read_start_rel_to_raw, abs_event_start)
+         read_start_rel_to_raw)
 
     return (read_start_rel_to_raw, starts_rel_to_read, basecalls,
-            channel_info, abs_event_start, read_id)
+            channel_info, read_id)
 
 def align_and_parse(
         fast5s_to_process, genome_fn, mapper_exe, mapper_type,
