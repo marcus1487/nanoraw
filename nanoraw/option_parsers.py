@@ -29,21 +29,21 @@ alignproc_opt=('--align-processes', {
     'original basecalls. Each process will independently load the ' +
     'genome into memory, so use caution with larger genomes ' +
     '(e.g. human). Default: %(default)d'})
-alignthrds_opt=('--total-align-threads', {
+alignthrds_opt=('--align-threads-per-process', {
     'type':int,
-    'help':'Total number of threads to use for aligning and parsing ' +
-    'original basecalls. These threads will be spread over the ' +
-    'align-processes evenly. Default: [--processes / 2]'})
+    'help':'Number of threads to use per alignment process. This ' +
+    'value is passed to the underlying mapper system calls. ' +
+    'Default: [--processes] / (2 * [--align-processes)]'})
 rsqglproc_opt=('--resquiggle-processes', {
     'type':int,
     'help':'Number of processes to use for re-squiggling raw ' +
-    'data. Default: [--processes / 2]'})
+    'data. Default: [--processes] / 2'})
 batchsize_opt=('--alignment-batch-size', {
     'default':500, 'type':int,
-    'help':'Batch size (number of reads) for each alignment call. Note ' +
-    'that a new system call to the mapper is made for each batch ' +
-    '(including loading of the genome), so it is advised to use larger ' +
-    'values for larger genomes. Default: %(default)d'})
+    'help':'Batch size (number of reads) for each alignment call. ' +
+    'Note that a new system call to the mapper is made for each batch ' +
+    '(including loading of the genome), so it is advised to use ' +
+    'larger values for larger genomes. Default: %(default)d'})
 
 timeout_opt=('--timeout', {
     'default':None, 'type':int,

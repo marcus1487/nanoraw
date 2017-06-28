@@ -1116,18 +1116,11 @@ def resquiggle_main(args):
     outlier_thresh = args.outlier_threshold if (
         args.outlier_threshold > 0) else None
 
-    # resolve num_processor args
+    # resolve processor and thread arguments
     num_proc = 2 if args.processes < 2 else args.processes
-    tot_align_threads = int(num_proc / 2) \
-      if args.total_align_threads is None \
-      else args.total_align_threads
-    if tot_align_threads < args.align_processes:
-        sys.stderr.write(
-            '******** WARNING: More alignment processes specified ' +
-            'than total alignment threads. Total alignment threads ' +
-            'is being set to 1 per alignment process. ********\n')
-    align_threads_per_proc = max(
-        tot_align_threads / args.align_processes, 1)
+    align_threads_per_proc = args.align_threads_per_process \
+      if args.align_threads_per_process else \
+      int(num_proc / (2 * args.align_processes))
     num_resquiggle_ps = int(num_proc / 2) \
       if args.resquiggle_processes is None \
       else args.resquiggle_processes
