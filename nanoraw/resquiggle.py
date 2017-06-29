@@ -279,6 +279,8 @@ def get_indel_groups(
 
     # sort indels in order of start positions
     all_indels = get_all_indels()
+    if len(all_indels) == 0:
+        return []
     indel_groups = []
     curr_group = [all_indels[0],]
     for indel in all_indels[1:]:
@@ -301,7 +303,8 @@ def get_indel_groups(
                 curr_group = [indel,]
 
     # handle the last indel group if it is not yet included
-    if indel_groups[-1].indels[-1] != all_indels[-1]:
+    if len(indel_groups) == 0 or \
+      indel_groups[-1].indels[-1] != all_indels[-1]:
         curr_start, curr_stop, num_cpts, curr_group = extend_and_join(
             curr_group)
         cpts, curr_start, curr_stop, curr_group = extend_for_cpts(
