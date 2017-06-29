@@ -73,13 +73,12 @@ def write_new_fast5_group(
         np_genome_align = np.chararray(len(alignVals))
         np_genome_align[:] = zip(*alignVals)[1]
     except:
-        raise (NotImplementedError, 'Error computing new events.')
+        raise NotImplementedError, 'Error computing new events.'
 
     try:
         read_data = h5py.File(filename, 'r+')
     except:
-        raise (
-            NotImplementedError,
+        raise NotImplementedError, (
             'Error opening file for new group writing. This should ' +
             'have been caught during the alignment phase. Check that ' +
             'there are no other nanoraw processes or processes ' +
@@ -123,16 +122,14 @@ def write_new_fast5_group(
         corr_events.attrs[
             'read_start_rel_to_raw'] = read_start_rel_to_raw
     except:
-        raise (
-            NotImplementedError,
+        raise NotImplementedError, (
             'Error writing resquiggle information back into fast5 file.')
 
     try:
         read_data.flush()
         read_data.close()
     except:
-        raise (
-            NotImplementedError,
+        raise NotImplementedError, (
             'Error closing fast5 file after writing resquiggle ' +
             'information.')
 
@@ -339,8 +336,7 @@ def resquiggle_read(
             event_kmers = event_data['model_state']
         fast5_data.close()
     except:
-        raise (
-            NotImplementedError,
+        raise NotImplementedError, (
             'Error opening file for re-squiggle. This should have ' +
             'been caught during the alignment phase. Check that there ' +
             'are no other nanoraw processes or processes accessing ' +
@@ -371,14 +367,14 @@ def resquiggle_read(
     new_segs.append(starts_rel_to_read[prev_stop:])
     new_segs = np.concatenate(new_segs)
     if min(np.diff(new_segs)) < 1:
-        raise (NotImplementedError,
-               'New segments include zero length events.')
+        raise NotImplementedError, (
+            'New segments include zero length events.')
     if new_segs[0] < 0:
-        raise (NotImplementedError,
-               'New segments start with negative index.')
+        raise NotImplementedError, (
+            'New segments start with negative index.')
     if new_segs[-1] > norm_signal.shape[0]:
-        raise (NotImplementedError,
-               'New segments end past raw signal values.')
+        raise NotImplementedError, (
+            'New segments end past raw signal values.')
 
     # get just from alignVals
     align_seq = ''.join(zip(*alignVals)[1]).replace('-', '')
@@ -806,8 +802,7 @@ def get_read_data(fast5_fn, basecall_group, basecall_subgroup):
     try:
         fast5_data = h5py.File(fast5_fn, 'r')
     except:
-        raise (
-            NotImplementedError,
+        raise NotImplementedError, (
             'Error opening file for alignment. This should have ' +
             'been caught during the HDF5 prep phase. Check that there ' +
             'are no other nanoraw processes or processes accessing ' +
