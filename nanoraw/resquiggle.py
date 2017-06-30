@@ -431,6 +431,8 @@ def resquiggle_worker(
                     basecall_group, corrected_group, compute_sd,
                     pore_model)
             except Exception as e:
+                # uncomment to identify mysterious errors
+                #raise
                 failed_reads_q.put((
                     str(e), read_info.Subgroup + ' :: ' + fast5_fn))
 
@@ -840,8 +842,17 @@ def get_read_data(fast5_fn, basecall_group, basecall_subgroup):
     abs_event_start = np.round(
         called_dat['start'][0].astype(np.float64) *
         channel_info.sampling_rate).astype(np.uint64)
-    read_start_rel_to_raw = int(
-        abs_event_start - raw_attrs['start_time'])
+    if abs_event_start < raw_attrs['start_time']:
+        # allow off by one or two values as these are floating point
+        # errors in start time values
+        if abs_event_start >= raw_attrs['start_time'] - 2:
+            read_start_rel_to_raw = 0
+        else:
+            raise NotImplementedError, (
+                'Events appear to start before the raw signal.')
+    else:
+        read_start_rel_to_raw = int(
+            abs_event_start - raw_attrs['start_time'])
 
     # compute event starts from length slot as start slot is less
     # reliable due to storage as a float32
@@ -882,6 +893,8 @@ def align_and_parse(
                 batch_reads_data[
                     bc_subgroup + ':::' + fast5_fn] = read_data
             except Exception as e:
+                # uncomment to identify mysterious errors
+                #raise
                 batch_get_data_failed_reads.append((
                     str(e), bc_subgroup + ':::' + fast5_fn))
 
@@ -893,6 +906,9 @@ def align_and_parse(
     fn_batch_align_data = defaultdict(list)
     for fast5_fn, sg_align_data in batch_align_data:
         fn_batch_align_data[fast5_fn].append(sg_align_data)
+    # uncomment to identify mysterious errors
+    #print "Get data errors: " + str(batch_get_data_failed_reads)
+    #print "Align read errors: " + str(batch_align_failed_reads)
 
     return (batch_get_data_failed_reads + batch_align_failed_reads,
             fn_batch_align_data)
@@ -965,6 +981,9 @@ def align_reads(
         genome_index, basecall_group, basecall_subgroups, num_align_ps)
     for fast5_fn, sgs_align_data in batch_align_data.iteritems():
         basecalls_q.put((fast5_fn, sgs_align_data))
+    # uncomment to identify mysterious errors
+    #print "Prep reads fail: " + str(batch_prep_failed_reads)
+    #print "Align reads fail: " + str(batch_align_failed_reads)
 
     return batch_prep_failed_reads + batch_align_failed_reads
 
