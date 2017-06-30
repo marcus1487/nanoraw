@@ -12,6 +12,7 @@ from glob import glob
 from time import sleep, time
 from subprocess import call, STDOUT
 from tempfile import NamedTemporaryFile
+from distutils.version import LooseVersion
 from itertools import groupby, izip, repeat
 from collections import defaultdict, namedtuple
 
@@ -814,6 +815,11 @@ def get_read_data(fast5_fn, basecall_group, basecall_subgroup):
             'these HDF5 files running simultaneously.')
 
     try:
+        # get albacore version, or if not specified set to 0.0
+        albacore_version = LooseVersion(fast5_data[
+            '/Analyses/' + basecall_group].attrs['version']
+            if 'version' in fast5_data['/Analyses/' +
+                                       basecall_group].attrs else "0.0")
         called_dat = fast5_data[
             '/Analyses/' + basecall_group + '/' + basecall_subgroup +
             '/Events'].value
@@ -854,11 +860,31 @@ def get_read_data(fast5_fn, basecall_group, basecall_subgroup):
         read_start_rel_to_raw = int(
             abs_event_start - raw_attrs['start_time'])
 
-    # compute event starts from length slot as start slot is less
-    # reliable due to storage as a float32
-    starts_rel_to_read = np.cumsum(np.concatenate(
-        [[0,], np.round(called_dat['length'] *
-                        channel_info.sampling_rate).astype('int_')]))
+    # check albacore version to determine which method to extract starts
+    # relative to the read.
+    # Before albacore version 1.0, events could be skipped so start times
+    # should be used. Since then events are not removed so the length
+    # slot is more reliable since it will have greater floating point
+    # precision. Relevant discussion on community forum here:
+    # https://community.nanoporetech.com/posts/albacore-zero-length-even
+    # TODO: Once albacore stores integer values here another case
+    # will be added here
+    if albacore_version > LooseVersion("1.0"):
+        # compute event starts from length slot as start slot is less
+        # reliable due to storage as a float32
+        starts_rel_to_read = np.cumsum(np.concatenate(
+            [[0,], np.round(called_dat['length'] *
+                            channel_info.sampling_rate).astype('int_')]))
+    else:
+        last_event = called_dat[-1]
+        # convert starts to float64 to minimize floating point errors
+        starts_rel_to_read = np.append(
+            called_dat['start'], last_event['start'] +
+            last_event['length']).astype(np.float64)
+        # round to float64 to minimize floating point errors
+        starts_rel_to_read = np.round(
+            starts_rel_to_read *
+            channel_info.sampling_rate).astype('int_') - abs_event_start
     basecalls = np.array([
         event_state[2] for event_state in called_dat['model_state']])
 
