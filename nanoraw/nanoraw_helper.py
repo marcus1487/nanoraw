@@ -10,6 +10,8 @@ from collections import defaultdict, namedtuple
 
 NANORAW_VERSION = '0.4.2'
 
+SMALLEST_PVAL = 1e-20
+
 readData = namedtuple('readData', (
     'start', 'end', 'segs', 'read_start_rel_to_raw',
     'strand', 'fn', 'corr_group'))

@@ -5,7 +5,7 @@ import numpy as np
 from scipy import stats
 from collections import defaultdict
 
-from nanoraw_helper import get_reads_events
+import nanoraw_helper as nh
 
 VERBOSE = False
 
@@ -34,12 +34,15 @@ def _calc_fm_pval(pvals):
 def calc_fishers_method(pos_pvals, offset):
     pvals_np = np.empty(pos_pvals[-1][1] + 1)
     pvals_np[:] = np.NAN
-    pvals_np[[list(zip(*pos_pvals)[1])]] = zip(*pos_pvals)[0]
+    pvals_np[[list(zip(*pos_pvals)[1])]] = np.maximum(
+        zip(*pos_pvals)[0], nh.SMALLEST_PVAL)
 
     fishers_pvals = [
         _calc_fm_pval(pvals_np[pos - offset:pos + offset + 1])
-        if pos - offset >= 0 and pos + offset + 1 <= pvals_np.shape[0] and
-        not np.any(np.isnan(pvals_np[pos - offset:pos + offset + 1])) else 1.0
+        if pos - offset >= 0 and
+        pos + offset + 1 <= pvals_np.shape[0] and
+        not np.any(np.isnan(pvals_np[pos - offset:pos + offset + 1])
+                   ) else 1.0
         for _, pos, _, _ in pos_pvals]
 
     return fishers_pvals
@@ -80,9 +83,9 @@ def get_all_significance(
         chrm, strand = chrm_strand
         # get base events across all reads per chromosome/strand
         # so that all events aren't stored in RAM
-        chrm_strand_base_events1 = get_reads_events(
+        chrm_strand_base_events1 = nh.get_reads_events(
             raw_read_coverage1[chrm_strand], strand == '-')
-        chrm_strand_base_events2 = get_reads_events(
+        chrm_strand_base_events2 = nh.get_reads_events(
             raw_read_coverage2[chrm_strand], strand == '-')
         if test_type == 'ttest':
             chrm_pvals = [

@@ -17,8 +17,6 @@ import nanoraw_helper as nh
 
 VERBOSE = False
 
-SMALLEST_PVAL = 1e-20
-
 # quantiles and especially violin plots at leat 3 values
 # to be meaningful
 QUANT_MIN = 3
@@ -1523,7 +1521,7 @@ def plot_motif_centered_signif(
             min_test_vals, stats_fn, fishers_method_offset)
 
     def log_max_stat(pval):
-        return -np.log10(max(SMALLEST_PVAL, pval))
+        return -np.log10(max(nh.SMALLEST_PVAL, pval))
     all_stats_dict = dict(
         ((chrm, strand, pos), (log_max_stat(pval_f), log_max_stat(pval)))
         for pval_f, _, pval, _, pos, chrm, strand, _, _ in all_stats)
