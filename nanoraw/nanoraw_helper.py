@@ -348,9 +348,14 @@ def get_base_means(raw_read_coverage, chrm_sizes):
     mean_base_signal = {}
     for chrm, strand in [(c, s) for c in chrm_sizes.keys()
                          for s in ('+', '-')]:
-        mean_base_signal[(chrm, strand)] = get_reads_base_means(
-            raw_read_coverage[(chrm, strand)], chrm_sizes[chrm],
-            strand == '-')
+        if (chrm, strand) in raw_read_coverage:
+            cs_base_means = get_reads_base_means(
+                raw_read_coverage[(chrm, strand)], chrm_sizes[chrm],
+                strand == '-')
+        else:
+            cs_base_means = np.empty(chrm_sizes[chrm])
+            cs_base_means[:] = np.nan
+        mean_base_signal[(chrm, strand)] = cs_base_means
     _ = np.seterr(**old_err_settings)
 
     return mean_base_signal

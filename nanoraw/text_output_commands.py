@@ -79,13 +79,26 @@ def write_pvals_and_qvals_wig(
 
     return
 
-def write_length_wig(raw_read_coverage, wig_base, group_name):
+def get_chrm_sizes(raw_read_coverage, raw_read_coverage2=None):
+    strand_chrm_sizes = defaultdict(list)
+    for (chrm, strand), cs_read_cov in \
+      raw_read_coverage.iteritems():
+        strand_chrm_sizes[chrm].append(max(
+          r_data.end for r_data in cs_read_cov))
+    if raw_read_coverage2 is not None:
+        for (chrm, strand), cs_read_cov in \
+          raw_read_coverage2.iteritems():
+            strand_chrm_sizes[chrm].append(max(
+              r_data.end for r_data in cs_read_cov))
+
+    return dict(
+        (chrm, max(strnd_sizes))
+        for chrm, strnd_sizes in
+        strand_chrm_sizes.iteritems())
+
+def write_length_wig(
+        raw_read_coverage, chrm_sizes, wig_base, group_name):
     if VERBOSE: sys.stderr.write('Parsing events lengths.\n')
-    chrm_sizes = dict(
-        (chrm, max([r_data.end for r_data in
-                    raw_read_coverage[(chrm, '+')] +
-                    raw_read_coverage[(chrm, '-')]]))
-        for chrm in zip(*set(raw_read_coverage))[0])
     base_lens = nh.get_base_lengths(raw_read_coverage, chrm_sizes)
 
     if VERBOSE: sys.stderr.write('Writing length wig.\n')
@@ -93,13 +106,9 @@ def write_length_wig(raw_read_coverage, wig_base, group_name):
 
     return
 
-def write_signal_sd_wig(raw_read_coverage, wig_base, group_name):
+def write_signal_sd_wig(
+        raw_read_coverage, chrm_sizes, wig_base, group_name):
     if VERBOSE: sys.stderr.write('Parsing signal SDs.\n')
-    chrm_sizes = dict(
-        (chrm, max([r_data.end for r_data in
-                    raw_read_coverage[(chrm, '+')] +
-                    raw_read_coverage[(chrm, '-')]]))
-        for chrm in zip(*set(raw_read_coverage))[0])
     base_sds = nh.get_base_sds(raw_read_coverage, chrm_sizes)
 
     if VERBOSE: sys.stderr.write('Writing signal SD wig.\n')
@@ -108,28 +117,11 @@ def write_signal_sd_wig(raw_read_coverage, wig_base, group_name):
     return
 
 def write_signal_and_diff_wigs(
-        raw_read_coverage1, raw_read_coverage2, wig_base, group1_name,
-        write_sig, write_diff):
+        raw_read_coverage1, raw_read_coverage2, chrm_sizes,
+        wig_base, group1_name, write_sig, write_diff):
     if VERBOSE: sys.stderr.write('Parsing mean base signals.\n')
-    if raw_read_coverage2 is None:
-        chrm_sizes = dict(
-            (chrm, max([r_data.end for r_data in
-                        raw_read_coverage1[(chrm, '+')] +
-                        raw_read_coverage1[(chrm, '-')]]))
-            for chrm in zip(*set(raw_read_coverage1))[0])
-        base_means1 = nh.get_base_means(raw_read_coverage1, chrm_sizes)
-    else:
-        chrm_sizes = dict(
-            (chrm, max(
-                [r_data.end for r_data in
-                 raw_read_coverage1[(chrm, '+')] +
-                 raw_read_coverage1[(chrm, '-')]] +
-                [r_data.end for r_data in
-                 raw_read_coverage2[(chrm, '+')] +
-                 raw_read_coverage2[(chrm, '-')]]))
-            for chrm in zip(*set(raw_read_coverage1).intersection(
-                    raw_read_coverage2))[0])
-        base_means1 = nh.get_base_means(raw_read_coverage1, chrm_sizes)
+    base_means1 = nh.get_base_means(raw_read_coverage1, chrm_sizes)
+    if raw_read_coverage2 is not None:
         base_means2 = nh.get_base_means(raw_read_coverage2, chrm_sizes)
 
         if write_diff:
@@ -183,6 +175,9 @@ def write_all_wiggles(
             files2, corrected_group, basecall_subgroups)
         raw_read_coverage2 = nh.filter_reads(
             raw_read_coverage2, obs_filter)
+        chrm_sizes = get_chrm_sizes(
+            raw_read_coverage1, raw_read_coverage2)
+
         if include_stats and not stats_file_exists:
             if VERBOSE: sys.stderr.write('Calculating statistics.\n')
             all_stats = ns.get_all_significance(
@@ -194,30 +189,34 @@ def write_all_wiggles(
             write_cov_wig(raw_read_coverage2, wig_base, GROUP2_NAME)
         if 'signal_sd' in wig_types:
             write_signal_sd_wig(
-                raw_read_coverage2, wig_base, GROUP2_NAME)
+                raw_read_coverage2, chrm_sizes, wig_base, GROUP2_NAME)
         if 'length' in wig_types:
-            write_length_wig(raw_read_coverage2, wig_base, GROUP2_NAME)
+            write_length_wig(raw_read_coverage2, chrm_sizes,
+                             wig_base, GROUP2_NAME)
 
         # need to do signal and difference call once either with or
         # w/o second set of files (unlike coverage, sds and length
         if 'signal' in wig_types or 'difference' in wig_types:
             write_signal_and_diff_wigs(
-                raw_read_coverage1, raw_read_coverage2, wig_base,
-                group1_name, 'signal' in wig_types,
+                raw_read_coverage1, raw_read_coverage2, chrm_sizes,
+                wig_base, group1_name, 'signal' in wig_types,
                 'difference' in wig_types)
     else:
+        chrm_sizes = get_chrm_sizes(raw_read_coverage1)
         if VERBOSE: sys.stderr.write('Writing wiggles.\n')
-        if 'signal' in wig_types or 'difference' in wig_types:
+        if 'signal' in wig_types:
             write_signal_and_diff_wigs(
-                raw_read_coverage1, None, wig_base, group1_name,
-                'signal' in wig_types, 'difference' in wig_types)
+                raw_read_coverage1, None, chrm_sizes, wig_base,
+                group1_name, 'signal' in wig_types, False)
 
     if 'coverage' in wig_types:
         write_cov_wig(raw_read_coverage1, wig_base, group1_name)
     if 'signal_sd' in wig_types:
-        write_signal_sd_wig(raw_read_coverage1, wig_base, group1_name)
+        write_signal_sd_wig(raw_read_coverage1, chrm_sizes,
+                            wig_base, group1_name)
     if 'length' in wig_types:
-        write_length_wig(raw_read_coverage1, wig_base, group1_name)
+        write_length_wig(raw_read_coverage1, chrm_sizes,
+                         wig_base, group1_name)
     if 'pvals' in wig_types or 'qvals' in wig_types:
         write_pvals_and_qvals_wig(
             all_stats, wig_base, 'pvals' in wig_types,
