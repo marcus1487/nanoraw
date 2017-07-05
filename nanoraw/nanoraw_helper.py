@@ -8,7 +8,7 @@ import numpy as np
 from itertools import izip
 from collections import defaultdict, namedtuple
 
-NANORAW_VERSION = '0.4.2'
+NANORAW_VERSION = '0.5'
 
 SMALLEST_PVAL = 1e-20
 
