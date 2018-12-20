@@ -1,3 +1,5 @@
+## This repository is no longer maintained. Most functionality can now be found in the Tombo software package (https://github.com/nanoporetech/tombo).
+
 ## Summary
 This package provides tools for the analysis of raw nanopore sequencing data, including correction of basecalls and visualization.
 
